@@ -1,50 +1,54 @@
 ---
-title: "Are elevation gradients competition gradients for bumble bees? Yes, no, and sort of."
-author: "Sponsler, [...], Steffan-Dewenter"
+title: "Competitive processes among bumble bees are spatiotemporally heterogeneous"
+author: "Douglas B. Sponsler, Katharina Kallnik, Fabrice Requier, Alice Claßen, A. Fabienne Maihoff, Ingolf Steffan-Dewenter"
 output: pdf_document
 bibliography: refs.bibtex
 ---
 
 **Introduction**
-Bumble bee communities are a classic model system for the study of community assembly processes...elevation gradients offer unique opportunity to study community/interaction dynamics over short spatial scales, controlling for confounding factors...the basic interest in bumble bee communities as a model system for theoretical inquiries has morphed into an applied interest in BB communities as conservation priorities, perhaps particularly in high elevation environments likely to see strong effects of climate change.
 
-Note that we are steering clear of predictions concerning trait-dispersion, since the forces shapign trait dispersion would operate and time scales imcompatible with our intra-seasonal meta-hypothesis. 
+Bumble bees (Hymenoptera: *Bombus* spp.) are classic model organisms for the study of resource competition in biological communities. Nevertheless, the role of resource competition in structuring bumble bee communities has proven difficult to generalize. It is evident that sympatric bumble bees *can* compete for floral resources, and strongly so. @Heinrich1976-wc found that a bumble bee community can deplete the daily standing nectar pool of a given locality by more than 90%, leaving little room to doubt the potential for resource limitation. Other studies have found local bumble bee communities to be over-dispersed in terms of tongue length [e.g. @Inouye1977-kl], a matching trait [sensu @Schleuning2020-vq] corresponding to floral corolla depth, and phylogeny [@Pellissier2013-pk], which can be interpreted as a catch-all for unmeasured trait variation. Nevertheless, it is equally evident that sympatric bumble bee species do not *always* compete for floral resources to the point of competitive exclusion, since bumble bee communities with an apparent excess of species richness and deficit of trait dispersion are commonly observed [@Goulson2008-zy]. 
 
-*H1: No competition.* The hypothesis that floral resource competition is not a significant process in bumble bee community assembly could be taken as a "null hypothesis" when competition *per se* is the phenomenon in question, but it is not "null" in the sense of mere negation of mechanistic explanation. To the contrary, at least two plausible and ecologically meaningful mechanisms can be proposed that would account for a lack of competition in bumble bee communities [@Ranta1981-vx]. First, it is possible that a super-abundance of floral resources could saturate the foraging capacity of a local bumble bee population. Indeed, this may be a common (though transient) phenomenon associated with the bloom of mass flowering crops []. Alternatively, competition could be attenuated when and where abiotic stress, such as low temperature or high elevation, suppress bumble bee populations below competition-inducing densities. This pattern would be a prediction of the "stress-gradient hypothesis" [@Bertness1994-zx], and while it has not yet, to our knowledge, been documented for bumble bees specifically, a recent study of whole bee communities (including bumble bees) found evidence of dampened competition at high elevation [@Hoiss2012-sn].
-
-Under either mechanism, the most straightforward prediction is that bumble bee population density would be decoupled from resource density, since the latter would be non-limiting. For the same reason, the absence of competition would also predict that bumble bee species' dietary niche overlap would not exceed that predicted by a random null model. Finally, under a no-competition scenario, bumble bee species would suffer no displacement from their optimal floral resource species. Thus, holding other aspects of floral resource attractiveness constant (e.g. abundance, nectar volume/concentration), a lack of competition would predict that morphological trait-matching between bumble bee species and their chosen host flowers would exceed that predicted by a random null model.
-
-
-*H2: Interspecific competition.* The similarity of bumble bee species, both in terms of traits and resource needs, has made them intuitive model organisms for the study of interspecific resource competition, and a rich literature on the topic has revealed a complex and still rather obscure ecological architecture. It is evident that sympatric bumble bees *can* compete for floral resources, and strongly so. @Heinrich1976-wc found that a bumble bee community can, at least under some circumstances, deplete the daily standing nectar pool of a given locality by more than 90%, leaving little room doubt regarding the potential for resource limitation. Other studies have found local bumble bee communities to be over-dispersed with respect to proboscis length [e.g. @Inouye1977-kl], an important matching trait corresponding to floral corolla depth, or phylogeny [@Pellissier2013-pk], which can be interpreted as a catch-all for unmeasured trait variation. Nevertheless, it seems equally evident that symaptric bumble bee species do not *always* compete for floral resources to the point of competitive exclusion, since bumble bee communities with an apparent excess of species richness and deficit of trait dispersion are not uncommon [@Goulson2008-zy].
-
-
-
-
-*H3: Intraspecific competition.* As noted by @Ranta1981-vx, theory predicts that strong intraspecific competition can promote species coexistence through the relief of interspecific competition [@MacArthur1984-qz], and this could, as an alternative to the "no competition" hypothesis, account for cases in which the observed diversity of sympatric bumble bee species exceeds that predicted by trait-based niche models [@Goulson2008-zy]. 
+To account for both the importance and variability of competitive processes in bumble bee communities, it is helpful to distinguish three processes that could obtain to varying degrees: no competition, interspecific competition, and intraspecific competiion (**Table 1**). We will refer to these processes as hypotheses, since their realization in any given community is matter of inference. Below, we elaborate each and formulate corresponding empirical predictons.
 
 
 +-------------------------------+----------------------------------------------------+
 | Hypothesis                    | Prediction                                         |
 +===============================+====================================================+
 | H1: No competition            | 1. BB density !~ FL density                        |
-|                               | 2. BB niche overlap = null expectation             |
+|                               | 2. BB trait dispersion = null expectation          |
 |                               | 3. BB-FL trait-matching > null expectation         |
 +-------------------------------+----------------------------------------------------+
-| H2: Intraspecific competition | 1. BB density ~ FL density                         |
-|                               | 2. BB diet breadth ~ BB conspecific-packing        |
-|                               | 3. BB-FL trait-matching ~ 1/BB conspecific-packing |
+| H2: Interspecific competition | 1. BB density ~ FL density                         |
+|                               | 2. BB trait dispersion > null expectation          |
+|                               | 3. BB-FL trait-matching > null expectation         |
 +-------------------------------+----------------------------------------------------+
 | H3: Intraspecific competition | 1. BB density ~ FL density                         |
-|                               | 2.                                                 |
-|                               | 3.                                                 |
-+-------------------------------+----------------------------------------------------+
+|                               | 2. BB diet breadth ~ BB conspecific-packing        |
+|                               | 3. BB-FL trait-matching ~ 1/BB conspecific-packing |
++-------------------------------+----------------------------------------------------+ 
+
+**Table 1:** Hypothesized competitive processes with empirical predictions. BB = bumble bee; FL = floral. \
 
 
-*Seasonal-Elevational metahypothesis.* 
+*H1: No competition.* The hypothesis that floral resource competition is not a significant process governing a bumble bee community functions as a "null hypothesis" when competition *per se* is the phenomenon in question, but it is not "null" in the sense of mere negation of mechanistic explanation. To the contrary, at least two plausible and ecologically meaningful mechanisms can be proposed that would account for a lack of competition in bumble bee communities [@Ranta1981-vx]. First, it is possible that a super-abundance of floral resources could saturate the foraging capacity of a local bumble bee population. Indeed, this may be a common (though transient) phenomenon associated with the bloom of mass flowering crops [@Ranta1981-vx]. Alternatively, competition could be attenuated when and where abiotic stress, such as low temperature, suppresses bumble bee populations below competition-inducing densities. This pattern would be a prediction of the "stress-gradient hypothesis" [@Bertness1994-zx], and while it has not, to our knowledge, been documented for bumble bees specifically, a recent study of whole bee communities (of which bumble bees were a part) found evidence of dampened competition at high elevation sires along a montane-to-alpine gradient [@Hoiss2012-sn]. Under either mechanism, the most straightforward prediction is that bumble bee population density would be decoupled from resource density, since the latter would be non-limiting. For the same reason, the absence of competition would also predict that the trait dispersion of sympatric bumble bee species would not exceed that predicted by a random null model. Third, under a no-competition scenario, bumble bee species would suffer no displacement from their optimal floral resource species. Thus, holding other aspects of floral resource attractiveness constant (e.g. abundance, nectar volume/concentration), a lack of competition would predict that morphological trait-matching between bumble bee species and their chosen host flowers would exceed that predicted by a random null model.
 
-It is likely that which of these processes prevails -- and which species are favored by the prevailing process -- varies in both space and time, and this heterogenity of process (arising from heterogenity in distribution of bumble bees and their floral resources) could explain the co-occurrence of species that might exclude one another under static conditions [@Ranta1981-vx].
 
-Thus, we formulate a "metahypothesis". Competition need not be frequent to be a powerful driver of community composition [@MacArthur1984-qz].
+*H2: Interspecific competition.* Resource partitioning by bumble bees is mediated by variation in matching traits, the most well-studied of these being tongue length. Bumble bee tongue lengths vary between species, and the efficiency with which a bumble bee can collect nectar from a given flower depends largely on the closeness of match between the tongue length of the bee and the corolla depth of the flower [@Inouye1980-mv; @Ranta1980-ok]. Thus, under conditions of interspecific competition, a species' "defensible" niche space (i.e. the space in which it is a superior competitor) should center on the floral trait space that corresponds to its tongue length, and the number of species that can be "packed" into a given locality should be limited by some minimal differentiation of tongue length [@Inouye1977-kl; @Pyke1982-gn] within the range of variation supported by the trait space of available flora. Since resource limitation is a necessary condition for resource competition, a key prediction distiguishing interspecific competition from a lack of competition is that bumble bee density should vary in proportion to floral resource density. A bumble bee community under interspecific competition should also exhibit higher tongue length dispersion and stronger trait matching relative to the predictions of a random null model [@Inouye1977-kl]. 
+
+
+*H3: Intraspecific competition.* As noted by @Ranta1981-vx, theory predicts that intraspecific competition can promote species coexistence through the relief of interspecific competition [@MacArthur1984-qz], and could thus, as an alternative to the "no competition" hypothesis, account for cases in which the observed diversity of sympatric bumble bee species exceeds that predicted by trait-based niche models. Under the pressure of intraspecific competition, individuals face the depletion of preferred resources and may respond by foraging more opportunistically within the constraints of their fundamental niche space []. Alternatively, a population may relieve intraspecific competition by subdividing, on the basis of intraspecific trait heterogeneity, into differently specialized "guilds" [@Araujo2008-bp]. In either case, the population-level effect would be an increase in the species' realized niche breadth [though see @Parent2014-hx]. Thus, the predictions of intraspecific competition can be formulated as follows. First, as in interspecific competition, resources must be limiting, so bumble bee density should vary in proportion to floral density. In the case of intraspecific competition, though, we can refine this prediction to say that the density of a given bumble bee species should vary in proportion to the density of the portion of the floral resource community belonging to its dietary niche, since the effects of intraspecific competition are realized per-species. Second, the dietary breadth of a given species should vary in proportion to the density of conspecifics per density of floral resources (we will refer to this as a "bee-packing" index). Conversely, a broadening of diet should entail a relaxation of trait-matching, so the degree of trait-matching should vary inversely with the density of conspecifics per density of floral resources.
+
+
+*Seasonal-Elevational metahypothesis.* That any of the processes hypothesized above should obtain universally is both empirically unsupported and theoretically doubtful [@Ranta1981-vx]. More plausibly, which of these processes prevails -- and which species are favored by the prevailing process -- vary in both space and time, and this heterogenity of process could explain the idiosyncrasies of observed bumble bee communities [@Ranta1981-vx]. Rather than viewing this heterogeneity as an obstacle to inferring some universal rule of bumble bee community assembly, our aim in the present study is to investigate the heterogeneity itself as an ecological phenomenon, characterizing the variation in competitive processes (or lack thereof) in bumble bee communities through time and space. 
+
+Our study is set in the Berchtesgadener Alps of southwestern Germany, where a steep elevation gradient permits the study of wide environmental variability while minimizing the confounding effects of geographical distance [e.g. @Hoiss2015-gv]. In this context, we formulate a "metahypothesis" concerning the variation of hypothesized competition processes through elevation and time (**Figure 1**). Consistent with the stress-gradient hypothesis [@Bertness1994-zx] and with previous empirical work in our study system [@Hoiss2012-sn], we hypothesize an inverse relationship between competition and elevation. Along a temporal axis, we hypothesize that the strength of competition is structured by the seasonal life history pattern of bumble bee colonies. Early in the season, during the colony founding phase, foraging bees consist only of foundress queens, and population densities are low. With the emergence of the first cohort of worker brood, a colony enters the build-up phase, with workers taking over the majority of foraging and population densities increasing. ...reproductive phase. 
+
+We propose no *a priori* hypothesis concerning which competitive process, interspecific or intraspecific, will predominate with respect to our spatiotemporal gradient. Indeed, it is likely that interspecific competition cannot occur in the absence of intraspecific competition. 
+
+In addition to clarifying the basic ecology of bumble bee community assembly, parsing competitive processes in this way has an applied significance for the conservation of bumble bees in the changing environments of the Anthropocene. Under the forcing of environmental change, such as climate warming or land use conversion, bumble bee communities might not be affected only in terms of range shifts, but also by a restructuring of competitive interactions, the nature and consequences of which may be difficult to predict. 
+
+
 
 ```{r echo = FALSE, include = FALSE}
 library(tidyverse)
@@ -80,37 +84,18 @@ ggplot(tab, aes(Time, Elevation)) +
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
 ```
 
+**Figure 1:** Hypothesized variation in prevailing competitive processes through time and elevation. \
 
 
-Intraspecific competition should increase diet breadth and decrease trait-matching relative to no competition.
-
-Interspecific competition should decrease diet breath and decrease trait-matching relative to no competition.
-
-Under no competition, foragers would never be displaced, either by conspecifics or heterospecifics, from their optimal resource in a given location and during a given time. This should allow maximal trait-matching (if we ignore potential differences in abundance and/or floral reward level across floral morphologies).
-
-Actually, this might probaby be better framed with respect to phenotypes than to species. Focusing on tongue length, we would predict that competition within a tongue-length class would lead to the broadening of diet breadth, since foragers would tend to be displaced from their optimal resource by competition with other foragers of similar tongue length (whether conspecifics or heterospecifics). Competition between tongue-length classes, however, would tend to narrow diet breadth within tongue-length classes, since a given tongue-length class would be strongly outcompeted on resource that is a better fit for longer- or shorter-tongued competitor. So, intra-guild and inter-guild competition should have opposing effects, the former pushing in the direction of increased diet breadth and decreased trait-matching and the latter in the direction of decreased diet breadth and increased trait-matching. So, if it can be established by independent lines of evidence that competition is indeed occurring, the prevailing type of competition could be inferred by comparing these predictions. If, indeed, my analysis of the relationship between bumble bee density and floral area is a valid indication of competition, I could analyze the deviation of diet breadth and trait matching from null expectations to infer which type of competiton prevails at different points along my elevation gradient (or, perhaps, at different points within the year, though this becomes problematic due to sample size limitations).
-
-I guess from an evolutionary perspective, though, high intra-guild competition may not be a stable situation. So, wide niches and high niche overlap across species within a guild may be more indicative of no competition that of high competition. The difference, I suppose, is that under a no competition scenario, trait-matching would still be strong, whereas under an intra-guild competition scenario, trait-matching would be attenuated due to foragers being displaced from their optimal resources. 
-
-"Altitudinal niche-breadth hypothesis" [@Rasmann2014-zb]: Analogous to the latitudinal niche-breadth hypothesis, organisms at high elevations tend to have broader niches due to higher environmental variability, and possibly other reasons. Interestingly, @Rasmann2014-zb do not invoke the concept of competition release as a reason for increased niche breadth at higher elevations.
 
 
-Bumble bees (Hymenoptera: *Bombus* spp.) are classic model organisms for the study of community assembly, yet there remains a longstanding tension in the literature concerning whether and to what degree bumble bee communities are governed by interspecific competition for floral resources. Conflicting evidence has accumulated, largely along continental lines, with North American studies tending to show a stronger role of competition than their European counterparts [@Goulson2008-zy]. 
-
-One explanation for this apparent inconsistency, proposed by @Ranta1981-vx, is that the importance of competition varies inversely with that of environmental filtering in response to variation in environmental severity. Under this hypothesis, favorable environmental conditions allow bumble bee populations to increase to the point of floral resource carrying capacity (K), inducing interspecific competition as a constitutive driver of community assembly. In constrast, severe environmental conditions constrain bumble bee populations to sub-K densities at which interspecific competition can be, at most, only a sporadic product of the spatiotemporal heterogeneity of bumble bee and flower distribution. Thus, gradients of environmental severity, such as montane-to-alpine elevation clines, are joint-gradients of community assembly processes, with competition and environmental filtering prevailing, respectively, under mild and severe environmental conditions. 
-
-A more generalized form of this hypothesis, i.e. that plant-pollinator networks and/or their constituent communities are governed by competition under mild conditions and environmental filtering under severe conditions, has received ample empirical support, particularly from studies using elevation gradients as a proxy for environmental severity (). Yet there is reason to suspect that bumble bees, despite being the model organisms for 
-
-the unusual physiological ecology of bumble bees 
-
-for which this hypothesis was first formulated might, ironically, be among the rare exceptions to it. While the vast majority of taxa exhibit an inverse response of diversity to latitude (), bumble bees peak in diversity at higher latitudes (and higher elevations), reflecting their initial diversification in the cooling environment of the Eocene-Oligocene boundary [@Hines2008-er]. In this  
 
 
 
 \
 
 
-**Methods** 
+<!-- **Methods**  -->
 
 ```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 ### Prepare environment
@@ -183,21 +168,21 @@ density_month.agg <- bb_dens %>%
 ```
 
 
-*Study sites.* 
+<!-- *Study sites.*  -->
 
-*Field sampling.* 
+<!-- *Field sampling.*  -->
 
-*Data analysis.* 
-\
+<!-- *Data analysis.*  -->
+<!-- \ -->
 
 
-**Results**
+<!-- **Results** -->
 
-Per-transect bumble bee abundance is positively correlated with per-transect floral cover (log-transformed). To the extent, therefore, that our
-metrics of bumble bee and floral density reflect true site-scale abundance and not just co-aggregation, this pattern suggests that bumble bee
-density is resource limited, particularly at sites with very low floral density. Importantly, this approach does not distinguish between inter- and intraspecies (or even intra-colony) competition [@Ranta1981-vx].
+<!-- Per-transect bumble bee abundance is positively correlated with per-transect floral cover (log-transformed). To the extent, therefore, that our -->
+<!-- metrics of bumble bee and floral density reflect true site-scale abundance and not just co-aggregation, this pattern suggests that bumble bee -->
+<!-- density is resource limited, particularly at sites with very low floral density. Importantly, this approach does not distinguish between inter- and intraspecies (or even intra-colony) competition [@Ranta1981-vx]. -->
 
-Note, moreover, that this relationship varies seasonally. For now, we will use Julian month as a stand-in for GDD, which we'll use once we have analyzed our weather station data. Early in the year, the relationship between BB density and floral density is weak; this makes sense because colonies are just getting established during the first couple of months, and BB density is more limited by the autocorrelation component of colony size (bigger colonies can raise more brood) than by floral resource availability. In mid- to late-season, however, BB density becomes strongly dependent on floral resource density. Interestingly, in September, the relationship is strongest and floral density is also lowest.  
+<!-- Note, moreover, that this relationship varies seasonally. For now, we will use Julian month as a stand-in for GDD, which we'll use once we have analyzed our weather station data. Early in the year, the relationship between BB density and floral density is weak; this makes sense because colonies are just getting established during the first couple of months, and BB density is more limited by the autocorrelation component of colony size (bigger colonies can raise more brood) than by floral resource availability. In mid- to late-season, however, BB density becomes strongly dependent on floral resource density. Interestingly, in September, the relationship is strongest and floral density is also lowest.   -->
 ```{r eval=FALSE, echo=FALSE}
 ggplot(density_month.agg, aes(log.mean.fl.dens, mean.bb.dens, color = year)) +
   geom_point() +
@@ -207,10 +192,10 @@ ggplot(density_month.agg, aes(log.mean.fl.dens, mean.bb.dens, color = year)) +
   xlab("log(Mean floral density)")
 ```
 
-So, we have at least circumstantial evidence that bumble bee density is limited by floral density (again, the key assumption is that our
-metrics of bumble bee and floral density reflect true site-scale abundance). What we might as next is whether the degree of dependence of bumble bee density upon floral density vary with elevation. It's hard to draw conclusions about the lowest elevation class, but it seems pretty clear that the slope of bumble bee density on floral density is steep at the highest elevation class than at the middle elevation class; moreover, the relationship is tighter (lower variance) at high elevation. It appears that, contrary to the predictions of the Ranta hypothesis, bumble bees are more dependent on floral resource availability at higher elevations.
+<!-- So, we have at least circumstantial evidence that bumble bee density is limited by floral density (again, the key assumption is that our -->
+<!-- metrics of bumble bee and floral density reflect true site-scale abundance). What we might as next is whether the degree of dependence of bumble bee density upon floral density vary with elevation. It's hard to draw conclusions about the lowest elevation class, but it seems pretty clear that the slope of bumble bee density on floral density is steep at the highest elevation class than at the middle elevation class; moreover, the relationship is tighter (lower variance) at high elevation. It appears that, contrary to the predictions of the Ranta hypothesis, bumble bees are more dependent on floral resource availability at higher elevations. -->
 
-```{r eval=FALSE,, echo=FALSE}
+```{r eval=FALSE, echo=FALSE}
 ggplot(density_month.agg, aes(log.mean.fl.dens, mean.bb.dens)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE) +
@@ -219,8 +204,8 @@ ggplot(density_month.agg, aes(log.mean.fl.dens, mean.bb.dens)) +
   xlab("log(Mean floral density)")
 ```
 
-But let's look at this another way. By dividing bumble bee density by floral density, we can derive an index that represents "bees per unit of floral abundance" (which we willlog-transform for this analysis to correct for skewed distribution). We'll call this our "bee-packing" index, and we'll understand it as an estimate of predicted competition intensity. When we plot this against elevation, parsed by year, we see that "bee-packing" seems to increase at high elevation for 2011, and possibly also in 2010. But the relationship seems to disappear in 2012. This is worth thinking about. 2012 was a year of very low floral density. Perhaps this increased resource limitation across the whole elevation gradient, erasing the effect of elevation.
-```{r eval=FALSE}
+<!-- But let's look at this another way. By dividing bumble bee density by floral density, we can derive an index that represents "bees per unit of floral abundance" (which we willlog-transform for this analysis to correct for skewed distribution). We'll call this our "bee-packing" index, and we'll understand it as an estimate of predicted competition intensity. When we plot this against elevation, parsed by year, we see that "bee-packing" seems to increase at high elevation for 2011, and possibly also in 2010. But the relationship seems to disappear in 2012. This is worth thinking about. 2012 was a year of very low floral density. Perhaps this increased resource limitation across the whole elevation gradient, erasing the effect of elevation. -->
+```{r eval=FALSE, echo = FALSE}
 ggplot(density_month.agg, aes(elev.mean, log(bb.per.fl))) +
   geom_point() +
   geom_smooth(se = TRUE) +
@@ -229,7 +214,7 @@ ggplot(density_month.agg, aes(elev.mean, log(bb.per.fl))) +
   xlab("Elevation") 
 ```
 
-Some pretty neat patterns emerge when we break our data down by month. For most months, bee-packing increases with elevation, though sometimes the relationship is fairly flat. In Septmeber, however, bee-packing decreases with elevation, presumably due to the elevational staggering of phenology; by that point in the year, only the colder sites still have appreciable floral density.
+<!-- Some pretty neat patterns emerge when we break our data down by month. For most months, bee-packing increases with elevation, though sometimes the relationship is fairly flat. In Septmeber, however, bee-packing decreases with elevation, presumably due to the elevational staggering of phenology; by that point in the year, only the colder sites still have appreciable floral density. -->
 ```{r eval=FALSE, echo=FALSE}
 ggplot(density_month.agg, aes(elev.mean, log(bb.per.fl))) +
   geom_point() +
@@ -240,8 +225,8 @@ ggplot(density_month.agg, aes(elev.mean, log(bb.per.fl))) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-Another way to probe the question of competition is to examine network structure, though we will have to sacrifice our temporal resolution to do so. An advantage of this analysis is that we will no longer rely on the estimate of floral density using our survey data, so we can shed the somewhat vulnerable assumption that the correlation between bumble bee density and floral density is not due merely to co-aggregation. To do this, we will focus on the group-level metrics of niche overlap and C-score. Niche overlap would be expected to vary inversely with competition, while C-score -- a measure of ... -- would be expected to vary directly with competition. For this analysis to be sound, though, we need to rarefy our networks. Otherwise, niche overlap and C-score could be driven by uneven sampling effort (less intensively sampled sites will appear to have lower niche overlap and higher C-score).
-```{r eval=FALSE}
+<!-- Another way to probe the question of competition is to examine network structure, though we will have to sacrifice our temporal resolution to do so. An advantage of this analysis is that we will no longer rely on the estimate of floral density using our survey data, so we can shed the somewhat vulnerable assumption that the correlation between bumble bee density and floral density is not due merely to co-aggregation. To do this, we will focus on the group-level metrics of niche overlap and C-score. Niche overlap would be expected to vary inversely with competition, while C-score -- a measure of ... -- would be expected to vary directly with competition. For this analysis to be sound, though, we need to rarefy our networks. Otherwise, niche overlap and C-score could be driven by uneven sampling effort (less intensively sampled sites will appear to have lower niche overlap and higher C-score). -->
+```{r eval=FALSE, echo = FALSE}
 ### Inspect the evenness (or lack thereof) of sampling intensity
 net_balance <- net %>%
   group_by(year, elev.mean, elev.class) %>%
@@ -253,8 +238,8 @@ ggplot(net_balance, aes(elev.mean, transects)) +
   facet_wrap(~year, scales = "free")
 ```
 
-A tedious manual rarefaction
-```{r eval=FALSE}
+<!-- A tedious manual rarefaction -->
+```{r eval=FALSE, echo = FALSE}
 ### Determine the minimum transect count per site*year to set rarefaction sampling
 transects <- net %>%
   select(site, year,date) %>%
@@ -347,10 +332,20 @@ ggplot(groupmet_rare_2010, aes(elev.mean, C.score.HL)) +
 ```
 
 
-**Discussion**
-Early studies of bumble bee community ecology were framed as basic studies of community assembly rules. In the 20th century, the framing of these studies changed markedly, from the basic ecology of community assembly to the applied ecology of bumble bee convservation.
+<!-- **Discussion** -->
 
-Competition need not be frequent to be a powerful driver of community composition [@MacArthur1984-qz]. Presumably, this is true at various temporal scales, whether the annual ones that MacArthur mentions or season, daily, etc...
+<!-- Under conditions of resource limitation, intraspecific competition may be a stronger constraint on bumble bee density (though not on diversity) than interspecific competition, since conspecific are limited in their ability to partition further their potential niche space. -->
+
+<!-- "Altitudinal niche-breadth hypothesis" [@Rasmann2014-zb]: Analogous to the latitudinal niche-breadth hypothesis, organisms at high elevations tend to have broader niches due to higher environmental variability, and possibly other reasons. Interestingly, @Rasmann2014-zb do not invoke the concept of competition release as a reason for increased niche breadth at higher elevations. -->
+
+<!-- It is important to clarify what we are and are not sampling. We are not sampling bumble bee communities; we are sampling spatial (and temporal) subsets of the floral resource landscape. So, the questions we are able to answer concern not the composition of the community as such, however one chooses to delimit it, but rather the composition of foragers within an arbitrarily delimited (but standardized) segment of the resource landscape (i.e. the sampling plot). -->
+
+<!-- Importantly, though, competition need not be universal, or even frequent, to be a powerful driver of community assembly [@MacArthur1984-qz]. -->
+
+<!-- Moreover, trait matching under interspecific competition might also exceed that predicted under no competition, since interspecific competition would limit a species' ability to "adaptively mismatch" to exploit a rich but poorly matched resource, since the resource would likely be monopolized by a better-matched (and therefore more competitive) species. -->
+
+<!-- Am I right in thinking that it is impossible to have interspecific competition without also having intraspecific competition? These processes would have opposite effects on niche breadth. By itself, interspecific competition would favor the maximal contraction of niche breadth until no overlap remained. But intraspecific competition would have the opposite effect, forcing conspecifics to broaden their niches to minimize competition with one another. Presumably, observed niche breadth and niche overlap represent a dynamic equilibrium of these opposing forces. -->
+
 
 **References**
 
