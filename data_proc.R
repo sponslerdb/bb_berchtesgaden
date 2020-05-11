@@ -25,13 +25,13 @@ fl_survey <- read_delim("./raw_data/data_plantcover_forDoug_2020.01.17.csv", del
 write_csv(fl_survey, "./processed_data/floral_survey.csv")
 
 ### Visitation data
-network <- read_delim("./raw_data/data_bumblebee_forDoug_2020.01.17.csv", delim = ";", 
+network <- read_delim("./raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim = ";", 
                            locale = locale(decimal_mark = ",", grouping_mark = ".")) %>%
   separate(col = plant_sp_latin, into = c("genus", "species", "w", "x", "y", "z"), sep = " ") %>%
   unite(plant_sp_latin, genus, species, sep = " ") %>%
   dplyr::select(-c(w,x,y,z)) %>%
   separate(plant_sp_latin, c("genus", "species"), remove = FALSE) %>%
-  dplyr::select(year, dayofyear, site = site_name, trap.time = trapping_time, pollen, 
+  dplyr::select(year, dayofyear, site = site_name, trap.time = trapping_time, caste, pollen, 
                 bb.sp = bumb_species, bb.sp.lat = bumb_sp_latin, plant.sp.abb = forage_plant, 
                 plant.sp = plant_sp_latin) %>%
   mutate(temp.date = as_date(dayofyear),
@@ -51,15 +51,22 @@ network <- read_delim("./raw_data/data_bumblebee_forDoug_2020.01.17.csv", delim 
 
 write_csv(network, "./processed_data/network.csv")
 
-site_data <- read_tsv("./ancillary_from_Fabrice/SiteLocationFabriceUpdate2020.tsv",
+### Site data
+site_data <- read_tsv("./raw_data/SiteLocationFabriceUpdate2020.tsv",
                       locale = locale(decimal_mark = ",", grouping_mark = ".")) %>%
   dplyr::select(site = ID, elev.class = Altitude, management, temp.mean = mean.temp, elev.mean = Mean_altitude, 
                 elev.class = Altitude, transect = Transekt, slope.calc = Inklination_degree_calc, slope.est = Inklination_degree_estim,
                 elev.min = Min_altitude, elev.max  = Max_altitude, lat = Lat, lon = Long) %>%
-  mutate(elev.class = factor(elev.class, ordered = TRUE, levels = c("unten", "mitte", "oben")))
+  mutate(elev.class = factor(elev.class, ordered = TRUE, levels = c("unten", "mitte", "oben"))) %>%
+  mutate(elev.class2 = case_when(
+    elev.mean < 1000 ~ "low",
+    elev.mean >= 1000 & elev.mean < 1500 ~ "mid",
+    elev.mean >= 1500 ~ "high"
+  ))
 
 write_csv(site_data, "./processed_data/site_data.csv")
 
+### Floral trait data
 floral_k_type <-  read_delim("./BioFlor_traits/BioFlor_Kugler_classification.csv", delim = ";") %>%
   dplyr::select(taxon = 1, k.type = 2) %>% 
   na.omit() %>%
@@ -69,3 +76,18 @@ floral_k_type <-  read_delim("./BioFlor_traits/BioFlor_Kugler_classification.csv
   
 write_csv(floral_k_type, "./processed_data/floral_k_type.csv")
 
+### Climate data
+climate <- read_delim("./raw_data/climate2.txt", delim = "\t") %>%
+  rename(site = PlotID) %>%
+  mutate(date = dmy(date),
+         year = year(date),
+         month = month(date),
+         site = str_to_lower(site)) %>%
+  mutate(gdd = case_when(
+    pred_Tmean_day - 10 > 0 ~ pred_Tmean_day - 10,
+    pred_Tmean_day - 10 <= 0 ~ 0)
+    ) %>%
+  group_by(site, year) %>%
+  mutate(gdd.cum = cumsum(gdd))
+
+write_csv(climate, "./processed_data/climate.csv")
