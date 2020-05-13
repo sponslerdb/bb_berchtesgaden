@@ -1,6 +1,5 @@
 ---
-title: Bumble bee communities are structured by a spatiotemporal mosaic of competitive
-  processes
+title: 
 author:
 - Douglas B. Sponsler
 - Katharina Kallnik
@@ -12,8 +11,17 @@ output:
   word_document:
     reference_docx: docx_template.docx
 bibliography: refs.bib
-
 ---
+
+Conversation with Ingolf
+- Add opening paragraph setting context of clinate change and community ecology
+- Look for divergent population trajectories of species as evidence of competition with temporal lag on effects
+- Where does network analysis fit in? A legit question -- no need to jump right to fancy network metrics if simpler approaches work. But so far, none of my empirical predictions involve network metrics. 
+- Ingolf had a REALLY nice title -- ask him to send it to me.
+-  Ingolf said that he does not think that competition from syrphids at high elevation would be significant, but competition from honey bees at low elevation could be
+- Switch Fabrice and Kalli's order
+- Cite Ingolf's recent papers showing the effect of pulses of mass-flowering crop resource on bumble bee health
+- He liked my colony phase figures
 
 ```{r echo = FALSE, include = FALSE}
 ### Prepare environment
@@ -25,7 +33,7 @@ library(lubridate)
 
 ### Load site data
 site_data <- read_csv("./processed_data/site_data.csv") %>%
-  #dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
   mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
          elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) # turn elav.class into an ordered factor
 
@@ -195,148 +203,153 @@ castes <- read_csv("./processed_data/network.csv") %>%
   summarize(caste.count = n()) %>%
   spread(caste, caste.count) %>%
   replace(is.na(.), 0) %>%
-  mutate(q.prop = queen/(queen+worker)) %>%
+  mutate(queen = oldqueen + queen,
+         reproductive = male + youngqueen,
+         q.prop = queen/(queen+worker+reproductive),
+         r.prop = reproductive/(queen+worker+reproductive)) %>%
+  select(-oldqueen, -youngqueen, -male) %>%
   left_join(gdd, by = c("site", "date")) %>%
   left_join(site_data, by = c("site")) %>%
   arrange(gdd.cum)
 
-### Logistic regression
-glm.qw.2012.high <- glm(q.prop ~ gdd.cum,
-                        family = quasibinomial,
-                        data = filter(castes, year == "2012",
-                                      elev.class2 == "high"))
-
-glm.qw.2012.mid <- glm(q.prop ~ gdd.cum,
-                        family = quasibinomial,
-                        data = filter(castes, year == "2012",
-                                      elev.class2 == "mid"))
-
-glm.qw.2012.low <- glm(q.prop ~ gdd.cum,
-                        family = quasibinomial,
-                        data = filter(castes, year == "2012",
-                                      elev.class2 == "low"))
-
-### Extract gdd corresponding to desired proportion; based on https://stackoverflow.com/questions/32040504/regression-logistic-in-r-finding-x-value-predictor-for-a-particular-y-value
-#### Note that this only works for logistic regression!
-getX <- function(x, y) {
-  (log(y/(1-y)) - coef(x)[1])/coef(x)[2]
-}
-
-break1_2012_high <- getX(glm.qw.2012.high, 0.5) %>%
-  data.frame() %>%
-  select(break1 = 1) %>%
-  mutate(elev.class2 = "high",
-         year = 2012)
-
-break1_2012_mid <- getX(glm.qw.2012.mid, 0.5)  %>%
-  data.frame() %>%
-  select(break1 = 1) %>%
-  mutate(elev.class2 = "mid",
-         year = 2012)
-
-break1_2012_low <- getX(glm.qw.2012.low, 0.5)  %>%
-  data.frame() %>%
-  select(break1 = 1) %>%
-  mutate(elev.class2 = "low",
-         year = 2012)
-
-break1_2012 <- bind_rows(break1_2012_high, break1_2012_mid, break1_2012_low) %>%
-  mutate(elev.class2 = factor(elev.class2, levels = c("high", "mid", "low")))
-
-# Add break points to castes data frame
-castes_2012 <- castes %>%
-  filter(year == "2012") %>%
-  left_join(break1_2012, by = c("year", "elev.class2"))
-
-# Plot
-ggplot(castes_2012, aes(gdd.cum, q.prop)) +
-  geom_point() +
-  geom_smooth(method = "glm", method.args=list(family="quasibinomial")) +
-  geom_vline(aes(xintercept = break1), color = "red") +
-  facet_wrap(~elev.class2, ncol = 1)
-
-
-
-%>%
-  group_by(site, date, year) %>%
-  #mutate(caste_prop = caste_count/sum(caste_count)) %>%
-  spread(caste, caste_count) %>%
-  replace(is.na(.), 0) %>%
-  mutate(queen = oldqueen + queen,
-         reproductive = male + youngqueen) %>%
-  select(-oldqueen, -male, -youngqueen) %>%
-  group_by(site, year) %>%
-  mutate(worker.cum = cumsum(worker),
-         repro.cum = cumsum(reproductive)) %>%
-  left_join(gdd, by = c("site", "date")) %>%
-  left_join(site_data, by = c("site")) %>%
-  select(site, date, year, queen, worker, reproductive, gdd.cum, elev.class, elev.class2, elev.mean) %>%
-  mutate(q.w = queen/worker)
+### Logistic regression for first break point (founding to buildup)
+breakpoints <- function(x, year) {
   
-  gather(caste, count, -c(site, date, year, gdd.cum, elev.class, elev.class2, elev.mean)) %>%
+  data <- filter(x, year == !!year)
+  
+  # Logistic regression for first break point (founding to buildup)
+  glm1.low <- glm(q.prop ~ gdd.cum,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "low"))
+  
+  glm1.mid <- glm(q.prop ~ gdd.cum,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "mid"))
+    
+  glm1.high <- glm(q.prop ~ gdd.cum,
+                   family = quasibinomial,
+                   data = filter(data, elev.class2 == "high"))
+  
+  # Logistic regression for second break point (buildup to reproductive)
+  glm2.low <- glm(r.prop ~ gdd.cum,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "low"))
+  
+  glm2.mid <- glm(r.prop ~ gdd.cum,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "mid"))
+    
+  glm2.high <- glm(r.prop ~ gdd.cum,
+                   family = quasibinomial,
+                   data = filter(data, elev.class2 == "high"))
+  
+  ### Extract gdd corresponding to desired proportion; based on https://stackoverflow.com/questions/32040504/regression-logistic-in-r-finding-x-value-predictor-for-a-particular-y-value
+  
+  getX <- function(x, y) {
+    (log(y/(1-y)) - coef(x)[1])/coef(x)[2]
+    }
+
+  break1.low <- getX(glm1.low, 0.5) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break1")  
+
+  break1.mid <- getX(glm1.mid, 0.5) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "mid",
+           breakID = "break1")
+  
+  break1.high <- getX(glm1.high, 0.5) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "high",
+           breakID = "break1")
+  
+  break2.low <- getX(glm2.low, 0.2) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break2")  
+  
+  break2.mid <- getX(glm2.mid, 0.2) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "mid",
+           breakID = "break2")
+  
+  break2.high <- getX(glm2.high, 0.2) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "high",
+           breakID = "break2")
+  
+  # Join into data frame, convert elev.class2 to ordered factor, spread
+  breaks <- full_join(break1.low, break1.mid) %>%
+    full_join(break1.high) %>%
+    full_join(break2.low) %>%
+    full_join(break2.mid) %>%
+    full_join(break2.high) %>%
+    mutate(elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) %>%
+    spread(breakID, gdd)
+  
+  #
+  out <- data %>%
+    full_join(breaks) %>%
+    gather(caste, count, -c(site, date, year, q.prop, r.prop,
+                          gdd.cum, elev.class, elev.class2, 
+                          management, transect, elev.mean, 
+                          lat, lon, break1, break2)) %>%
   group_by(site, date) %>%
   mutate(prop = count/sum(count))
+}
 
-glm_queen_2012 <- glm(prop ~ gdd.cum, 
-                      family = quasibinomial(),
-                      data = filter(castes, year == "2012" & caste == "queen" & elev.class2 == "mid"))
+breaks_2012 <- breakpoints(castes, 2012)
+breaks_2011 <- breakpoints(castes, 2011)
+breaks_2010 <- breakpoints(castes, 2010)
 
-beta_queen_2012 <- betareg(prop ~ gdd.cum, 
-                      data = filter(castes, year == "2012" & caste == "queen" & elev.class2 == "mid"))
+# Plot
+binomial_smooth <- function(...) {
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"), se = FALSE, ...)
+}
 
-p <- predict(glm_queen_2012, type = "response")
+facet_names <- c(`low` = "Low (641-1000 m)",
+                 `mid` = "Mid (1000-1499 m)",
+                 `high` = "High (1500-2032 m)")
 
-founding_break <- castes %>%
-  spread(caste, count) %>%
-  replace(is.na(.), 0) %>%
-  select(site, date, year, gdd.cum, queen, worker, reproductive) %>% 
-  filter(worker > queen & queen > 0) %>%
-  group_by(site, year) %>%
-  filter(date == min(date)) %>%
-  select(site, year, queen, worker, reproductive, founding.break = gdd.cum)
-
-repro_break <- castes %>%
-  spread(caste, count) %>%
-  replace(is.na(.), 0) %>%
-  select(site, date, year, gdd.cum, queen, worker, reproductive) %>% 
-  filter(reproductive / (reproductive + worker) >= 0.1) %>%
-  group_by(site, year) %>%
-  filter(date == min(date)) %>%
-  select(site, year, queen, worker, reproductive, repro.break = gdd.cum)
-  
-phases <- castes %>%
-  full_join(founding_break, by = c("site", "year")) %>%
-  full_join(repro_break, by = c("site", "year"))
-
-# ggplot(phase, aes(gdd.cum, prop, color = caste)) +
-#   geom_point(alpha = 0.25) +
-#   geom_smooth() +
-#   theme_gray(10) +
-#   facet_grid(elev.class2~year, scales = "free") +
-#   xlab("Cumulative growing degree days") +
-#   ylab("Proportional abundance")
-# 
-# ggsave("./output/gdd_phase.pdf", width = 6, height = 4)
-
-ggplot(filter(castes, year == "2012"), aes(gdd.cum, q.w)) +
+ggplot(breaks_2012, aes(gdd.cum, prop, color = caste)) +
   geom_point() +
-  geom_smooth() +
-  #geom_vline(aes(xintercept = founding.break), linetype = "dotted") +
-  facet_wrap(~elev.class2)
+  binomial_smooth(formula = y ~ splines::ns(x, 2)) +
+  geom_vline(aes(xintercept = break1), linetype = "dashed") +
+  geom_vline(aes(xintercept = break2), linetype = "dashed") +
+  facet_wrap(~elev.class2, ncol = 1, labeller = as_labeller(facet_names)) +
+  xlab("Cumulative growing degree days") +
+  ylab("Proportional abundance")
 
-ggplot(filter(phases, year == "2011"), aes(gdd.cum, prop, color = caste)) +
+ggsave("./output/phases2012.pdf")
+
+ggplot(breaks_2011, aes(gdd.cum, prop, color = caste)) +
   geom_point() +
-  geom_smooth() +
-  #geom_vline(aes(xintercept = founding.break), linetype = "dotted") +
-  facet_wrap(~elev.class2, scales = "free")
+  binomial_smooth(formula = y ~ splines::ns(x, 2)) +
+  geom_vline(aes(xintercept = break1), linetype = "dashed") +
+  geom_vline(aes(xintercept = break2), linetype = "dashed") +
+  facet_wrap(~elev.class2, ncol = 1, labeller = as_labeller(facet_names)) +
+  xlab("Cumulative growing degree days") +
+  ylab("Proportional abundance")
 
-ggplot(filter(phases, year == "2010"), aes(gdd.cum, prop, color = caste)) +
+ggsave("./output/phases2011.pdf")
+
+ggplot(breaks_2010, aes(gdd.cum, prop, color = caste)) +
   geom_point() +
-  geom_smooth() +
-  #geom_vline(aes(xintercept = founding.break), linetype = "dotted") +
-  facet_wrap(~elev.class2, scales = "free")
+  binomial_smooth(formula = y ~ splines::ns(x, 2)) +
+  geom_vline(aes(xintercept = break1), linetype = "dashed") +
+  geom_vline(aes(xintercept = break2), linetype = "dashed") +
+  facet_wrap(~elev.class2, ncol = 1, labeller = as_labeller(facet_names)) +
+  xlab("Cumulative growing degree days") +
+  ylab("Proportional abundance")
 
-
+ggsave("./output/phases2010.pdf")
 ```
 
 *Resource limitation*.   Per-transect bumble bee abundance is positively correlated with per-transect floral cover (log-transformed). To the extent, therefore, that our metrics of bumble bee and floral density reflect true site-scale abundance and not just co-aggregation, this pattern suggests that bumble bee
@@ -511,6 +524,9 @@ ggplot(groupmet_rare_2010, aes(elev.mean, C.score.HL)) +
 
 
 <!-- **Discussion** -->
+
+<!-- Bumble bee communities are structured by a spatiotemporal mosaic of competitive -->
+<!--   processes -->
 
 <!-- Under conditions of resource limitation, intraspecific competition may be a stronger constraint on bumble bee density (though not on diversity) than interspecific competition, since conspecific are limited in their ability to partition further their potential niche space. -->
 

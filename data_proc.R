@@ -91,3 +91,6 @@ climate <- read_delim("./raw_data/climate2.txt", delim = "\t") %>%
   mutate(gdd.cum = cumsum(gdd))
 
 write_csv(climate, "./processed_data/climate.csv")
+
+### TRY data
+try <- read_delim("./raw_data/TRY_13_05_2020.txt", delim = "\t")
