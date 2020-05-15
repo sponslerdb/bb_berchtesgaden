@@ -1,9 +1,9 @@
 ---
-title: 
+title: Bumble bee competition revisited under global climate change
 author:
 - Douglas B. Sponsler
-- Katharina Kallnik
 - Fabrice Requier
+- Katharina Kallnik
 - Alice Claßen
 - A. Fabienne Maihoff
 - Ingolf Steffan-Dewenter
@@ -12,16 +12,6 @@ output:
     reference_docx: docx_template.docx
 bibliography: refs.bib
 ---
-
-Conversation with Ingolf
-- Add opening paragraph setting context of clinate change and community ecology
-- Look for divergent population trajectories of species as evidence of competition with temporal lag on effects
-- Where does network analysis fit in? A legit question -- no need to jump right to fancy network metrics if simpler approaches work. But so far, none of my empirical predictions involve network metrics. 
-- Ingolf had a REALLY nice title -- ask him to send it to me.
--  Ingolf said that he does not think that competition from syrphids at high elevation would be significant, but competition from honey bees at low elevation could be
-- Switch Fabrice and Kalli's order
-- Cite Ingolf's recent papers showing the effect of pulses of mass-flowering crop resource on bumble bee health
-- He liked my colony phase figures
 
 ```{r echo = FALSE, include = FALSE}
 ### Prepare environment
@@ -102,11 +92,281 @@ density_month.agg <- bb_dens %>%
             mean.fl.dens = mean(fl.dens)) %>%
   mutate(log.mean.fl.dens = log(mean.fl.dens),
          bb.per.fl = mean.bb.dens/mean.fl.dens)
+
+###############################
+######### Define functions
+##############################
+
+# Find breakpoints on GDD scale
+breakpoints_gdd <- function(x, year, t1, t2) {
+  
+  data <- filter(x, year == !!year)
+  
+  # Logistic regression for first break point (founding to buildup)
+  glm1.low <- glm(q.prop ~ gdd.cum,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "low"))
+  
+  glm1.mid <- glm(q.prop ~ gdd.cum,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "mid"))
+    
+  glm1.high <- glm(q.prop ~ gdd.cum,
+                   family = quasibinomial,
+                   data = filter(data, elev.class2 == "high"))
+  
+  # Logistic regression for second break point (buildup to reproductive)
+  glm2.low <- glm(r.prop ~ gdd.cum,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "low"))
+  
+  glm2.mid <- glm(r.prop ~ gdd.cum,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "mid"))
+    
+  glm2.high <- glm(r.prop ~ gdd.cum,
+                   family = quasibinomial,
+                   data = filter(data, elev.class2 == "high"))
+  
+  ### Extract gdd corresponding to desired proportion; based on https://stackoverflow.com/questions/32040504/regression-logistic-in-r-finding-x-value-predictor-for-a-particular-y-value
+  
+  getX <- function(x, y) {
+    (log(y/(1-y)) - coef(x)[1])/coef(x)[2]
+    }
+
+  break1.low <- getX(glm1.low, t1) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break1")  
+
+  break1.mid <- getX(glm1.mid, t1) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "mid",
+           breakID = "break1")
+  
+  break1.high <- getX(glm1.high, t1) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "high",
+           breakID = "break1")
+  
+  break2.low <- getX(glm2.low, t2) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break2")  
+  
+  break2.mid <- getX(glm2.mid, t2) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "mid",
+           breakID = "break2")
+  
+  break2.high <- getX(glm2.high, t2) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "high",
+           breakID = "break2")
+  
+  # Join into data frame, convert elev.class2 to ordered factor, spread
+  breaks <- full_join(break1.low, break1.mid) %>%
+    full_join(break1.high) %>%
+    full_join(break2.low) %>%
+    full_join(break2.mid) %>%
+    full_join(break2.high) %>%
+    mutate(elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) %>%
+    spread(breakID, gdd)
+  
+  #
+  out <- data %>%
+    full_join(breaks) %>%
+    gather(caste, count, -c(site, date, year, q.prop, r.prop,
+                          gdd.cum, yday, elev.class, elev.class2, 
+                          management, transect, elev.mean, 
+                          lat, lon, break1, break2)) %>%
+  group_by(site, date) %>%
+  mutate(prop = count/sum(count))
+}
+
+
+# Find breakpoints on Julian scale
+breakpoints_yday <- function(x, year, t1, t2) {
+  
+  data <- filter(x, year == !!year)
+  
+  # Logistic regression for first break point (founding to buildup)
+  glm1.low <- glm(q.prop ~ yday,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "low"))
+  
+  glm1.mid <- glm(q.prop ~ yday,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "mid"))
+    
+  glm1.high <- glm(q.prop ~ yday,
+                   family = quasibinomial,
+                   data = filter(data, elev.class2 == "high"))
+  
+  # Logistic regression for second break point (buildup to reproductive)
+  glm2.low <- glm(r.prop ~ yday,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "low"))
+  
+  glm2.mid <- glm(r.prop ~ yday,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "mid"))
+    
+  glm2.high <- glm(r.prop ~ yday,
+                   family = quasibinomial,
+                   data = filter(data, elev.class2 == "high"))
+  
+  ### Extract gdd corresponding to desired proportion; based on https://stackoverflow.com/questions/32040504/regression-logistic-in-r-finding-x-value-predictor-for-a-particular-y-value
+  
+  getX <- function(x, y) {
+    (log(y/(1-y)) - coef(x)[1])/coef(x)[2]
+    }
+
+  break1.low <- getX(glm1.low, t1) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break1")  
+
+  break1.mid <- getX(glm1.mid, t1) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "mid",
+           breakID = "break1")
+  
+  break1.high <- getX(glm1.high, t1) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "high",
+           breakID = "break1")
+  
+  break2.low <- getX(glm2.low, t2) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break2")  
+  
+  break2.mid <- getX(glm2.mid, t2) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "mid",
+           breakID = "break2")
+  
+  break2.high <- getX(glm2.high, t2) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "high",
+           breakID = "break2")
+  
+  # Join into data frame, convert elev.class2 to ordered factor, spread
+  breaks <- full_join(break1.low, break1.mid) %>%
+    full_join(break1.high) %>%
+    full_join(break2.low) %>%
+    full_join(break2.mid) %>%
+    full_join(break2.high) %>%
+    mutate(elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) %>%
+    spread(breakID, day)
+  
+  #
+  out <- data %>%
+    full_join(breaks) %>%
+    gather(caste, count, -c(site, date, year, q.prop, r.prop,
+                          gdd.cum, yday, elev.class, elev.class2, 
+                          management, transect, elev.mean, 
+                          lat, lon, break1, break2)) %>%
+  group_by(site, date) %>%
+  mutate(prop = count/sum(count))
+}
+
+# Find Juian breakpoints across all elevations
+breakpoints_yday_all <- function(x, year, t1, t2) {
+  
+  data <- filter(x, year == !!year)
+  
+  # Logistic regression for first break point (founding to buildup)
+  glm1 <- glm(q.prop ~ yday,
+                  family = quasibinomial,
+                  data = data)
+
+  # Logistic regression for second break point (buildup to reproductive)
+  glm2 <- glm(r.prop ~ yday,
+                  family = quasibinomial,
+                  data = data)
+  
+  ### Extract day corresponding to desired proportion; based on https://stackoverflow.com/questions/32040504/regression-logistic-in-r-finding-x-value-predictor-for-a-particular-y-value
+  
+  getX <- function(x, y) {
+    (log(y/(1-y)) - coef(x)[1])/coef(x)[2]
+    }
+
+  break1 <- getX(glm1, t1) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break1") 
+  
+  break2 <- getX(glm2, t2) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break2")  
+  
+  # Join into data frame, convert elev.class2 to ordered factor, spread
+  breaks <- full_join(break1, break2) %>%
+    spread(breakID, day)
+  
+  #
+  out <- data %>%
+    full_join(breaks) %>%
+    gather(caste, count, -c(site, date, year, q.prop, r.prop,
+                          gdd.cum, yday, elev.class, elev.class2, 
+                          management, transect, elev.mean, 
+                          lat, lon, break1, break2)) %>%
+  group_by(site, date) %>%
+  mutate(prop = count/sum(count))
+}
+
+# Binomial ggplot smoother
+binomial_smooth <- function(...) {
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"), se = FALSE, ...)
+}
 ```
 
 **Introduction**
 
-Bumble bees (Hymenoptera: *Bombus* spp.) are classic model organisms for the study of resource competition in biological communities. Nevertheless, the role of resource competition in structuring bumble bee communities has proven difficult to generalize. It is evident that sympatric bumble bees *can* compete for floral resources, and strongly so. @Heinrich1976-wc found that a bumble bee community can deplete the daily standing nectar pool of a given locality by more than 90%, and starvation has been implicated in the demise of colonies in isolated subalpine meadows [@Bowers1985-df], leaving little room to doubt the potential for resource limitation. Other studies have found local bumble bee communities to be over-dispersed in terms of tongue length [e.g. @Inouye1977-kl], a matching trait [sensu @Schleuning2020-vq] corresponding to floral corolla depth, and phylogeny [@Pellissier2013-pk], which can be interpreted as a catch-all for unmeasured trait variation. Nevertheless, it is equally evident that sympatric bumble bee species do not *always* compete for floral resources to the point of competitive exclusion, since bumble bee communities with an apparent excess of species richness and deficit of trait dispersion are commonly observed [@Goulson2008-zy]. 
+The nascent reality of climate change has already revealed the fragile contingency of ecological paradigms that rely on the implicit assumption of climatic stability [@Hannah2002-nv; @Walther2002-mq]. Thus, one of the central questions facing ecologists today is how climate change will affect the future fitness and distribution of species and, thereby, the composition and function of ecological communities. While it is intuitive that climate change should affect species and communities through environmental filtering, it is now recognized that climate change can also restructure biotic interactions [@Tylianakis2008-fi], such as competition and facilitation [@Ettinger2017-pk], altering the fitness landscape that governs community assembly and species coexistence [@Chesson2000-aw].  
+
+Bumble bees (Hymenoptera: *Bombus* spp.), due to their well-studied natural history and amenability to field observation, have become a model system for the study of biotic interactions in ecological communities. In particular, the broad and overlapping distributions of bumble bee species, together with their gross similarity in morphology, behavior, and dietary niche, have attracted the attention of researchers interested in questions of interspecific competition and, more broadly, the ecological constraints of species coexistence [@Plowright1984-lc; @Goulson2008-zy]. In this regard, however, bumble bees have proven somewhat enigmatic [@Ranta1981-vx]. On the one hand, there is evidence that resource limitation, a necessary precondition for competition, can be a significant constraint on local bumble populations [@Heinrich1976-wc], even to the point of widespread colony failure due to starvation [@Bowers1985-df]. Moreover, the species of certain bumble bee communties have been shown to be over-dispersed in terms of tongue length (a matching trait corresponding to floral corolla depth) or phyologeny (understood to encompass unmeasured trait variation), providing evidence for competition as a community assembly process [e.g. @Inouye1977-kl; @Pellissier2013-pk]. Nevertheless, it is equally evident that sympatric bumble bee species do not *always* compete for floral resources to the point of competitive exclusion, since bumble bee communities with an apparent excess of species richness and deficit of trait (or phylogenetic) dispersion are commonly observed [@Goulson2008-zy]. 
+
+To account for this inconsistency, @Ranta1981-vx proposed that bumble bees communities are governed by a spatiotemporally heterogeneous "mosaic" of competitive conditions, arising from the interaction of bumble bee species' traits and nest locations with spatiotemporal variation in floral resource abundance and composition, such that competitive inequalities between species are sufficiently variable (and fine-grained relative to the scale of observation) to allow more species to coexist than predicted by trait-based competition models. A complementary explanation, based on the core/satellite species hypothesis [@Hanski1982-hs], is that competitive forces are significant only among regionally abundant and widespread "core species", and the effects of competition are more pronounced in the structure of regional species pools than in that of local assemblages [@Hanski1982-xd]. 
+
+As pointed out by @Williams1989-vr, however, the question of competition as a process of community assembly, relevant to evolutionary and biogeographic scales of inquiry, differs from that of competition as a behavioral phenomenon within a given community, irrespective of the forces responsible for its assembly.  
+
+"This is not to deny that interspecific competition affects patterns of foraging by bumble bees, which has been demonstrated by the effect of competitor removal  (e.g. Inouye, 1978; Plowright, Pendrel & McLaren, 1978; Plowright & Rodd, 1980; Pleasants,  1981). It is  concluded only that interspecific competition does not appear to govern the composition of local  assemblages of bumble bee species in the manner predicted by  the  theory of species-packing." [@Williams1989-vr]
+
+Bring up Hanksi's core/satellite hypothesis.
+ 
+
+Steep elevation gradients can serve as space-for-time proxies in the study of climate effects, capturing a broad range of climate variation  while minimizing the confounding effects of geographic distance [e.g. @Hoiss2015-gv].
+
+One of the most well-studied hypotheses linking climate and biotic interactions is the "stress gradient hypothesis", which posits a that the relative significance of competition and faciitation vary predictably along gradients of abiotic (e.g. climatic) stress, with low stress environments characterized by competition and high stress environments by facilitation [@Bertness1994-zx]. 
+
+
+When phylogenetic/trait dispersion are used as indices of competition, the relevant question is whether competition played a role in community assembly. These indices do not answer the question of whether, right now, competition is happening. Trait-matching, niche overlap, specialization (e.g. d') based indices are better suited for the question of immediate competiion. It could be that competition was not important over the time scales relevant to community assembly, but now it has become a significant phenomenon due to some change in the system. Or, it is possible that competition is spatiotemporally transient, and its net effect is not sufficient to cause a trait or phylogenetic signal. 
+
+
+
+
+
+Bumble bees (Hymenoptera: *Bombus* spp.) are classic model organisms for the study of resource competition in biological communities. Nevertheless, the role of resource competition in structuring bumble bee communities has proven difficult to generalize. Resource limitation, a precondition for competition, 
+
+@Heinrich1976-wc found that a bumble bee community can deplete the daily standing nectar pool of a given locality by more than 90%, and starvation has been implicated in the demise of colonies in isolated subalpine meadows [@Bowers1985-df], in. Other studies have found local bumble bee communities to be over-dispersed in terms of tongue length [e.g. @Inouye1977-kl], a matching trait [sensu @Schleuning2020-vq] corresponding to floral corolla depth, and phylogeny [@Pellissier2013-pk], which can be interpreted as a catch-all for unmeasured trait variation. Nevertheless, it is equally evident that sympatric bumble bee species do not *always* compete for floral resources to the point of competitive exclusion, since bumble bee communities with an apparent excess of species richness and deficit of trait dispersion are commonly observed [@Goulson2008-zy]. 
 
 To account for both the importance and variability of competitive processes in bumble bee communities, it is helpful to distinguish three processes that could obtain to varying degrees: no competition, interspecific competition, and intraspecific competition (**Table 1**). We will refer to these processes as hypotheses, since their realization in any given community is matter of inference. Below, we elaborate each and formulate corresponding empirical predictons.
 
@@ -130,7 +390,7 @@ To account for both the importance and variability of competitive processes in b
 **Table 1:** Hypothesized competitive processes with empirical predictions. BB = bumble bee; FL = floral. \
 
 
-*H1: No competition.*    The hypothesis that floral resource competition is not a significant process governing a bumble bee community functions as a "null hypothesis" when competition *per se* is the phenomenon in question, but it is not "null" in the sense of mere negation of mechanistic explanation. To the contrary, at least two plausible and ecologically meaningful mechanisms can be proposed that would account for a lack of competition in bumble bee communities [@Ranta1981-vx]. First, it is possible that a super-abundance of floral resources could saturate the foraging capacity of a local bumble bee population. Indeed, this may be a common (though transient) phenomenon associated with the bloom of mass flowering crops [@Ranta1981-vx]. Alternatively, competition could be attenuated if abiotic stress, such as low temperature, suppresses bumble bee populations below competition-inducing densities. This pattern would be a prediction of the "stress-gradient hypothesis" [@Bertness1994-zx], and while it has not, to our knowledge, been documented for bumble bees specifically, a recent study of whole bee communities (of which bumble bees were a part) found evidence of dampened competition at high elevation sites along a montane-to-alpine gradient [@Hoiss2012-sn].
+*H1: No competition.*    The hypothesis that floral resource competition is not a significant process governing a bumble bee community functions as a "null hypothesis" when competition *per se* is the phenomenon in question, but it is not "null" in the sense of mere negation of mechanistic explanation. To the contrary, at least two plausible and ecologically meaningful mechanisms can be proposed that would account for a lack of competition in bumble bee communities [@Ranta1981-vx]. First, it is possible that a super-abundance of floral resources could saturate the foraging capacity of a local bumble bee population. Indeed, this may be a common (though transient) phenomenon associated with the bloom of mass flowering crops, such as red clover [@Ranta1981-vx] and oilseed rape [@Westphal2009-sb]. Alternatively, competition could be attenuated if abiotic stress, such as low temperature, suppresses bumble bee populations below competition-inducing densities. This pattern would be a prediction of the "stress-gradient hypothesis" [@Bertness1994-zx], and while it has not, to our knowledge, been documented for bumble bees specifically, a recent study of whole bee communities (of which bumble bees were a part) found evidence of dampened competition at high elevation sites along a montane-to-alpine gradient [@Hoiss2012-sn].
 
 Under either mechanism, the most straightforward prediction is that bumble bee population density would be decoupled from resource density, since the latter would be non-limiting. For the same reason, the absence of competition would also predict that the trait dispersion of sympatric bumble bee species would not exceed that predicted by a random null model. Third, under a no-competition scenario, bumble bee species would suffer no displacement from their optimal floral resource species. Thus, holding other aspects of floral resource value constant (e.g. abundance, nectar volume/concentration), a lack of competition would predict that morphological trait-matching between bumble bee species and their chosen host flowers would exceed that predicted by a random null model.
 
@@ -186,6 +446,10 @@ ggplot(tab, aes(Time, Elevation)) +
 
 **Methods**\
 
+<!-- - Look for divergent population trajectories of species as evidence of competition with temporal lag on effects -->
+<!-- - Where does network analysis fit in? A legit question -- no need to jump right to fancy network metrics if simpler approaches work. But so far, none of my empirical predictions involve network metrics.  -->
+
+
 *Field sampling*
 
 *Degree day modeling.*
@@ -210,115 +474,27 @@ castes <- read_csv("./processed_data/network.csv") %>%
   select(-oldqueen, -youngqueen, -male) %>%
   left_join(gdd, by = c("site", "date")) %>%
   left_join(site_data, by = c("site")) %>%
-  arrange(gdd.cum)
+  arrange(gdd.cum) %>%
+  mutate(yday = yday(date))
 
-### Logistic regression for first break point (founding to buildup)
-breakpoints <- function(x, year) {
-  
-  data <- filter(x, year == !!year)
-  
-  # Logistic regression for first break point (founding to buildup)
-  glm1.low <- glm(q.prop ~ gdd.cum,
-                  family = quasibinomial,
-                  data = filter(data, elev.class2 == "low"))
-  
-  glm1.mid <- glm(q.prop ~ gdd.cum,
-                  family = quasibinomial,
-                  data = filter(data, elev.class2 == "mid"))
-    
-  glm1.high <- glm(q.prop ~ gdd.cum,
-                   family = quasibinomial,
-                   data = filter(data, elev.class2 == "high"))
-  
-  # Logistic regression for second break point (buildup to reproductive)
-  glm2.low <- glm(r.prop ~ gdd.cum,
-                  family = quasibinomial,
-                  data = filter(data, elev.class2 == "low"))
-  
-  glm2.mid <- glm(r.prop ~ gdd.cum,
-                  family = quasibinomial,
-                  data = filter(data, elev.class2 == "mid"))
-    
-  glm2.high <- glm(r.prop ~ gdd.cum,
-                   family = quasibinomial,
-                   data = filter(data, elev.class2 == "high"))
-  
-  ### Extract gdd corresponding to desired proportion; based on https://stackoverflow.com/questions/32040504/regression-logistic-in-r-finding-x-value-predictor-for-a-particular-y-value
-  
-  getX <- function(x, y) {
-    (log(y/(1-y)) - coef(x)[1])/coef(x)[2]
-    }
+breaks_2012_gdd <- breakpoints_gdd(castes, 2012, t1 = 0.5, t2 = 0.1)
+breaks_2011_gdd <- breakpoints_gdd(castes, 2011, t1 = 0.5, t2 = 0.1)
+breaks_2010_gdd <- breakpoints_gdd(castes, 2010, t1 = 0.5, t2 = 0.1)
 
-  break1.low <- getX(glm1.low, 0.5) %>%
-    data.frame() %>%
-    select(gdd = 1) %>%
-    mutate(elev.class2 = "low",
-           breakID = "break1")  
+breaks_2012_yday <- breakpoints_yday(castes, 2012, t1 = 0.5, t2 = 0.1)
+breaks_2011_yday <- breakpoints_yday(castes, 2011, t1 = 0.5, t2 = 0.1)
+breaks_2010_yday <- breakpoints_yday(castes, 2010, t1 = 0.5, t2 = 0.1)
 
-  break1.mid <- getX(glm1.mid, 0.5) %>%
-    data.frame() %>%
-    select(gdd = 1) %>%
-    mutate(elev.class2 = "mid",
-           breakID = "break1")
-  
-  break1.high <- getX(glm1.high, 0.5) %>%
-    data.frame() %>%
-    select(gdd = 1) %>%
-    mutate(elev.class2 = "high",
-           breakID = "break1")
-  
-  break2.low <- getX(glm2.low, 0.2) %>%
-    data.frame() %>%
-    select(gdd = 1) %>%
-    mutate(elev.class2 = "low",
-           breakID = "break2")  
-  
-  break2.mid <- getX(glm2.mid, 0.2) %>%
-    data.frame() %>%
-    select(gdd = 1) %>%
-    mutate(elev.class2 = "mid",
-           breakID = "break2")
-  
-  break2.high <- getX(glm2.high, 0.2) %>%
-    data.frame() %>%
-    select(gdd = 1) %>%
-    mutate(elev.class2 = "high",
-           breakID = "break2")
-  
-  # Join into data frame, convert elev.class2 to ordered factor, spread
-  breaks <- full_join(break1.low, break1.mid) %>%
-    full_join(break1.high) %>%
-    full_join(break2.low) %>%
-    full_join(break2.mid) %>%
-    full_join(break2.high) %>%
-    mutate(elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) %>%
-    spread(breakID, gdd)
-  
-  #
-  out <- data %>%
-    full_join(breaks) %>%
-    gather(caste, count, -c(site, date, year, q.prop, r.prop,
-                          gdd.cum, elev.class, elev.class2, 
-                          management, transect, elev.mean, 
-                          lat, lon, break1, break2)) %>%
-  group_by(site, date) %>%
-  mutate(prop = count/sum(count))
-}
-
-breaks_2012 <- breakpoints(castes, 2012)
-breaks_2011 <- breakpoints(castes, 2011)
-breaks_2010 <- breakpoints(castes, 2010)
+breaks_2012_yday_all <- breakpoints_yday_all(castes, 2012, t1 = 0.5, t2 = 0.1)
+breaks_2011_yday_all <- breakpoints_yday_all(castes, 2011, t1 = 0.5, t2 = 0.1)
+breaks_2010_yday_all <- breakpoints_yday_all(castes, 2010, t1 = 0.5, t2 = 0.1)
 
 # Plot
-binomial_smooth <- function(...) {
-  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"), se = FALSE, ...)
-}
-
 facet_names <- c(`low` = "Low (641-1000 m)",
                  `mid` = "Mid (1000-1499 m)",
                  `high` = "High (1500-2032 m)")
 
-ggplot(breaks_2012, aes(gdd.cum, prop, color = caste)) +
+ggplot(breaks_2012_gdd, aes(gdd.cum, prop, color = caste)) +
   geom_point() +
   binomial_smooth(formula = y ~ splines::ns(x, 2)) +
   geom_vline(aes(xintercept = break1), linetype = "dashed") +
@@ -327,9 +503,21 @@ ggplot(breaks_2012, aes(gdd.cum, prop, color = caste)) +
   xlab("Cumulative growing degree days") +
   ylab("Proportional abundance")
 
-ggsave("./output/phases2012.pdf")
+ggsave("./output/phases2012_gdd.pdf")
 
-ggplot(breaks_2011, aes(gdd.cum, prop, color = caste)) +
+ggplot(breaks_2012_yday, aes(yday, prop, color = caste)) +
+  geom_point() +
+  binomial_smooth(formula = y ~ splines::ns(x, 2)) +
+  geom_vline(aes(xintercept = break1), linetype = "dashed") +
+  geom_vline(aes(xintercept = break2), linetype = "dashed") +
+  facet_wrap(~elev.class2, ncol = 1, labeller = as_labeller(facet_names)) +
+  xlab("Julian day") +
+  ylab("Proportional abundance")
+
+ggsave("./output/phases2012_yday.pdf")
+
+
+ggplot(breaks_2011_gdd, aes(gdd.cum, prop, color = caste)) +
   geom_point() +
   binomial_smooth(formula = y ~ splines::ns(x, 2)) +
   geom_vline(aes(xintercept = break1), linetype = "dashed") +
@@ -338,9 +526,9 @@ ggplot(breaks_2011, aes(gdd.cum, prop, color = caste)) +
   xlab("Cumulative growing degree days") +
   ylab("Proportional abundance")
 
-ggsave("./output/phases2011.pdf")
+ggsave("./output/phases2011_gdd.pdf")
 
-ggplot(breaks_2010, aes(gdd.cum, prop, color = caste)) +
+ggplot(breaks_2011_yday, aes(yday, prop, color = caste)) +
   geom_point() +
   binomial_smooth(formula = y ~ splines::ns(x, 2)) +
   geom_vline(aes(xintercept = break1), linetype = "dashed") +
@@ -349,7 +537,59 @@ ggplot(breaks_2010, aes(gdd.cum, prop, color = caste)) +
   xlab("Cumulative growing degree days") +
   ylab("Proportional abundance")
 
-ggsave("./output/phases2010.pdf")
+ggsave("./output/phases2011_yday.pdf")
+
+ggplot(breaks_2010_gdd, aes(gdd.cum, prop, color = caste)) +
+  geom_point() +
+  binomial_smooth(formula = y ~ splines::ns(x, 2)) +
+  geom_vline(aes(xintercept = break1), linetype = "dashed") +
+  geom_vline(aes(xintercept = break2), linetype = "dashed") +
+  facet_wrap(~elev.class2, ncol = 1, labeller = as_labeller(facet_names)) +
+  xlab("Cumulative growing degree days") +
+  ylab("Proportional abundance")
+
+ggsave("./output/phases2010_gdd.pdf")
+
+ggplot(breaks_2010_yday, aes(yday, prop, color = caste)) +
+  geom_point() +
+  binomial_smooth(formula = y ~ splines::ns(x, 2)) +
+  geom_vline(aes(xintercept = break1), linetype = "dashed") +
+  geom_vline(aes(xintercept = break2), linetype = "dashed") +
+  facet_wrap(~elev.class2, ncol = 1, labeller = as_labeller(facet_names)) +
+  xlab("Cumulative growing degree days") +
+  ylab("Proportional abundance")
+
+ggsave("./output/phases2010_yday.pdf")
+
+ggplot(breaks_2012_yday_all, aes(yday, prop, color = caste)) +
+  geom_point() +
+  binomial_smooth(formula = y ~ splines::ns(x, 2)) +
+  geom_vline(aes(xintercept = break1), linetype = "dashed") +
+  geom_vline(aes(xintercept = break2), linetype = "dashed") +
+  xlab("Cumulative growing degree days") +
+  ylab("Proportional abundance")
+
+ggsave("./output/phases2012_yday_all.pdf")
+
+ggplot(breaks_2011_yday_all, aes(yday, prop, color = caste)) +
+  geom_point() +
+  binomial_smooth(formula = y ~ splines::ns(x, 2)) +
+  geom_vline(aes(xintercept = break1), linetype = "dashed") +
+  geom_vline(aes(xintercept = break2), linetype = "dashed") +
+  xlab("Cumulative growing degree days") +
+  ylab("Proportional abundance")
+
+ggsave("./output/phases2011_yday_all.pdf")
+
+ggplot(breaks_2010_yday_all, aes(yday, prop, color = caste)) +
+  geom_point() +
+  binomial_smooth(formula = y ~ splines::ns(x, 2)) +
+  geom_vline(aes(xintercept = break1), linetype = "dashed") +
+  geom_vline(aes(xintercept = break2), linetype = "dashed") +
+  xlab("Cumulative growing degree days") +
+  ylab("Proportional abundance")
+
+ggsave("./output/phases2010_yday_all.pdf")
 ```
 
 *Resource limitation*.   Per-transect bumble bee abundance is positively correlated with per-transect floral cover (log-transformed). To the extent, therefore, that our metrics of bumble bee and floral density reflect true site-scale abundance and not just co-aggregation, this pattern suggests that bumble bee
@@ -525,8 +765,15 @@ ggplot(groupmet_rare_2010, aes(elev.mean, C.score.HL)) +
 
 <!-- **Discussion** -->
 
+<!-- -  Ingolf said that he does not think that competition from syrphids at high elevation would be significant, but competition from honey bees at low elevation could be -->
+
 <!-- Bumble bee communities are structured by a spatiotemporal mosaic of competitive -->
 <!--   processes -->
+
+<!-- The two processes of environmental filtering and biotic interactions may be difficult to disentangle [@Kraft2015-gh].  -->
+
+
+<!-- The nascent reality of climate change, and the grave expectation of its progression in the coming decades, have revealed the fragile contingency of conservation paradigms that rely on the implicit assumption of climatic stability [@Hannah2002-nv]. -->
 
 <!-- Under conditions of resource limitation, intraspecific competition may be a stronger constraint on bumble bee density (though not on diversity) than interspecific competition, since conspecific are limited in their ability to partition further their potential niche space. -->
 
