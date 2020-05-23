@@ -1,0 +1,886 @@
+---
+title: "analysis"
+output: html_document
+---
+
+### Prepare environment
+```{r setup, include=FALSE}
+library(bipartite)
+library(lme4)
+library(lmerTest)
+library(tidyverse)
+library(lubridate)
+library(GGally)
+```
+
+### Define functions
+```{r}
+# Find breakpoints on GDD scale
+breakpoints_gdd <- function(x, year, t1, t2) {
+  
+  data <- filter(x, year == !!year)
+  
+  # Logistic regression for first break point (founding to buildup)
+  glm1.low <- glm(q.prop ~ gdd.cum,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "low"))
+  
+  glm1.mid <- glm(q.prop ~ gdd.cum,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "mid"))
+    
+  glm1.high <- glm(q.prop ~ gdd.cum,
+                   family = quasibinomial,
+                   data = filter(data, elev.class2 == "high"))
+  
+  # Logistic regression for second break point (buildup to reproductive)
+  glm2.low <- glm(r.prop ~ gdd.cum,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "low"))
+  
+  glm2.mid <- glm(r.prop ~ gdd.cum,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "mid"))
+    
+  glm2.high <- glm(r.prop ~ gdd.cum,
+                   family = quasibinomial,
+                   data = filter(data, elev.class2 == "high"))
+  
+  ### Extract gdd corresponding to desired proportion; based on https://stackoverflow.com/questions/32040504/regression-logistic-in-r-finding-x-value-predictor-for-a-particular-y-value
+  
+  getX <- function(x, y) {
+    (log(y/(1-y)) - coef(x)[1])/coef(x)[2]
+    }
+
+  break1.low <- getX(glm1.low, t1) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break1")  
+
+  break1.mid <- getX(glm1.mid, t1) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "mid",
+           breakID = "break1")
+  
+  break1.high <- getX(glm1.high, t1) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "high",
+           breakID = "break1")
+  
+  break2.low <- getX(glm2.low, t2) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break2")  
+  
+  break2.mid <- getX(glm2.mid, t2) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "mid",
+           breakID = "break2")
+  
+  break2.high <- getX(glm2.high, t2) %>%
+    data.frame() %>%
+    select(gdd = 1) %>%
+    mutate(elev.class2 = "high",
+           breakID = "break2")
+  
+  # Join into data frame, convert elev.class2 to ordered factor, spread
+  breaks <- full_join(break1.low, break1.mid) %>%
+    full_join(break1.high) %>%
+    full_join(break2.low) %>%
+    full_join(break2.mid) %>%
+    full_join(break2.high) %>%
+    mutate(elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) %>%
+    spread(breakID, gdd)
+  
+  #
+  out <- data %>%
+    full_join(breaks) %>%
+    gather(caste, count, -c(site, date, year, q.prop, r.prop,
+                          gdd.cum, yday, elev.class, elev.class2, 
+                          management, transect, elev.mean, 
+                          lat, lon, break1, break2)) %>%
+  group_by(site, date) %>%
+  mutate(prop = count/sum(count))
+}
+
+# Find breakpoints on Julian scale
+breakpoints_yday <- function(x, year, t1, t2) {
+  
+  data <- filter(x, year == !!year)
+  
+  # Logistic regression for first break point (founding to buildup)
+  glm1.low <- glm(q.prop ~ yday,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "low"))
+  
+  glm1.mid <- glm(q.prop ~ yday,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "mid"))
+    
+  glm1.high <- glm(q.prop ~ yday,
+                   family = quasibinomial,
+                   data = filter(data, elev.class2 == "high"))
+  
+  # Logistic regression for second break point (buildup to reproductive)
+  glm2.low <- glm(r.prop ~ yday,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "low"))
+  
+  glm2.mid <- glm(r.prop ~ yday,
+                  family = quasibinomial,
+                  data = filter(data, elev.class2 == "mid"))
+    
+  glm2.high <- glm(r.prop ~ yday,
+                   family = quasibinomial,
+                   data = filter(data, elev.class2 == "high"))
+  
+  ### Extract gdd corresponding to desired proportion; based on https://stackoverflow.com/questions/32040504/regression-logistic-in-r-finding-x-value-predictor-for-a-particular-y-value
+  
+  getX <- function(x, y) {
+    (log(y/(1-y)) - coef(x)[1])/coef(x)[2]
+    }
+
+  break1.low <- getX(glm1.low, t1) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break1")  
+
+  break1.mid <- getX(glm1.mid, t1) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "mid",
+           breakID = "break1")
+  
+  break1.high <- getX(glm1.high, t1) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "high",
+           breakID = "break1")
+  
+  break2.low <- getX(glm2.low, t2) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break2")  
+  
+  break2.mid <- getX(glm2.mid, t2) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "mid",
+           breakID = "break2")
+  
+  break2.high <- getX(glm2.high, t2) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "high",
+           breakID = "break2")
+  
+  # Join into data frame, convert elev.class2 to ordered factor, spread
+  breaks <- full_join(break1.low, break1.mid) %>%
+    full_join(break1.high) %>%
+    full_join(break2.low) %>%
+    full_join(break2.mid) %>%
+    full_join(break2.high) %>%
+    mutate(elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) %>%
+    spread(breakID, day)
+  
+  #
+  out <- data %>%
+    full_join(breaks) %>%
+    gather(caste, count, -c(site, date, year, q.prop, r.prop,
+                          gdd.cum, yday, elev.class, elev.class2, 
+                          management, transect, elev.mean, 
+                          lat, lon, break1, break2)) %>%
+  group_by(site, date) %>%
+  mutate(prop = count/sum(count))
+}
+
+# Find Juian breakpoints across all elevations
+breakpoints_yday_all <- function(x, year, t1, t2) {
+  
+  data <- filter(x, year == !!year)
+  
+  # Logistic regression for first break point (founding to buildup)
+  glm1 <- glm(q.prop ~ yday,
+                  family = quasibinomial,
+                  data = data)
+
+  # Logistic regression for second break point (buildup to reproductive)
+  glm2 <- glm(r.prop ~ yday,
+                  family = quasibinomial,
+                  data = data)
+  
+  ### Extract day corresponding to desired proportion; based on https://stackoverflow.com/questions/32040504/regression-logistic-in-r-finding-x-value-predictor-for-a-particular-y-value
+  
+  getX <- function(x, y) {
+    (log(y/(1-y)) - coef(x)[1])/coef(x)[2]
+    }
+
+  break1 <- getX(glm1, t1) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break1") 
+  
+  break2 <- getX(glm2, t2) %>%
+    data.frame() %>%
+    select(day = 1) %>%
+    mutate(elev.class2 = "low",
+           breakID = "break2")  
+  
+  # Join into data frame, convert elev.class2 to ordered factor, spread
+  breaks <- full_join(break1, break2) %>%
+    spread(breakID, day)
+  
+  #
+  out <- data %>%
+    full_join(breaks) %>%
+    gather(caste, count, -c(site, date, year, q.prop, r.prop,
+                          gdd.cum, yday, elev.class, elev.class2, 
+                          management, transect, elev.mean, 
+                          lat, lon, break1, break2)) %>%
+  group_by(site, date) %>%
+  mutate(prop = count/sum(count))
+}
+
+# Binomial ggplot smoother
+binomial_smooth <- function(...) {
+  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"), se = FALSE, ...)
+}
+
+# Rare_net function: rarefies networks by iteratively subsampling more frequently sampled networks to match the transect count of the least frequently sampled one
+## group level
+rare_net_gp <- function(net, n, iter) {
+  
+  out <- data.frame()
+  
+  for(i in 1:iter) {
+    temp <- net %>%
+      select(site, date) %>%
+      unique() %>%
+      group_by(site) %>%
+      sample_n(n) %>% # drawn n sites at random
+      left_join(net) %>%
+      group_by(site, bb.sp, plant.sp) %>% # group by site, bee species, plant species
+      summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+      dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
+      data.frame() %>% # convert to data frame
+      frame2webs() %>% # convert to to bipartite web
+      map(grouplevel, weighted = TRUE) %>% # We probably care mainly about the BB level of the network
+      data.frame() %>%
+      t() %>%
+      data.frame() %>%
+      rownames_to_column() %>%
+      dplyr::select(site = rowname, everything()) %>%
+      as_tibble() %>%
+      mutate(iteration = rep(i, n()))
+    
+    out <- bind_rows(out, temp)
+  } 
+  
+  out <- out %>%
+      gather(metric, value, -c(site, iteration)) %>% # get mean value across iterations for each metric
+      group_by(site, metric) %>%
+      summarize(value = mean(value)) %>%
+      left_join(site_data)
+}
+
+# species level
+rare_net_sp <- function(net, n, iter) {
+  
+  out <- data.frame()
+  
+  for(i in 1:iter) {
+    temp <- net %>%
+      select(site, date) %>%
+      unique() %>%
+      group_by(site) %>%
+      sample_n(n) %>%
+      left_join(net) %>%
+      group_by(site, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
+      summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+      dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
+      data.frame() %>% # convert to data frame
+      frame2webs() %>% # convert to to bipartite web
+      map(specieslevel, level = "higher") %>%
+      map(rownames_to_column) %>%
+      map(as_tibble) %>%
+      bind_rows(.id = "site") %>% # Collapse list into big data frame
+      rename(sp = rowname) %>%
+      mutate(iteration = rep(i, n()))
+    
+    out <- bind_rows(out, temp)
+  } 
+  out <- out %>%
+    gather(metric, value, -c(sp, site, iteration)) %>% # get mean value across iterations for each metric
+    group_by(sp, site, metric) %>%
+    summarize(value = mean(value)) %>%
+    left_join(site_data) %>%
+    left_join(bb_traits, by = c("sp" = "bb.sp"))
+}
+
+# network level
+rare_net_nt <- function(net, n, iter) {
+  
+  out <- data.frame()
+  
+  for(i in 1:iter) {
+    temp <- net %>%
+      select(site, date) %>%
+      unique() %>%
+      group_by(site) %>%
+      sample_n(n) %>%
+      left_join(net) %>%
+      group_by(site, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
+      summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+      dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
+      data.frame() %>% # convert to data frame
+      frame2webs() %>% # convert to to bipartite web
+      map(networklevel, weighted = TRUE) %>% # We probably care mainly about the BB level of the network
+      data.frame() %>%
+      t() %>%
+      data.frame() %>%
+      rownames_to_column() %>%
+      dplyr::select(site = rowname, everything()) %>%
+      as_tibble() %>%
+      mutate(iteration = rep(i, n()))
+    
+    out <- bind_rows(out, temp)
+  } 
+  out <- out  %>%
+      gather(metric, value, -c(site, iteration)) %>% # get mean value across iterations for each metric
+      group_by(site, metric) %>%
+      summarize(value = mean(value)) %>%
+      left_join(site_data)
+}
+```
+
+### Load site data
+```{r}
+site_data <- read_csv("./processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
+  mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
+         elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) # turn elav.class into an ordered factor
+```
+
+### Climate data
+```{r}
+gdd <- read_csv("./processed_data/climate.csv") %>%
+  mutate(year = factor(year)) %>%
+  select(site, date, gdd.cum)
+```
+
+### Colony phase breakpoint analysis
+```{r}
+castes <- read_csv("./processed_data/network.csv") %>%
+  group_by(site, date, year, caste) %>%
+  summarize(caste.count = n()) %>%
+  spread(caste, caste.count) %>%
+  replace(is.na(.), 0) %>%
+  mutate(queen = oldqueen + queen,
+         reproductive = male + youngqueen,
+         q.prop = queen/(queen+worker+reproductive),
+         r.prop = reproductive/(queen+worker+reproductive)) %>%
+  select(-oldqueen, -youngqueen, -male) %>%
+  left_join(gdd, by = c("site", "date")) %>%
+  left_join(site_data, by = c("site")) %>%
+  arrange(gdd.cum) %>%
+  mutate(yday = yday(date))
+
+breaks_2012_gdd <- breakpoints_gdd(castes, 2012, t1 = 0.75, t2 = 0.1)
+breaks_2011_gdd <- breakpoints_gdd(castes, 2011, t1 = 0.75, t2 = 0.1)
+breaks_2010_gdd <- breakpoints_gdd(castes, 2010, t1 = 0.75, t2 = 0.1)
+
+breaks_2012_yday <- breakpoints_yday(castes, 2012, t1 = 0.75, t2 = 0.1)
+breaks_2011_yday <- breakpoints_yday(castes, 2011, t1 = 0.75, t2 = 0.1)
+breaks_2010_yday <- breakpoints_yday(castes, 2010, t1 = 0.75, t2 = 0.1)
+
+breaks_gdd_summary <- full_join(breaks_2012_gdd, 
+                                 breaks_2011_gdd) %>%
+  full_join(breaks_2010_gdd)
+
+write_csv(breaks_gdd_summary, "./output/breaks_gdd.csv")
+
+breaks_yday_summary <- full_join(breaks_2012_yday, 
+                                 breaks_2011_yday) %>%
+  full_join(breaks_2010_yday)
+
+write_csv(breaks_yday_summary, "./output/breaks_yday.csv")
+
+breaks_yday <- bind_rows(breaks_2012_yday, breaks_2011_yday, breaks_2010_yday) %>%
+  ungroup() %>%
+  select(site, year, break1.yday = break1, break2.yday = break2) %>%
+  unique()
+
+breaks_gdd <- bind_rows(breaks_2012_gdd, breaks_2011_gdd, breaks_2010_gdd) %>%
+  ungroup() %>%
+  select(site, year, break1.gdd = break1, break2.gdd = break2) %>%
+  unique()
+
+breaks <- full_join(breaks_yday, breaks_gdd, by = c("site", "year")) %>%
+  mutate(year = factor(year))
+```
+
+### Plot phase breakpoints
+```{r}
+ggplot(breaks_yday_summary, aes(yday, prop, color = caste)) +
+  geom_point() +
+  binomial_smooth(formula = y ~ splines::ns(x, 2)) +
+  geom_vline(aes(xintercept = break1), linetype = "dashed") +
+  geom_vline(aes(xintercept = break2), linetype = "dashed") +
+  facet_grid(elev.class2 ~ year) +
+  xlab("Julian day") +
+  ylab("Proportional abundance")
+
+ggplot(breaks_gdd_summary, aes(gdd.cum, prop, color = caste)) +
+  geom_point() +
+  binomial_smooth(formula = y ~ splines::ns(x, 2)) +
+  geom_vline(aes(xintercept = break1), linetype = "dashed") +
+  geom_vline(aes(xintercept = break2), linetype = "dashed") +
+  facet_grid(elev.class2 ~ year) +
+  xlab("GDD") +
+  ylab("Proportional abundance")
+```
+
+### Load network and survey data
+```{r}
+bb_traits <- read_csv("./processed_data/bb_traits.csv") %>%
+  select(subgenus, bb.sp, pbl.w, pbl.w.class)
+
+net <- read_csv("./processed_data/network.csv") %>%
+  unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
+  unite(site.date, site, date, sep = "_", remove = FALSE) %>%
+  mutate(year = factor(year)) %>% # convert year to factor
+  full_join(bb_traits, by = c("bb.sp" = "bb.sp")) %>%
+  left_join(site_data, by = "site") %>%
+  left_join(gdd, by = c("site", "date")) %>%
+  left_join(breaks, by = c("site", "year")) %>%
+  ungroup() %>%
+  mutate(phase = case_when(
+    gdd.cum < break1.gdd ~ "founding",
+    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
+    gdd.cum > break2.gdd ~ "reproductive"
+  )) %>%
+  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
+  arrange(site, date)
+
+survey <- read_csv("./processed_data/floral_survey.csv") %>%
+  mutate(year = factor(year)) %>% # convert year to factor
+  semi_join(net, by = c("site", "plant.sp")) %>% # Consider only plants visited at a given site-date
+  left_join(gdd, by = c("site", "date")) %>%
+  left_join(breaks, by = c("site", "year")) %>%
+  ungroup() %>%
+  mutate(phase = case_when(
+    gdd.cum < break1.gdd ~ "founding",
+    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
+    gdd.cum > break2.gdd ~ "reproductive"
+  )) %>%
+  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
+  arrange(site, date)
+```
+
+### BB density, diversity, and packing
+```{r eval=FALSE, echo=FALSE}
+### Per-transect Bombus density
+bb_dens <- net %>%
+  group_by(site, date, gdd.cum, year, elev.class2, elev.mean, break1.gdd, break2.gdd) %>%
+  summarize(bb.dens = n()) 
+
+### Per-transect Bombus richness
+bb_rich <- net %>%
+  group_by(site, date, bb.sp, gdd.cum, year, elev.class2, elev.mean, break1.gdd, break2.gdd) %>%
+  summarize(bb.rich = n())
+
+### Per-transect floral density
+fl_dens <- survey %>%
+  group_by(site, date, gdd.cum, year, break1.gdd, break2.gdd) %>%
+  summarize(fl.dens = sum(flower.cover),
+            log.fl.dens = log(sum(flower.cover)))
+
+### Per-transect floral richness
+fl_rich <- survey %>%
+  filter(flower.cover > 0) %>%
+  group_by(site, date, gdd.cum, year, break1.gdd, break2.gdd) %>%
+  summarize(fl.rich = n())
+
+### Join BB density and floral cover
+dens_div <- bb_dens %>%
+  full_join(bb_rich) %>%
+  full_join(fl_dens) %>% # Note that there is not perfect alignment in site-dates between the network observations and the floral surveying, so this join will cause some NAs that will need to be removed, causing some transects to drop out of the dataset
+  full_join(fl_rich) %>%
+  na.omit() %>%
+  ungroup %>%
+  mutate(bb.per.fl = bb.dens/fl.dens,
+         site = factor(site),
+         yday = yday(date),
+         week = week(date),
+         month = month(date)) %>%
+  ungroup() %>%
+  mutate(phase = case_when(
+    gdd.cum < break1.gdd ~ "founding",
+    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
+    gdd.cum > break2.gdd ~ "reproductive"
+  )) %>%
+  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive")))
+
+
+ggplot(dens_div, aes(log.fl.dens, bb.dens, color = year)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_grid(elev.class2 ~ phase, scales = "free") +
+  ylab("BB density") +
+  xlab("log(floral density)")
+
+ggplot(dens_div, aes(log.fl.dens, bb.rich, color = year)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_grid(elev.class2 ~ phase, scales = "free") +
+  ylab("BB richness") +
+  xlab("log(floral density)")
+
+ggplot(dens_div, aes(fl.rich, bb.dens, color = year)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_grid(elev.class2 ~ phase, scales = "free") +
+  ylab("BB density") +
+  xlab("Floral richness")
+
+ggplot(dens_div, aes(fl.rich, bb.rich, color = year)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_grid(elev.class2 ~ phase, scales = "free") +
+  ylab("BB richness") +
+  xlab("Floral richness")
+
+ggplot(dens_div, aes(fl.rich, log.fl.dens, color = year)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_grid(elev.class2 ~ phase, scales = "free") +
+  ylab("log(floral density") +
+  xlab("Floral richness")
+
+ggplot(dens_div, aes(fl.rich, bb.per.fl, color = year)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_grid(elev.class2 ~ phase, scales = "free") +
+  ylab("BB packing") +
+  xlab("Florla richness")
+
+ggplot(dens_div, aes(elev.mean, bb.per.fl, color = year)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~phase, scales = "free") +
+  ylab("BB packing") +
+  xlab("Elevation")
+
+ggplot(dens_div, aes(gdd.cum, bb.per.fl)) +
+  geom_point() +
+  #geom_smooth(method = "lm", se = TRUE) +
+  geom_smooth() +
+  facet_grid(year~elev.class2, scales = "free") +
+  ylab("BB packing") +
+  xlab("GDD")
+
+ggplot(dens_div, aes(gdd.cum, sqrt(bb.per.fl))) +
+  geom_point() +
+  #geom_smooth(method = "lm", se = TRUE) +
+  geom_smooth() +
+  facet_grid(elev.class2 ~ year, scales = "free") +
+  ylab("BB packing") +
+  xlab("GDD")
+
+ggplot(dens_div, aes(yday, sqrt(bb.per.fl))) +
+  geom_point() +
+  #geom_smooth(method = "lm", se = TRUE) +
+  geom_smooth() +
+  facet_grid(elev.class2 ~ year, scales = "free") +
+  ylab("BB packing") +
+  xlab("Julian day")
+
+ggplot(dens_div, aes(elev.mean, sqrt(bb.rich))) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(year ~ phase)
+
+ggplot(dens_div, aes(elev.mean, bb.dens)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(year ~ phase)
+```
+
+### Rarefied network analysis
+```{r}
+### Determine the minimum transect count per site*year to set rarefaction sampling
+transects <- net %>%
+  select(site, year, date) %>%
+  unique()
+
+transects_per_siteyear <- transects %>%
+  group_by(site, year) %>%
+  summarize(transects = n())
+
+min_transects_per_year <- transects_per_siteyear %>%
+  group_by(year) %>%
+  summarize(min_transects = min(transects))
+
+### Create yearly subsets to feed to rare_net
+net_2012 <- filter(net, year == "2012")
+net_2011 <- filter(net, year == "2011")
+net_2010 <- filter(net, year == "2010")
+```
+
+### group level
+```{r}
+#### Create rarified networks and tabulate grouplevel metrics
+groupmet_rare_2012 <- rare_net_gp(net_2012, n = 9, iter = 20)
+groupmet_rare_2011 <- rare_net_gp(net_2011, n = 4, iter = 20)
+groupmet_rare_2010 <- rare_net_gp(net_2010, n = 3, iter = 20)
+
+### Plot
+ggplot(filter(groupmet_rare_2012, metric == "niche.overlap.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(filter(groupmet_rare_2011, metric == "niche.overlap.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(filter(groupmet_rare_2010, metric == "niche.overlap.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+
+ggplot(filter(groupmet_rare_2012, metric == "C.score.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(filter(groupmet_rare_2011, metric == "C.score.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(filter(groupmet_rare_2010, metric == "C.score.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+
+ggplot(filter(groupmet_rare_2012, metric == "V.ratio.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(filter(groupmet_rare_2011, metric == "V.ratio.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(filter(groupmet_rare_2010, metric == "V.ratio.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+
+ggplot(filter(groupmet_rare_2012, metric == "discrepancy.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(filter(groupmet_rare_2011, metric == "discrepancy.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(filter(groupmet_rare_2010, metric == "discrepancy.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+
+ggplot(filter(groupmet_rare_2012, metric == "generality.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(filter(groupmet_rare_2011, metric == "generality.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(filter(groupmet_rare_2010, metric == "generality.HL"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+```
+
+### species level
+```{r}
+### Species level
+spmet_2012 <- rare_net_sp(net_2012, 9, 20) 
+spmet_2012_mean <- spmet_2012 %>%
+  group_by(site, elev.mean, metric) %>%
+  summarize(mean.value = mean(value))
+
+spmet_2011 <- rare_net_sp(net_2011, 4, 20) %>%
+  group_by(site, elev.mean, iteration) %>%
+  summarize(mean.d = mean(d))
+spmet_2010 <- rare_net_sp(net_2010, 3, 20) %>%
+  group_by(site, elev.mean, iteration) %>%
+  summarize(mean.d = mean(d))
+
+ggplot(filter(spmet_2012_mean, metric == "d"), aes(elev.mean, mean.value)) +
+  geom_point() +
+  geom_smooth() 
+
+ggplot(spmet_2011, aes(elev.mean, mean.d)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~iteration)
+
+ggplot(spmet_2010, aes(elev.mean, mean.d)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~iteration)
+
+```
+
+### network level
+```{r}
+#### Create rarified networks and tabulate grouplevel metrics
+netmet_rare_2012 <- rare_net_nt(net_2012, n = 9, iter = 20)
+netmet_rare_2011 <- rare_net_nt(net_2011, n = 4, iter = 20)
+netmet_rare_2010 <- rare_net_nt(net_2010, n = 3, iter = 20)
+
+### Plot
+ggplot(filter(netmet_rare_2012, metric == "H2"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(filter(netmet_rare_2011, metric == "H2"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(filter(netmet_rare_2010, metric == "H2"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth()
+
+
+ggplot(netmet_rare_2012, aes(elev.mean, number.of.compartments)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~iteration)
+
+ggplot(netmet_rare_2011, aes(elev.mean, number.of.compartments)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~iteration)
+
+ggplot(netmet_rare_2010, aes(elev.mean, number.of.compartments)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~iteration)
+
+ggplot(netmet_rare_2012, aes(elev.mean, web.asymmetry)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~iteration)
+
+ggplot(netmet_rare_2011, aes(elev.mean, web.asymmetry)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~iteration)
+
+ggplot(netmet_rare_2010, aes(elev.mean, web.asymmetry)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~iteration)
+```
+
+
+### Let's look at how abundance varies on a per-species basis
+```{r}
+species <- net %>%
+  group_by(site, date, year, dayofyear, gdd.cum, phase, elev.mean, elev.class2, bb.sp, subgenus, pbl.w, pbl.w.class) %>%
+  summarize(abund = n()) %>%
+  group_by(site, date) %>%
+  mutate(prop = abund/sum(abund))
+
+subgenera <- net %>%
+  group_by(site, date, year, dayofyear, gdd.cum, phase, elev.mean, elev.class2, subgenus, pbl.w, pbl.w.class) %>%
+  summarize(abund = n()) %>%
+  group_by(site, date) %>%
+  mutate(prop = abund/sum(abund))
+
+ggplot(species, aes(dayofyear, abund)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_grid(year ~ bb.sp)
+
+ggplot(species, aes(dayofyear, prop)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_grid(year ~ bb.sp)
+
+ggplot(species, aes(elev.mean, abund)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = FALSE, span = 1) +
+  facet_grid(year ~ bb.sp, scales = "free")
+
+ggplot(species, aes(elev.mean, prop)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = FALSE, span = 1) +
+  facet_grid(year ~ bb.sp, scales = "free")
+
+
+ggplot(subgenera, aes(dayofyear, abund)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_grid(year ~ subgenus)
+
+ggplot(subgenera, aes(dayofyear, prop)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_grid(year ~ subgenus)
+
+ggplot(subgenera, aes(elev.mean, abund)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_grid(year ~ subgenus)
+
+ggplot(subgenera, aes(elev.mean, prop)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = FALSE, span = 1) +
+  facet_grid(year ~ subgenus)
+
+### Pairs analysis
+species_pairs <- species %>%
+  select(site, year, date, bb.sp, abund) %>%
+  ungroup() %>%
+  spread(bb.sp, abund) %>%
+  replace(is.na(.), 0) 
+
+ggplot(species_pairs, aes(pasc, prat)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~year)
+
+ggpairs(species_pairs, columns = c("bss", "camp", "flav", 
+                                   "gers", "hort", "humi",
+                                   "hypn", "jone", "lapi",
+                                   "mend", "mont", "muci",
+                                   "pasc", "prat", "psyt",
+                                   "pyre", "soro", "wurf"))
+
+ggpairs(species, columns = c("bb.sp", "abund"),
+        cardinality_threshold = 20)
+
+```
+
+### Plot some dang networks
+```{r}
+web <- net %>%
+  group_by(year, elev.class2, phase, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
+  summarize(freq = n()) %>%
+  unite(webID, c(year, elev.class2, phase), sep = "_") %>% # calculate interaction frequency per species pair within each site
+  dplyr::select(higher = bb.sp, lower = plant.sp, webID, freq) %>% # rename columns to match bipartite's expectations
+  data.frame() %>% # convert to data frame
+  frame2webs()  # convert to to bipartite web
+
+visweb(web[[1]])
+visweb(web[[2]])
+```

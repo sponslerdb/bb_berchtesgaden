@@ -39,7 +39,7 @@ network <- read_delim("./raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim 
          month = month(temp.date),
          date = make_date(year, month, day)) %>%
   mutate(bb.sp = str_replace_all(bb.sp, c("luco" = "bss","terr" = "bss", "telu" = "bss", "cryp" = "bss", 
-                                          "sylv" = "psyt", "quad" = "psyt")),
+                                          "sylv" = "psit", "quad" = "psit", "camp" = "psit", "flav" = "psit", "psyt" = "psit")),
          bb.sp.lat = str_replace_all(bb.sp.lat, c("Bombus terrestris/lucorum" = "Bombus ss",
                                         "Bombus terrestris" = "Bombus ss",
                                         "Bombus lucorum" = "Bombus ss",
@@ -47,7 +47,9 @@ network <- read_delim("./raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim 
                                         "Bombus cryptarum" = "Bombus ss",
                                         "B. barbutellus, B. bohemicus, B. sylvestris" = "Psithyrus",
                                         "Bombus sylvestris" = "Psithyrus",
-                                        "Bombus quadricolor" = "Psithyrus")))
+                                        "Bombus quadricolor" = "Psithyrus",
+                                        "Bombus campestris" = "Psithyrus",
+                                        "Bombus flavidus" = "Psithyrus")))
 
 write_csv(network, "./processed_data/network.csv")
 
