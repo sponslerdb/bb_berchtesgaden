@@ -30,7 +30,7 @@ The study of competition as a behavioral phenomenon, however, is empirically and
 
 Previous studies of pollinator and plant communities along elevation gradients have tended to find decreased specialization and/or increased niche overlap at high elevation, which is often interpreted as an indication of reduced interspecific competition, though other mechanisms cannot be excluded [@Hoiss2012-sn; @Miller-Struttmann2014-wz; @Hoiss2015-gv; @Classen2020-nh]. If, in fact, competition in pollinator communities is attenuated at high elevation, this would be broadly consistent with the "stress-gradient hypothesis", which posits that prevailing biotic interactions shift from negative (e.g. competition) to positive (e.g. facilitation) along ascending gradients of environmental stress [@Bertness1994-zx]. As applied to pollinator communities, the logic would be that environmental stresses at high elevation, such as low temperatures and short growing seasons, suppress pollinator densities more strongly than the densities of their shared resources, thus causing a per-capita increase in food availability and a corresponding relaxation of competition. 
 
-In this study, we analyze patterns of resource partitioning in a bumble- bee-wildflower network sampled along an elevation gradient in the Berchtesgadener Alps of southeastern Germany. We first analyze species-level and group-level metrics of specialization and niche overlap to determine whether the bumble bees in our study system exihibit the expected pattern of decreased specialization and increased niche overlap at high elevation. To evaluate the plausibility of intepreting specialization and niche overlap as indices of competition, we then use independent floral surveying data to determine whether observed patterns in specialization and niche overlap correspond to variation in per-capita resource availability. Finally, we use the within-year temporal resolution of our dataset to test for reciprocal population dynamics of species within sites as a direct indication of interspecific competition. From these results, we derive predictions concerning the effects of climate change on competition as a constraint on bumble bee species and communities.  
+In this study, we analyze patterns of resource partitioning in a bumble- bee-wildflower network sampled along an elevation gradient in the Berchtesgadener Alps of southeastern Germany. We first analyze species- and group-level network metrics of specialization and niche overlap to determine whether the bumble bees in our study system exihibit the expected pattern of decreased specialization and increased niche overlap at high elevation. To evaluate the plausibility of intepreting specialization and niche overlap as indices of competition, we then use independent floral surveying data to determine whether observed patterns in specialization and niche overlap correspond to variation in per-capita resource availability. Finally, we use the within-year temporal resolution of our dataset to test for reciprocal population dynamics of species within sites as a direct indication of interspecific competition. From these results, we derive predictions concerning the effects of climate change on competition as a constraint on bumble bee species and communities.  
 
 
 
@@ -50,7 +50,6 @@ To delimit colony phases, we fit binomial regression models to the proportional 
 
 **Results**\
 *Colony life cycle analysis.*  
-
 ```{r, echo = FALSE, message = FALSE, fig.cap = "**Figure 2:** Colony life cycle phases delimited by the proportional abundances of foundress queens and new reproductives. Dashed lines indicate where foundress queen and reproductive proportional abundances cross the thresholds of 0.75 and 0.10, respectively. Binomial regression curves are fit to the proportional abundances, with a spline term added to capture the unimodal pattern of worker abundance (not used in calculating breakpoints)."}
 breaks_yday_summary <- read_csv("./output/breaks_yday.csv") %>%
   mutate(elev.class2 = factor(elev.class2, levels = c("high", "mid", "low")))
@@ -82,13 +81,14 @@ ggplot(breaks_yday_summary, aes(yday, prop, color = caste)) +
 ```
 The colony life cycle intervals captured by our sampling varied across years, but were consistent across elevational classes within years, validating the comparison of foraging patterns along our elevation gradient **(Figure 2)**. In 2010, all three colony phases are represented in our samples, but the founding phase appears somewhat truncated, suggesting that sampling began after colony founding was already underway. In 2011, the founding phase was missed entirely, with sampling beginning mid-way through the build-up phase. In 2012, we achieved the longest and densest sampling, yielding good representation of all three colony phases. It is worth noting that as elevation increases, colony lifecycle is delayed in onset and contracts in duration, but the phase breakpoints remain approximately equal (on a Julian time scale) across elevation classes.   
 
+*Specialization and niche overlap*. 
 
 *Resource limitation*.   Per-transect bumble bee abundance is positively correlated with per-transect floral cover (log-transformed). To the extent, therefore, that our metrics of bumble bee and floral density reflect true site-scale abundance and not just co-aggregation, this pattern suggests that bumble bee
 density is resource limited, particularly at sites with very low floral density. Importantly, this approach does not distinguish between inter- and intraspecies (or even intra-colony) competition [@Ranta1981-vx].
 
 Note, moreover, that this relationship varies seasonally. For now, we will use Julian month as a stand-in for GDD, which we'll use once we have analyzed our weather station data. Early in the year, the relationship between BB density and floral density is weak; this makes sense because colonies are just getting established during the first couple of months, and BB density is more limited by the autocorrelation component of colony size (bigger colonies can raise more brood) than by floral resource availability. In mid- to late-season, however, BB density becomes strongly dependent on floral resource density. Interestingly, in September, the relationship is strongest and floral density is also lowest.
 
-
+*Reciprocal population dynamics*. 
 
 *Colony life cycle analysis.* 
 

@@ -255,42 +255,6 @@ binomial_smooth <- function(...) {
 }
 
 # Rare_net function: rarefies networks by iteratively subsampling more frequently sampled networks to match the transect count of the least frequently sampled one
-## group level
-rare_net_gp <- function(net, n, iter) {
-  
-  out <- data.frame()
-  
-  for(i in 1:iter) {
-    temp <- net %>%
-      select(site, date) %>%
-      unique() %>%
-      group_by(site) %>%
-      sample_n(n) %>% # drawn n sites at random
-      left_join(net) %>%
-      group_by(site, bb.sp, plant.sp) %>% # group by site, bee species, plant species
-      summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
-      dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
-      data.frame() %>% # convert to data frame
-      frame2webs() %>% # convert to to bipartite web
-      map(grouplevel, weighted = TRUE) %>% # We probably care mainly about the BB level of the network
-      data.frame() %>%
-      t() %>%
-      data.frame() %>%
-      rownames_to_column() %>%
-      dplyr::select(site = rowname, everything()) %>%
-      as_tibble() %>%
-      mutate(iteration = rep(i, n()))
-    
-    out <- bind_rows(out, temp)
-  } 
-  
-  out <- out %>%
-      gather(metric, value, -c(site, iteration)) %>% # get mean value across iterations for each metric
-      group_by(site, metric) %>%
-      summarize(value = mean(value)) %>%
-      left_join(site_data)
-}
-
 # species level
 rare_net_sp <- function(net, n, iter) {
   
@@ -305,10 +269,11 @@ rare_net_sp <- function(net, n, iter) {
       left_join(net) %>%
       group_by(site, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
       summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+      filter(freq > 1) %>% # remove singletons
       dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
       data.frame() %>% # convert to data frame
       frame2webs() %>% # convert to to bipartite web
-      map(specieslevel, level = "higher") %>%
+      map(specieslevel, level = "higher", index = c("d", "species specificity")) %>%
       map(rownames_to_column) %>%
       map(as_tibble) %>%
       bind_rows(.id = "site") %>% # Collapse list into big data frame
@@ -339,10 +304,11 @@ rare_net_nt <- function(net, n, iter) {
       left_join(net) %>%
       group_by(site, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
       summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+      #filter(freq > 1) %>%
       dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
       data.frame() %>% # convert to data frame
       frame2webs() %>% # convert to to bipartite web
-      map(networklevel, weighted = TRUE) %>% # We probably care mainly about the BB level of the network
+      map(networklevel, weighted = TRUE, level = "higher", index = c("web asymmetry", "weighted NODF", "niche overlap", "C score")) %>% # We probably care mainly about the BB level of the network
       data.frame() %>%
       t() %>%
       data.frame() %>%
@@ -484,6 +450,40 @@ survey <- read_csv("./processed_data/floral_survey.csv") %>%
   mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
   arrange(site, date)
 ```
+### Floral turnover ~ elevation
+```{r}
+fl_sp_elev <- survey %>%
+  group_by(site, plant.sp) %>%
+  summarize(abund = sum(flower.cover)) %>%
+  left_join(site_data) %>%
+  semi_join(net, by = "plant.sp") %>%
+  group_by(plant.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor)
+
+fl_sp_use_elev <- net %>%
+  group_by(site, elev.mean, plant.sp) %>%
+  summarize(abund = n()) %>%
+  group_by(plant.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor)
+
+ggplot(fl_sp_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  #geom_smooth() +
+  geom_vline(aes(xintercept = elev.floor)) +
+  geom_vline(aes(xintercept = elev.ceiling)) +
+  facet_wrap(~reorder(plant.sp, elev.range), scales = "free_y")
+
+ggplot(fl_sp_use_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  #geom_smooth() +
+  geom_vline(aes(xintercept = elev.floor)) +
+  geom_vline(aes(xintercept = elev.ceiling)) +
+  facet_wrap(~reorder(plant.sp, elev.range), scales = "free_y")
+```
 
 ### BB density, diversity, and packing
 ```{r eval=FALSE, echo=FALSE}
@@ -572,10 +572,11 @@ ggplot(dens_div, aes(fl.rich, bb.per.fl, color = year)) +
   ylab("BB packing") +
   xlab("Florla richness")
 
-ggplot(dens_div, aes(elev.mean, bb.per.fl, color = year)) +
+ggplot(dens_div, aes(elev.mean, bb.per.fl)) +
   geom_point() +
-  geom_smooth(method = "lm", se = TRUE) +
-  facet_wrap(~phase, scales = "free") +
+  #geom_smooth(method = "lm", se = TRUE) +
+  geom_smooth() +
+  facet_grid(year~phase, scales = "free") +
   ylab("BB packing") +
   xlab("Elevation")
 
@@ -633,162 +634,75 @@ min_transects_per_year <- transects_per_siteyear %>%
 net_2012 <- filter(net, year == "2012")
 net_2011 <- filter(net, year == "2011")
 net_2010 <- filter(net, year == "2010")
-```
 
-### group level
-```{r}
-#### Create rarified networks and tabulate grouplevel metrics
-groupmet_rare_2012 <- rare_net_gp(net_2012, n = 9, iter = 20)
-groupmet_rare_2011 <- rare_net_gp(net_2011, n = 4, iter = 20)
-groupmet_rare_2010 <- rare_net_gp(net_2010, n = 3, iter = 20)
+### Demonstrate that the distribution of interaction frequencies does not differ across elevation classes; in other words, no systematic bias is introduced to the network analysis due to uneven frequency of species with few observations
+net_freq <- net %>%
+  group_by(site, dayofyear, year, bb.sp, elev.mean, elev.class2) %>%
+  summarize(freq = n())
 
-### Plot
-ggplot(filter(groupmet_rare_2012, metric == "niche.overlap.HL"), aes(elev.mean, value)) +
+ggplot(net_freq, aes(elev.class2, freq)) +
+  geom_boxplot() +
+  facet_wrap(~year)
+
+### Demonstrate that, while community composition may vary across sites, there is not evidence that any species is completely excluded from any point along our elevation gradient.
+bb_elev <- net %>% 
+  group_by(bb.sp, elev.mean) %>%
+  summarize(abund = n())
+
+ggplot(bb_elev, aes(elev.mean, bb.sp, color = log(abund))) +
+  geom_point()
+
+ggplot(bb_elev, aes(elev.mean, abund)) +
   geom_point() +
-  geom_smooth()
+  facet_wrap(~bb.sp, scales = "free_y")
 
-ggplot(filter(groupmet_rare_2011, metric == "niche.overlap.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-ggplot(filter(groupmet_rare_2010, metric == "niche.overlap.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-
-ggplot(filter(groupmet_rare_2012, metric == "C.score.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-ggplot(filter(groupmet_rare_2011, metric == "C.score.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-ggplot(filter(groupmet_rare_2010, metric == "C.score.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-
-ggplot(filter(groupmet_rare_2012, metric == "V.ratio.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-ggplot(filter(groupmet_rare_2011, metric == "V.ratio.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-ggplot(filter(groupmet_rare_2010, metric == "V.ratio.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-
-ggplot(filter(groupmet_rare_2012, metric == "discrepancy.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-ggplot(filter(groupmet_rare_2011, metric == "discrepancy.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-ggplot(filter(groupmet_rare_2010, metric == "discrepancy.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-
-ggplot(filter(groupmet_rare_2012, metric == "generality.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-ggplot(filter(groupmet_rare_2011, metric == "generality.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-ggplot(filter(groupmet_rare_2010, metric == "generality.HL"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-```
-
-### species level
-```{r}
 ### Species level
-spmet_2012 <- rare_net_sp(net_2012, 9, 20) 
-spmet_2012_mean <- spmet_2012 %>%
-  group_by(site, elev.mean, metric) %>%
-  summarize(mean.value = mean(value))
-
+spmet_2012 <- rare_net_sp(net_2012, 9, 20) %>%
+  mutate(year = factor(rep("2012", n())))
 spmet_2011 <- rare_net_sp(net_2011, 4, 20) %>%
-  group_by(site, elev.mean, iteration) %>%
-  summarize(mean.d = mean(d))
+  mutate(year = factor(rep("2011", n())))  
 spmet_2010 <- rare_net_sp(net_2010, 3, 20) %>%
-  group_by(site, elev.mean, iteration) %>%
-  summarize(mean.d = mean(d))
+  mutate(year = factor(rep("2010", n())))
 
-ggplot(filter(spmet_2012_mean, metric == "d"), aes(elev.mean, mean.value)) +
-  geom_point() +
-  geom_smooth() 
+spmet <- bind_rows(spmet_2012, spmet_2011, spmet_2010)
 
-ggplot(spmet_2011, aes(elev.mean, mean.d)) +
-  geom_point() +
-  geom_smooth() +
-  facet_wrap(~iteration)
+### Network- and group-level
+netmet_rare_2012 <- rare_net_nt(net_2012, n = 9, iter = 20) %>%
+  mutate(year = factor(rep("2012", n())))
+netmet_rare_2011 <- rare_net_nt(net_2011, n = 4, iter = 20)  %>%
+  mutate(year = factor(rep("2011", n())))
+netmet_rare_2010 <- rare_net_nt(net_2010, n = 3, iter = 20) %>%
+  mutate(year = factor(rep("2010", n())))
 
-ggplot(spmet_2010, aes(elev.mean, mean.d)) +
-  geom_point() +
-  geom_smooth() +
-  facet_wrap(~iteration)
-
-```
-
-### network level
-```{r}
-#### Create rarified networks and tabulate grouplevel metrics
-netmet_rare_2012 <- rare_net_nt(net_2012, n = 9, iter = 20)
-netmet_rare_2011 <- rare_net_nt(net_2011, n = 4, iter = 20)
-netmet_rare_2010 <- rare_net_nt(net_2010, n = 3, iter = 20)
+netmet <- bind_rows(netmet_rare_2012, 
+                    netmet_rare_2011, 
+                    netmet_rare_2010) %>%
+  mutate(metric = factor(metric, levels = c("web.asymmetry",
+                                            "weighted.NODF",
+                                            "niche.overlap.HL", 
+                                            "C.score.HL")))
 
 ### Plot
-ggplot(filter(netmet_rare_2012, metric == "H2"), aes(elev.mean, value)) +
+ggplot(spmet_2012, aes(elev.mean, value, color = metric)) +
   geom_point() +
-  geom_smooth()
-
-ggplot(filter(netmet_rare_2011, metric == "H2"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-ggplot(filter(netmet_rare_2010, metric == "H2"), aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-
-ggplot(netmet_rare_2012, aes(elev.mean, number.of.compartments)) +
-  geom_point() +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
   geom_smooth() +
-  facet_wrap(~iteration)
+  facet_wrap(~sp, scales = "free")
 
-ggplot(netmet_rare_2011, aes(elev.mean, number.of.compartments)) +
+ggplot(spmet_2011, aes(elev.mean, value, color = metric)) +
   geom_point() +
-  geom_smooth() +
-  facet_wrap(~iteration)
+  geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  facet_wrap(~sp, scales = "free")
 
-ggplot(netmet_rare_2010, aes(elev.mean, number.of.compartments)) +
+ggplot(spmet_2010, aes(elev.mean, value, color = metric)) +
   geom_point() +
-  geom_smooth() +
-  facet_wrap(~iteration)
+  geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  facet_wrap(~sp, scales = "free")
 
-ggplot(netmet_rare_2012, aes(elev.mean, web.asymmetry)) +
+ggplot(netmet, aes(elev.mean, value)) +
   geom_point() +
-  geom_smooth() +
-  facet_wrap(~iteration)
-
-ggplot(netmet_rare_2011, aes(elev.mean, web.asymmetry)) +
-  geom_point() +
-  geom_smooth() +
-  facet_wrap(~iteration)
-
-ggplot(netmet_rare_2010, aes(elev.mean, web.asymmetry)) +
-  geom_point() +
-  geom_smooth() +
-  facet_wrap(~iteration)
+  geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  facet_grid(metric~year, scales = "free")
 ```
 
 
