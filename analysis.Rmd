@@ -6,6 +6,8 @@ output: html_document
 ### Prepare environment
 ```{r setup, include=FALSE}
 library(bipartite)
+library(mgcv)
+library(mgcViz)
 library(lme4)
 library(lmerTest)
 library(tidyverse)
@@ -808,6 +810,18 @@ ggplot(abund_div, aes(elev.mean, web.asymmetry)) +
   geom_smooth() +
   facet_grid(year ~ phase, scales = "free")
 
+### Web asymmetry ~ gdd
+ggplot(abund_div, aes(gdd.cum, web.asymmetry)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  facet_grid(year ~ phase, scales = "free")
+
+### Web asymmetry ~ yday
+ggplot(abund_div, aes(yday, web.asymmetry)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  facet_grid(year ~ phase, scales = "free")
+
 ### Web asymmetry ~ floral abundance
 ggplot(abund_div, aes(log(fl.abund), web.asymmetry)) +
   geom_point(alpha = 0.5) +
@@ -1143,55 +1157,158 @@ visweb(web[[2]])
 ```
 
 ### GAM surface plots of abundance and diversity metrics (just for fun)
+#### 2012
 ```{r}
-library(mgcv)
-library(mgcViz)
-
-percap_surf <- bam(fl.per.bb ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
+### Per-capita resource availability
+percap_yday <- gam(log(fl.per.bb) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
                    data = filter(abund_div, year == 2012),
-                   #family = "poisson", # I think Poisson is the right call since richness data = count data
                    method = "REML")
 
-webass_surf <- bam(web.asymmetry ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                   data = filter(abund_div, year == 2012),
-                   #family = "poisson", # I think Poisson is the right call since richness data = count data
+percap_yday.vis <- getViz(percap_yday)
+check.gamViz(percap_yday.vis)
+plot(sm(percap_yday.vis, 1)) +
+  l_fitRaster() +
+  l_fitContour() +
+  l_points() +
+  ggtitle("Per-capita FL (yday)") +
+  xlab("Day of year") +
+  ylab("Elevation")
+
+percap_gdd <- gam(log(fl.per.bb) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
+                  data = filter(abund_div, year == 2012),
+                  method = "REML")
+
+percap_gdd.vis <- getViz(percap_gdd)
+check.gamViz(percap_gdd.vis)
+plot(sm(percap_gdd.vis, 1)) +
+  l_fitRaster() +
+  l_fitContour() +
+  l_points() +
+  ggtitle("Per-capita FL (GDD)") +
+  xlab("Day of year") +
+  ylab("Elevation")
+
+### Web asymmetry
+#Create a version of abund_div in which web.asymmetry has been forced into postive values (to enable transformation)
+abund_div_trans <- abund_div %>%
+  mutate(web.asymmetry = web.asymmetry - min(web.asymmetry - 0.1))
+
+ggplot(abund_div_trans, aes(web.asymmetry)) +
+  geom_histogram()
+
+webass_yday <- gam(log(web.asymmetry) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
+                   data = filter(abund_div_trans, year == 2012),
                    method = "REML")
 
-bb.rich_surf <- bam(bb.rich ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                   data = filter(abund_div, year == 2012),
-                   #family = "poisson", # I think Poisson is the right call since richness data = count data
-                   method = "REML")
+webass_yday.vis <- getViz(webass_yday)
+check.gamViz(webass_yday.vis)
+plot(sm(webass_yday.vis, 1)) +
+  l_fitRaster() +
+  l_fitContour() +
+  l_points() +
+  ggtitle("Web asymmetry (yday)") +
+  xlab("Day of year") +
+  ylab("Elevation")
 
-bb.abund_surf <- bam(bb.abund ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                   data = filter(abund_div, year == 2012),
-                   #family = "poisson", # I think Poisson is the right call since richness data = count data
-                   method = "REML")
+webass_gdd <- gam(log(web.asymmetry) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
+                  data = filter(abund_div_trans, year == 2012),
+                  method = "REML")
 
-fl.rich_surf <- bam(fl.rich ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                   data = filter(abund_div, year == 2012),
-                   #family = "poisson", # I think Poisson is the right call since richness data = count data
-                   method = "REML")
+webass_gdd.vis <- getViz(webass_gdd)
+check.gamViz(webass_gdd.vis)
+plot(sm(webass_gdd.vis, 1)) +
+  l_fitRaster() +
+  l_fitContour() +
+  l_points() +
+  ggtitle("Web asymmetry (GDD)") +
+  xlab("Day of year") +
+  ylab("Elevation")
 
-fl.abund_surf <- bam(fl.abund ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                   data = filter(abund_div, year == 2012),
-                   #family = "poisson", # I think Poisson is the right call since richness data = count data
-                   method = "REML")
+### Floral abundance
+fl_abund_yday <- gam(log(fl.abund) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
+                    data = filter(abund_div, year == 2012),
+                    method = "REML")
 
-s1 <- getViz(percap_surf)
-plot(s1)
+fl_abund_yday.vis <- getViz(fl_abund_yday)
+check.gamViz(fl_abund_yday.vis)
+plot(sm(fl_abund_yday.vis, 1)) +
+  l_fitRaster() +
+  l_fitContour() +
+  l_points() +
+  ggtitle("FL abundance (yday)") +
+  xlab("Day of year") +
+  ylab("Elevation")
 
-s2 <- getViz(webass_surf)
-plot(s2)
+fl_abund_gdd <- gam(log(fl.abund) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
+                    data = filter(abund_div, year == 2012),
+                    method = "REML")
 
-s3 <- getViz(bb.rich_surf)
-plot(s3)
+fl_abund_gdd.vis <- getViz(fl_abund_gdd)
+check.gamViz(fl_abund_gdd.vis)
+plot(sm(fl_abund_gdd.vis, 1)) +
+  l_fitRaster() +
+  l_fitContour() +
+  l_points() +
+  ggtitle("FL abundance (GDD)") +
+  xlab("Day of year") +
+  ylab("Elevation")
 
-s4 <- getViz(bb.abund_surf)
-plot(s4)
+### BB abundance
+bb_abund_yday <- gam(log(bb.abund) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
+                    data = filter(abund_div, year == 2012),
+                    method = "REML")
 
-s5 <- getViz(fl.rich_surf)
-plot(s5)
+bb_abund_yday.vis <- getViz(bb_abund_yday)
+check.gamViz(bb_abund_yday.vis)
+plot(sm(bb_abund_yday.vis, 1)) +
+  l_fitRaster() +
+  l_fitContour() +
+  l_points() +
+  ggtitle("BB abundance (yday)") +
+  xlab("Day of year") +
+  ylab("Elevation")
 
-s6 <- getViz(fl.abund_surf)
-plot(s6)
+bb_abund_gdd <- gam(log(bb.abund) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
+                    data = filter(abund_div, year == 2012),
+                    method = "REML")
+
+bb_abund_gdd.vis <- getViz(bb_abund_gdd)
+check.gamViz(bb_abund_gdd.vis)
+plot(sm(bb_abund_gdd.vis, 1)) +
+  l_fitRaster() +
+  l_fitContour() +
+  l_points() +
+  ggtitle("BB abundance (GDD)") +
+  xlab("Day of year") +
+  ylab("Elevation")
+
+### BB richness
+bb_rich_yday <- gam(log(bb.rich) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
+                    data = filter(abund_div, year == 2012),
+                    method = "REML")
+
+bb_rich_yday.vis <- getViz(bb_rich_yday)
+check.gamViz(bb_rich_yday.vis)
+plot(sm(bb_rich_yday.vis, 1)) +
+  l_fitRaster() +
+  l_fitContour() +
+  l_points() +
+  ggtitle("BB richness (yday)") +
+  xlab("Day of year") +
+  ylab("Elevation")
+
+bb_rich_gdd <- gam(log(bb.rich) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
+                    data = filter(abund_div, year == 2012),
+                    method = "REML")
+
+bb_rich_gdd.vis <- getViz(bb_rich_gdd)
+check.gamViz(bb_rich_gdd.vis)
+plot(sm(bb_rich_gdd.vis, 1)) +
+  l_fitRaster() +
+  l_fitContour() +
+  l_points() +
+  ggtitle("BB richness (GDD)") +
+  xlab("Day of year") +
+  ylab("Elevation")
 ```
+
