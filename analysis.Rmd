@@ -697,6 +697,7 @@ ggplot(abund_div, aes(log.fl.abund, fl.rich, color = year)) +
 ### Per-capita floral resource abundance ~ elevation
 ggplot(abund_div, aes(elev.mean, log(fl.per.bb))) +
   geom_point(alpha = 0.5) +
+  #stat_summary(aes(y = log(fl.per.bb), group=1), fun.y=mean, colour="black", geom="point",group=1) +
   geom_smooth() +
   facet_grid(year~phase, scales = "free") +
   ylab("log(fl-per-bb)") +
@@ -1139,4 +1140,58 @@ web <- net %>%
 
 visweb(web[[1]])
 visweb(web[[2]])
+```
+
+### GAM surface plots of abundance and diversity metrics (just for fun)
+```{r}
+library(mgcv)
+library(mgcViz)
+
+percap_surf <- bam(fl.per.bb ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
+                   data = filter(abund_div, year == 2012),
+                   #family = "poisson", # I think Poisson is the right call since richness data = count data
+                   method = "REML")
+
+webass_surf <- bam(web.asymmetry ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
+                   data = filter(abund_div, year == 2012),
+                   #family = "poisson", # I think Poisson is the right call since richness data = count data
+                   method = "REML")
+
+bb.rich_surf <- bam(bb.rich ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
+                   data = filter(abund_div, year == 2012),
+                   #family = "poisson", # I think Poisson is the right call since richness data = count data
+                   method = "REML")
+
+bb.abund_surf <- bam(bb.abund ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
+                   data = filter(abund_div, year == 2012),
+                   #family = "poisson", # I think Poisson is the right call since richness data = count data
+                   method = "REML")
+
+fl.rich_surf <- bam(fl.rich ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
+                   data = filter(abund_div, year == 2012),
+                   #family = "poisson", # I think Poisson is the right call since richness data = count data
+                   method = "REML")
+
+fl.abund_surf <- bam(fl.abund ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
+                   data = filter(abund_div, year == 2012),
+                   #family = "poisson", # I think Poisson is the right call since richness data = count data
+                   method = "REML")
+
+s1 <- getViz(percap_surf)
+plot(s1)
+
+s2 <- getViz(webass_surf)
+plot(s2)
+
+s3 <- getViz(bb.rich_surf)
+plot(s3)
+
+s4 <- getViz(bb.abund_surf)
+plot(s4)
+
+s5 <- getViz(fl.rich_surf)
+plot(s5)
+
+s6 <- getViz(fl.abund_surf)
+plot(s6)
 ```
