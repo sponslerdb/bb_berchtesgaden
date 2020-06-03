@@ -90,7 +90,7 @@ climate <- read_delim("./raw_data/climate2.txt", delim = "\t") %>%
     pred_Tmean_day - 10 <= 0 ~ 0)
     ) %>%
   group_by(site, year) %>%
-  mutate(gdd.cum = cumsum(gdd))
+  mutate(gdd.cum = round(cumsum(gdd)))
 
 write_csv(climate, "./processed_data/climate.csv")
 
