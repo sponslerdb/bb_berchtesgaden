@@ -282,7 +282,7 @@ rare_net_sp <- function(net, n, iter) {
       dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
       data.frame() %>% # convert to data frame
       frame2webs() %>% # convert to to bipartite web
-      map(specieslevel, level = "higher", index = c("d", "species specificity")) %>%
+      map(specieslevel, level = "higher", index = c("d", "species strength", "proportional generality")) %>%
       map(rownames_to_column) %>%
       map(as_tibble) %>%
       bind_rows(.id = "site") %>% # Collapse list into big data frame
@@ -319,7 +319,7 @@ rare_net_nt <- function(net, n, iter) {
       dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
       data.frame() %>% # convert to data frame
       frame2webs() %>% # convert to to bipartite web
-      map(networklevel, weighted = TRUE, level = "higher", index = c("H2", "weighted NODF", "niche overlap", "C score", "generality.HL")) %>% # We probably care mainly about the BB level of the network
+      map(networklevel, weighted = TRUE, level = "higher", index = c("H2", "weighted NODF", "niche overlap", "C score", "generality", "web asymmetry", "weighted connectance")) %>% # We probably care mainly about the BB level of the network
       data.frame() %>%
       t() %>%
       data.frame() %>%
@@ -653,8 +653,7 @@ bb_rich <- net %>%
 fl_abund <- survey %>%
   group_by(site, date, dayofyear, gdd.cum, year, elev.class2, 
            elev.mean, break1.gdd, break2.gdd) %>%
-  summarize(fl.abund = sum(flower.cover),
-            log.fl.abund = log(sum(flower.cover)))
+  summarize(fl.abund = sum(flower.cover))
 
 ### Per-transect floral richness
 fl_rich <- survey %>%
@@ -693,7 +692,7 @@ abund_div_mean <- abund_div %>%
 
 
 ### BB abundance ~ floral abundance
-ggplot(abund_div, aes(log.fl.abund, bb.abund, color = year)) +
+ggplot(abund_div, aes(log(fl.abund), bb.abund, color = year)) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = TRUE) +
   facet_grid(elev.class2 ~ phase, scales = "free") +
@@ -702,7 +701,7 @@ ggplot(abund_div, aes(log.fl.abund, bb.abund, color = year)) +
   theme_bw()
 
 ### BB richness ~ floral abundance
-ggplot(abund_div, aes(log.fl.abund, bb.rich, color = year)) +
+ggplot(abund_div, aes(log(fl.abund), bb.rich, color = year)) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = TRUE) +
   facet_grid(elev.class2 ~ phase, scales = "free") +
@@ -727,7 +726,7 @@ ggplot(abund_div, aes(fl.rich, bb.rich, color = year)) +
   xlab("Floral richness")
 
 ### Floral richness ~ floral abundance
-ggplot(abund_div, aes(log.fl.abund, fl.rich, color = year)) +
+ggplot(abund_div, aes(log(fl.abund), fl.rich, color = year)) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = TRUE) +
   facet_grid(elev.class2 ~ phase, scales = "free") +
@@ -986,25 +985,57 @@ fl_abund_gdd <- gam(fl.abund ~ year +
 fl_abund_gdd.vis <- getViz(fl_abund_gdd)
 check.gamViz(fl_abund_gdd.vis)
 summary(fl_abund_gdd.vis)
-plot(sm(fl_abund_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL abundance 2010 (gdd)") +
+
+plot(fl_abund_gdd.vis, allTerms = TRUE) +
+  ggtitle("FL abundance (gdd)") +
   xlab("Day of year") +
   ylab("Elevation")
-plot(sm(fl_abund_gdd.vis, 2)) +
+```
+
+##### Floral richness
+```{r}
+fl_rich_yday <- gam(fl.rich ~ year +
+                    te(yday, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
+                    data = filter(abund_div),
+                    method = "REML")
+
+fl_rich_yday.vis <- getViz(fl_rich_yday)
+check.gamViz(fl_rich_yday.vis)
+summary(fl_rich_yday.vis)
+plot(sm(fl_rich_yday.vis, 1)) +
   l_fitRaster() +
   l_fitContour() +
   l_points() +
-  ggtitle("FL abundance 2011 (gdd)") +
+  ggtitle("FL richness 2010 (yday)") +
   xlab("Day of year") +
   ylab("Elevation")
-plot(sm(fl_abund_gdd.vis, 3)) +
+plot(sm(fl_rich_yday.vis, 2)) +
   l_fitRaster() +
   l_fitContour() +
   l_points() +
-  ggtitle("FL abundance 2012 (gdd)") +
+  ggtitle("FL richness 2011 (yday)") +
+  xlab("Day of year") +
+  ylab("Elevation")
+plot(sm(fl_rich_yday.vis, 3)) +
+  l_fitRaster() +
+  l_fitContour() +
+  l_points() +
+  ggtitle("FL richness 2012 (yday)") +
+  xlab("Day of year") +
+  ylab("Elevation")
+
+
+fl_rich_gdd <- gam(fl.rich ~ year +
+                    te(gdd.cum, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
+                    data = filter(abund_div),
+                    method = "REML")
+
+fl_rich_gdd.vis <- getViz(fl_rich_gdd)
+check.gamViz(fl_rich_gdd.vis)
+summary(fl_rich_gdd.vis)
+
+plot(fl_rich_gdd.vis, allTerms = TRUE) +
+  ggtitle("FL richness (gdd)") +
   xlab("Day of year") +
   ylab("Elevation")
 ```
@@ -1014,7 +1045,6 @@ plot(sm(fl_abund_gdd.vis, 3)) +
 bb_abund_yday <- gam(bb.abund ~ year +
                     te(yday, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
                     data = filter(abund_div),
-                    family = "scat",
                     method = "REML")
 
 bb_abund_yday.vis <- getViz(bb_abund_yday)
@@ -1050,629 +1080,61 @@ bb_abund_gdd <- gam(bb.abund ~ year +
 bb_abund_gdd.vis <- getViz(bb_abund_gdd)
 check.gamViz(bb_abund_gdd.vis)
 summary(bb_abund_gdd.vis)
-plot(sm(bb_abund_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("bb abundance 2010 (gdd)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(bb_abund_gdd.vis, 2)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("bb abundance 2011 (gdd)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(bb_abund_gdd.vis, 3)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("bb abundance 2012 (gdd)") +
+
+plot(bb_abund_gdd.vis, allTerms = TRUE) +
+  ggtitle("BB abundance (gdd)") +
   xlab("Day of year") +
   ylab("Elevation")
 ```
 
-##### Per-capita floral resource abundance
+##### BB richness
 ```{r}
-percap_yday <- gam(fl.per.bb ~ year +
+bb_rich_yday <- gam(bb.rich ~ year +
                     te(yday, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
-                    data = abund_div,
-                    family = "tw",
+                    data = filter(abund_div),
                     method = "REML")
 
-percap_yday.vis <- getViz(percap_yday)
-check.gamViz(percap_yday.vis)
-summary(percap_yday.vis)
-plot(sm(percap_yday.vis, 1)) +
+bb_rich_yday.vis <- getViz(bb_rich_yday)
+check.gamViz(bb_rich_yday.vis)
+summary(bb_rich_yday.vis)
+plot(sm(bb_rich_yday.vis, 1)) +
   l_fitRaster() +
   l_fitContour() +
   l_points() +
-  ggtitle("Per-capita floral abundance 2010 (yday)") +
+  ggtitle("bb richness 2010 (yday)") +
   xlab("Day of year") +
   ylab("Elevation")
-plot(sm(percap_yday.vis, 2)) +
+plot(sm(bb_rich_yday.vis, 2)) +
   l_fitRaster() +
   l_fitContour() +
   l_points() +
-  ggtitle("Per-capita floral abundance 2011 (yday)") +
+  ggtitle("bb richness 2011 (yday)") +
   xlab("Day of year") +
   ylab("Elevation")
-plot(sm(percap_yday.vis, 3)) +
+plot(sm(bb_rich_yday.vis, 3)) +
   l_fitRaster() +
   l_fitContour() +
   l_points() +
-  ggtitle("Per-capita floral abundance 2012 (yday)") +
+  ggtitle("bb richness 2012 (yday)") +
   xlab("Day of year") +
   ylab("Elevation")
 
 
-percap_gdd <- gam(fl.per.bb ~ year +
+bb_rich_gdd <- gam(bb.rich ~ year +
                     te(gdd.cum, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
-                    data = abund_div,
-                    family = "tw",
-                    method = "REML")
-
-percap_gdd.vis <- getViz(percap_gdd)
-check.gamViz(percap_gdd.vis)
-summary(percap_gdd.vis)
-plot(sm(percap_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita floral abundance 2010 (gdd)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(percap_gdd.vis, 2)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita floral abundance 2011 (gdd)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(percap_gdd.vis, 3)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita floral abundance 2012 (gdd)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-```
-
-##### Web asymmetry
-```{r}
-webass_yday <- gam(web.asymmetry ~ year +
-                    te(yday, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
-                    data = abund_div,
-                    family = "tw",
-                    method = "REML")
-
-percap_yday.vis <- getViz(percap_yday)
-check.gamViz(percap_yday.vis)
-summary(percap_yday.vis)
-plot(sm(percap_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita floral abundance 2010 (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(percap_yday.vis, 2)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita floral abundance 2011 (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(percap_yday.vis, 3)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita floral abundance 2012 (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-
-percap_gdd <- gam(fl.per.bb ~ year +
-                    te(gdd.cum, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
-                    data = abund_div,
-                    family = "tw",
-                    method = "REML")
-
-percap_gdd.vis <- getViz(percap_gdd)
-check.gamViz(percap_gdd.vis)
-summary(percap_gdd.vis)
-plot(sm(percap_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita floral abundance 2010 (gdd)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(percap_gdd.vis, 2)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita floral abundance 2011 (gdd)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(percap_gdd.vis, 3)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita floral abundance 2012 (gdd)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-```
-
-
-#### 2012
-```{r}
-### Per-capita resource availability
-percap_yday <- gam(log(fl.per.bb) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                   data = filter(abund_div, year == 2012),
-                   method = "REML")
-
-percap_yday.vis <- getViz(percap_yday)
-check.gamViz(percap_yday.vis)
-summary(percap_yday.vis)
-plot(sm(percap_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita FL (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-percap_gdd <- gam(log(fl.per.bb) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                  data = filter(abund_div, year == 2012),
-                  method = "REML")
-
-percap_gdd.vis <- getViz(percap_gdd)
-check.gamViz(percap_gdd.vis)
-plot(sm(percap_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita FL (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-### Web asymmetry
-#Create a version of abund_div in which web.asymmetry has been forced into postive values (to enable transformation)
-abund_div_trans <- abund_div %>%
-  mutate(web.asymmetry = web.asymmetry - min(web.asymmetry - 0.1, na.rm = TRUE))
-
-ggplot(abund_div_trans, aes(web.asymmetry)) +
-  geom_histogram()
-
-webass_yday <- gam(log(web.asymmetry) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                   data = filter(abund_div_trans, year == 2012),
-                   method = "REML")
-
-webass_yday.vis <- getViz(webass_yday)
-check.gamViz(webass_yday.vis)
-plot(sm(webass_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Web asymmetry (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-webass_gdd <- gam(log(web.asymmetry) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                  data = filter(abund_div_trans, year == 2012),
-                  method = "REML")
-
-webass_gdd.vis <- getViz(webass_gdd)
-check.gamViz(webass_gdd.vis)
-plot(sm(webass_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Web asymmetry (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-### Floral abundance
-fl_abund_yday <- gam(log(fl.abund) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2012),
-                    method = "REML")
-
-fl_abund_yday.vis <- getViz(fl_abund_yday)
-check.gamViz(fl_abund_yday.vis)
-plot(sm(fl_abund_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL abundance (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-fl_abund_gdd <- gam(fl.abund ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2012 & !is.na(fl.abund)),
-                    family = "tw",
-                    method = "REML")
-
-fl_abund_gdd.vis <- getViz(fl_abund_gdd)
-check.gamViz(fl_abund_gdd.vis)
-summary(fl_abund_gdd)
-plot(sm(fl_abund_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL abundance (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-### BB abundance
-bb_abund_yday <- gam(bb.abund ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2012),
-                    family = "tw",
-                    method = "REML")
-
-bb_abund_yday.vis <- getViz(bb_abund_yday)
-check.gamViz(bb_abund_yday.vis)
-plot(sm(bb_abund_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("BB abundance (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-bb_abund_gdd <- gam(log(bb.abund) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2012),
-                    method = "REML")
-
-bb_abund_gdd.vis <- getViz(bb_abund_gdd)
-check.gamViz(bb_abund_gdd.vis)
-plot(sm(bb_abund_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("BB abundance (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-### BB richness
-bb_rich_yday <- gam(log(bb.rich) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2012),
-                    method = "REML")
-
-bb_rich_yday.vis <- getViz(bb_rich_yday)
-check.gamViz(bb_rich_yday.vis)
-plot(sm(bb_rich_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("BB richness (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-bb_rich_gdd <- gam(log(bb.rich) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2012),
+                    data = filter(abund_div),
                     method = "REML")
 
 bb_rich_gdd.vis <- getViz(bb_rich_gdd)
 check.gamViz(bb_rich_gdd.vis)
-plot(sm(bb_rich_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("BB richness (GDD)") +
-  xlab("GDD") +
-  ylab("Elevation")
-```
-#### 2011
-```{r}
-### Per-capita resource availability
-percap_yday <- gam(log(fl.per.bb) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                   data = filter(abund_div, year == 2011),
-                   method = "REML")
+summary(bb_rich_gdd.vis)
 
-percap_yday.vis <- getViz(percap_yday)
-check.gamViz(percap_yday.vis)
-plot(sm(percap_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita FL (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-percap_gdd <- gam(log(fl.per.bb) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                  data = filter(abund_div, year == 2011),
-                  method = "REML")
-
-percap_gdd.vis <- getViz(percap_gdd)
-check.gamViz(percap_gdd.vis)
-plot(sm(percap_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita FL (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-### Web asymmetry
-#Create a version of abund_div in which web.asymmetry has been forced into postive values (to enable transformation)
-abund_div_trans <- abund_div %>%
-  mutate(web.asymmetry = web.asymmetry - min(web.asymmetry - 0.1, na.rm = TRUE))
-
-ggplot(abund_div_trans, aes(web.asymmetry)) +
-  geom_histogram()
-
-webass_yday <- gam(log(web.asymmetry) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                   data = filter(abund_div_trans, year == 2011),
-                   method = "REML")
-
-webass_yday.vis <- getViz(webass_yday)
-check.gamViz(webass_yday.vis)
-plot(sm(webass_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Web asymmetry (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-webass_gdd <- gam(log(web.asymmetry) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                  data = filter(abund_div_trans, year == 2011),
-                  method = "REML")
-
-webass_gdd.vis <- getViz(webass_gdd)
-check.gamViz(webass_gdd.vis)
-plot(sm(webass_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Web asymmetry (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-### Floral abundance
-fl_abund_yday <- gam(log(fl.abund) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2011),
-                    method = "REML")
-
-fl_abund_yday.vis <- getViz(fl_abund_yday)
-check.gamViz(fl_abund_yday.vis)
-plot(sm(fl_abund_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL abundance (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-fl_abund_gdd <- gam(log(fl.abund) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2011),
-                    method = "REML")
-
-fl_abund_gdd.vis <- getViz(fl_abund_gdd)
-check.gamViz(fl_abund_gdd.vis)
-plot(sm(fl_abund_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL abundance (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-### BB abundance
-bb_abund_yday <- gam(log(bb.abund) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2011),
-                    method = "REML")
-
-bb_abund_yday.vis <- getViz(bb_abund_yday)
-check.gamViz(bb_abund_yday.vis)
-plot(sm(bb_abund_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("BB abundance (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-bb_abund_gdd <- gam(log(bb.abund) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2011),
-                    method = "REML")
-
-bb_abund_gdd.vis <- getViz(bb_abund_gdd)
-check.gamViz(bb_abund_gdd.vis)
-plot(sm(bb_abund_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("BB abundance (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-### BB richness
-bb_rich_yday <- gam(log(bb.rich) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2011),
-                    method = "REML")
-
-bb_rich_yday.vis <- getViz(bb_rich_yday)
-check.gamViz(bb_rich_yday.vis)
-plot(sm(bb_rich_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("BB richness (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-bb_rich_gdd <- gam(log(bb.rich) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2011),
-                    method = "REML")
-
-bb_rich_gdd.vis <- getViz(bb_rich_gdd)
-check.gamViz(bb_rich_gdd.vis)
-plot(sm(bb_rich_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("BB richness (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-```
-#### 2010
-```{r}
-### Per-capita resource availability
-percap_yday <- gam(log(fl.per.bb) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                   data = filter(abund_div, year == 2010),
-                   method = "REML")
-
-percap_yday.vis <- getViz(percap_yday)
-check.gamViz(percap_yday.vis)
-plot(sm(percap_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita FL (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-percap_gdd <- gam(log(fl.per.bb) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                  data = filter(abund_div, year == 2010),
-                  method = "REML")
-
-percap_gdd.vis <- getViz(percap_gdd)
-check.gamViz(percap_gdd.vis)
-plot(sm(percap_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Per-capita FL (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-### Web asymmetry
-#Create a version of abund_div in which web.asymmetry has been forced into postive values (to enable transformation)
-abund_div_trans <- abund_div %>%
-  mutate(web.asymmetry = web.asymmetry - min(web.asymmetry - 0.1, na.rm = TRUE))
-
-ggplot(abund_div_trans, aes(web.asymmetry)) +
-  geom_histogram()
-
-webass_yday <- gam(log(web.asymmetry) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                   data = filter(abund_div_trans, year == 2010),
-                   method = "REML")
-
-webass_yday.vis <- getViz(webass_yday)
-check.gamViz(webass_yday.vis)
-plot(sm(webass_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Web asymmetry (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-webass_gdd <- gam(log(web.asymmetry) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                  data = filter(abund_div_trans, year == 2010),
-                  method = "REML")
-
-webass_gdd.vis <- getViz(webass_gdd)
-check.gamViz(webass_gdd.vis)
-plot(sm(webass_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("Web asymmetry (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-### Floral abundance
-fl_abund_yday <- gam(log(fl.abund) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2010),
-                    method = "REML")
-
-fl_abund_yday.vis <- getViz(fl_abund_yday)
-check.gamViz(fl_abund_yday.vis)
-plot(sm(fl_abund_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL abundance (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-fl_abund_gdd <- gam(log(fl.abund) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2010),
-                    method = "REML")
-
-fl_abund_gdd.vis <- getViz(fl_abund_gdd)
-check.gamViz(fl_abund_gdd.vis)
-plot(sm(fl_abund_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL abundance (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-### BB abundance
-bb_abund_yday <- gam(log(bb.abund) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2010),
-                    method = "REML")
-
-bb_abund_yday.vis <- getViz(bb_abund_yday)
-check.gamViz(bb_abund_yday.vis)
-plot(sm(bb_abund_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("BB abundance (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-bb_abund_gdd <- gam(log(bb.abund) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2010),
-                    method = "REML")
-
-bb_abund_gdd.vis <- getViz(bb_abund_gdd)
-check.gamViz(bb_abund_gdd.vis)
-plot(sm(bb_abund_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("BB abundance (GDD)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-### BB richness
-bb_rich_yday <- gam(log(bb.rich) ~ te(yday, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2010),
-                    method = "REML")
-
-bb_rich_yday.vis <- getViz(bb_rich_yday)
-check.gamViz(bb_rich_yday.vis)
-plot(sm(bb_rich_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("BB richness (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-
-bb_rich_gdd <- gam(log(bb.rich) ~ te(gdd.cum, elev.mean, bs = "tp", m = 2, k = 10),
-                    data = filter(abund_div, year == 2010),
-                    method = "REML")
-
-bb_rich_gdd.vis <- getViz(bb_rich_gdd)
-check.gamViz(bb_rich_gdd.vis)
-plot(sm(bb_rich_gdd.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("BB richness (GDD)") +
+plot(bb_rich_gdd.vis, allTerms = TRUE) +
+  ggtitle("BB richness (gdd)") +
   xlab("Day of year") +
   ylab("Elevation")
 ```
+
 
 ### Rarefied network analysis (not broken down by phase)
 ```{r}
@@ -1711,8 +1173,7 @@ spmet_2011 <- rare_net_sp(net_2011, 4, 20) %>%
 spmet_2010 <- rare_net_sp(net_2010, 3, 20) %>%
   mutate(year = factor(rep("2010", n())))
 
-spmet <- bind_rows(spmet_2012, spmet_2011, spmet_2010) %>%
-  filter(metric == "d")
+spmet <- bind_rows(spmet_2012, spmet_2011, spmet_2010)
 
 spmet_mean <- spmet %>%
   group_by(site, year, elev.mean, metric) %>%
@@ -1732,17 +1193,20 @@ netmet <- bind_rows(netmet_rare_2012,
   mutate(metric = factor(metric, levels = c("H2",
                                             "weighted.NODF",
                                             "niche.overlap.HL", 
-                                            "C.score.HL")))
+                                            "C.score.HL",
+                                            "generality.HL",
+                                            "web.asymmetry",
+                                            "weighted.connectance")))
 
 ### Plot
-#### Per species d'
+#### Per species values
 ggplot(filter(spmet_2012,
               sp %in% c("bss", "hort", "pasc", "prat", "soro", "wurf")), 
        aes(elev.mean, value)) +
   geom_point() +
   #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
   geom_smooth() +
-  facet_wrap(~sp, scales = "free")
+  facet_grid(metric~sp, scales = "free")
 
 ggplot(filter(spmet_2011,
               sp %in% c("bss", "hort", "pasc", "prat", "soro", "wurf")), 
@@ -1750,7 +1214,7 @@ ggplot(filter(spmet_2011,
   geom_point() +
   #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
   geom_smooth() +
-  facet_wrap(~sp, scales = "free")
+  facet_grid(metric~sp, scales = "free")
 
 ggplot(filter(spmet_2010,
               sp %in% c("bss", "hort", "pasc", "prat", "soro", "wurf")), 
@@ -1758,14 +1222,26 @@ ggplot(filter(spmet_2010,
   geom_point() +
   #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
   geom_smooth() +
-  facet_wrap(~sp, scales = "free")
+  facet_grid(metric~sp, scales = "free")
 
-#### Community mean d'
-ggplot(spmet_mean, aes(elev.mean, value)) +
-  geom_point() +
-  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
-  geom_smooth() +
-  facet_wrap(~year)
+#### Community mean d
+ggplot(filter(spmet_mean, metric == "d"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  xlab("Elevation") +
+  ylab("Community mean d'") +
+  theme_light(16)
+
+gam_d <- gam(value ~ year + s(elev.mean, k = 10), 
+             data = filter(spmet, metric == "d"),
+             method = "REML")
+
+gam_d.vis <- getViz(gam_d)
+check.gamViz(gam_d.vis)
+summary(gam_d.vis)
+
+plot(gam_d.vis, allTerms = TRUE) +
+  xlab("Elevation") 
 
 #### Network level
 ggplot(netmet, aes(elev.mean, value)) +
@@ -1773,7 +1249,134 @@ ggplot(netmet, aes(elev.mean, value)) +
   #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
   geom_smooth() +
   facet_grid(metric~year, scales = "free")
+
+##### H2
+ggplot(filter(netmet, metric == "H2"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  xlab("Elevation") +
+  ylab("H2'") +
+  theme_light(16)
+
+gam_H2 <- gam(value ~ year + s(elev.mean), 
+              data = filter(netmet, metric == "H2"),
+              method = "REML")
+
+gam_H2.vis <- getViz(gam_H2)
+check.gamViz(gam_H2.vis)
+summary(gam_H2.vis)
+
+plot(gam_H2.vis, allTerms = TRUE) +
+  xlab("Elevation") 
+
+##### niche overlap
+ggplot(filter(netmet, metric == "niche.overlap.HL"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  #geom_smooth() +
+  xlab("Elevation") +
+  ylab("Niche overlap") +
+  theme_light(16)
+
+gam_niche.overlap <- gam(value ~ year + s(elev.mean), 
+                         data = filter(netmet, metric == "niche.overlap.HL"),
+                         method = "REML")
+
+gam_niche.overlap.vis <- getViz(gam_niche.overlap)
+check.gamViz(gam_niche.overlap.vis)
+summary(gam_niche.overlap.vis)
+
+plot(gam_niche.overlap.vis, allTerms = TRUE) +
+  xlab("Elevation") 
+
+
+##### C.score
+ggplot(filter(netmet, metric == "C.score.HL"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  #geom_smooth() +
+  xlab("Elevation") +
+  ylab("C score") +
+  theme_light(16)
+
+gam_cscore <- gam(value ~ year + s(elev.mean), 
+                  data = filter(netmet, metric == "C.score.HL"),
+                  method = "REML")
+
+gam_cscore.vis <- getViz(gam_cscore)
+check.gamViz(gam_cscore.vis)
+summary(gam_cscore.vis)
+
+plot(gam_cscore.vis, allTerms = TRUE) +
+  xlab("Elevation")
+
+
+##### Connectance
+ggplot(filter(netmet, metric == "weighted.connectance"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  #geom_smooth() +
+  xlab("Elevation") +
+  ylab("Connectance (weighted)") +
+  theme_light(16)
+
+gam_connectance <- gam(value ~ year + s(elev.mean), 
+                  data = filter(netmet, metric == "weighted.connectance"),
+                  method = "REML")
+
+gam_connectance.vis <- getViz(gam_connectance)
+check.gamViz(gam_connectance.vis)
+summary(gam_connectance.vis)
+
+plot(gam_connectance.vis, allTerms = TRUE) +
+  xlab("Elevation")
+
+##### NODF
+ggplot(filter(netmet, metric == "weighted.NODF"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  #geom_smooth() +
+  xlab("Elevation") +
+  ylab("NODF (weighted)") +
+  theme_light(16)
+
+gam_NODF <- gam(value ~ year + s(elev.mean), 
+                data = filter(netmet, metric == "weighted.NODF"),
+                method = "REML")
+
+gam_NODF.vis <- getViz(gam_NODF)
+check.gamViz(gam_NODF.vis)
+summary(gam_NODF.vis)
+
+plot(gam_NODF.vis, allTerms = TRUE) +
+  xlab("Elevation")
+
+##### Web asymmetry
+ggplot(filter(netmet, metric == "web.asymmetry"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  #geom_smooth() +
+  xlab("Elevation") +
+  ylab("Web asymmetry") +
+  theme_light(16)
+
+gam_webass <- gam(value ~ year + s(elev.mean), 
+                data = filter(netmet, metric == "web.asymmetry"),
+                method = "REML")
+
+gam_webass.vis <- getViz(gam_webass)
+check.gamViz(gam_webass.vis)
+summary(gam_webass.vis)
+
+plot(gam_webass.vis, allTerms = TRUE) +
+  xlab("Elevation")
 ```
+
 
 ### Let's look at how abundance varies on a per-species basis
 ```{r}

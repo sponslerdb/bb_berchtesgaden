@@ -5,6 +5,7 @@ library(lubridate)
 ### Floral survey data
 fl_survey <- read_delim("./raw_data/data_plantcover_forDoug_2020.01.17.csv", delim = "\t", 
                            locale = locale(decimal_mark = ",", grouping_mark = ".")) %>%
+  na.omit() %>%
   separate(col = species_plant, into = c("genus", "species", "w", "x", "y", "z"), sep = " ") %>%
   unite(species_plant, genus, species, sep = " ") %>%
   select(-c(w,x,y,z)) %>%
