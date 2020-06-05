@@ -17,7 +17,7 @@ fl_survey <- read_delim("./raw_data/data_plantcover_forDoug_2020.01.17.csv", del
                                            "Gymnadenia bifolia" = "Platanthera bifolia"))) %>%
   separate(species_plant, c("genus", "species"), remove = FALSE) %>%
   dplyr::select(year, dayofyear, site = site_name, snowcover, 
-                plant.sp = species_plant, flower.cover = cover_all_flowers) %>%
+                plant.sp = species_plant, plant.genus = genus, flower.cover = cover_all_flowers) %>%
   mutate(temp.date = as_date(dayofyear),
          day = day(temp.date),
          month = month(temp.date),
@@ -34,7 +34,7 @@ network <- read_delim("./raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim 
   separate(plant_sp_latin, c("genus", "species"), remove = FALSE) %>%
   dplyr::select(year, dayofyear, site = site_name, trap.time = trapping_time, caste, pollen, 
                 bb.sp = bumb_species, bb.sp.lat = bumb_sp_latin, plant.sp.abb = forage_plant, 
-                plant.sp = plant_sp_latin) %>%
+                plant.sp = plant_sp_latin, plant.genus = genus) %>%
   mutate(temp.date = as_date(dayofyear),
          day = day(temp.date),
          month = month(temp.date),
@@ -53,6 +53,34 @@ network <- read_delim("./raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim 
                                         "Bombus flavidus" = "Psithyrus")))
 
 write_csv(network, "./processed_data/network.csv")
+
+### Floral taxonomy
+Sys.setenv(ENTREZ_KEY = "ab9a55ec842df6f86a750929aefc69143608")
+
+fl_sp <- survey %>%
+  select(plant.sp) %>%
+  unique() %>%
+  bind_rows(select(network, plant.sp)) %>%
+  unique()
+
+fl_tax <- tax_name(fl_sp$plant.sp, get = "family", db = "ncbi") %>%
+  select(plant.sp = query, plant.family = family) %>%
+  separate(plant.sp, c("plant.genus", "plant.sp"), remove = FALSE) %>%
+  select(plant.genus, plant.family) %>%
+  unique()
+
+fl_tax_gapfill <- fl_tax %>% # manually fill in some gaps in the NCBI database
+  mutate(plant.family = case_when(
+    plant.genus == "Crocus" ~ "Iridaceae",
+    plant.genus == "Rheum" ~ "Polygonaceae",
+    plant.genus == "Mentha" ~ "Lamiaceae",
+    plant.genus %in% c("Senecio", "Crepis") ~ "Asteraceae",
+    plant.genus == "Salix" ~ "Salicaceae",
+    !plant.genus %in% c("Senecio", "Crocus", "Crepis", "Mentha", "Salix", "Rheum") ~ plant.family
+  ))
+
+write_csv(fl_tax_gapfill, "./processed_data/floral_tax.csv")
+
 
 ### Site data
 site_data <- read_tsv("./raw_data/SiteLocationFabriceUpdate2020.tsv",

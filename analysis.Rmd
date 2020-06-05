@@ -11,6 +11,8 @@ library(mgcv)
 library(mgcViz)
 #library(lme4)
 #library(lmerTest)
+install.packages("taxize")
+library(taxize)
 library(tidyverse)
 library(lubridate)
 library(GGally)
@@ -543,6 +545,11 @@ ggplot(breaks_summary, aes(value, prop, color = caste)) +
 bb_traits <- read_csv("./processed_data/bb_traits.csv") %>%
   select(subgenus, bb.sp, pbl.w, pbl.w.class)
 
+fl_traits <- read.csv("./processed_data/floral_k_type.csv") %>%
+  select(plant.sp, k.type)
+
+fl_tax <- read_csv("./processed_data/floral_tax.csv") 
+
 net <- read_csv("./processed_data/network.csv") %>%
   unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
   unite(site.date, site, date, sep = "_", remove = FALSE) %>%
@@ -551,6 +558,8 @@ net <- read_csv("./processed_data/network.csv") %>%
   left_join(site_data, by = "site") %>%
   left_join(gdd, by = c("site", "date")) %>%
   left_join(breaks, by = c("site", "year")) %>%
+  left_join(fl_traits) %>%
+  left_join(fl_tax, by = "plant.genus") %>%
   ungroup() %>%
   mutate(phase = case_when(
     gdd.cum < break1.gdd ~ "founding",
@@ -562,10 +571,12 @@ net <- read_csv("./processed_data/network.csv") %>%
 
 survey <- read_csv("./processed_data/floral_survey.csv") %>%
   mutate(year = factor(year)) %>% # convert year to factor
-  #semi_join(net, by = c("site", "plant.sp")) %>% # Consider only plants visited at a given site-date
+  semi_join(net, by = "plant.sp") %>% # Consider only plants visited at a given site-date
   left_join(gdd, by = c("site", "date")) %>%
   left_join(breaks, by = c("site", "year")) %>%
   left_join(site_data, by = "site") %>%
+  left_join(fl_traits) %>%
+  left_join(fl_tax) %>%
   ungroup() %>%
   mutate(phase = case_when(
     gdd.cum < break1.gdd ~ "founding",
@@ -574,6 +585,7 @@ survey <- read_csv("./processed_data/floral_survey.csv") %>%
   )) %>%
   mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
   arrange(site, date)
+
 ```
 ### BB and floral turnover ~ elevation
 ```{r, include=FALSE}
@@ -591,13 +603,24 @@ fl_survey_elev <- survey %>%
   group_by(site, plant.sp) %>%
   summarize(abund = sum(flower.cover)) %>%
   left_join(site_data) %>%
-  semi_join(net, by = "plant.sp") %>% # constrain to plant species that were actually visited
   group_by(plant.sp) %>%
   mutate(elev.floor = min(elev.mean),
          elev.ceiling = max(elev.mean),
          elev.range = elev.ceiling - elev.floor,
          elev.med = elev.floor + ((elev.ceiling - elev.floor)/2),
          sites = length(unique(site))) 
+
+fl_survey_elev_genus <- survey %>%
+  filter(flower.cover > 0) %>%
+  group_by(site, genus) %>%
+  summarize(abund = sum(flower.cover)) %>%
+  left_join(site_data) %>%
+  group_by(genus) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2),
+         sites = length(unique(site)))
 
 fl_net_elev <- net %>%
   group_by(site, elev.mean, plant.sp) %>%
@@ -617,6 +640,17 @@ ggplot(filter(fl_survey_elev, sites > 0),
   theme(axis.text.x = element_blank()) +
   xlab("Plant species") +
   ylab("Elevation")
+
+ggplot(filter(fl_survey_elev_genus, sites > 0), 
+       aes(reorder(genus, elev.med), elev.mean)) +
+  geom_line(size = 1, color = "gray60") +
+  geom_point(alpha = 0.5) +
+  theme_light(10) +
+  #theme(axis.text.x = element_blank()) +
+  xlab("Plant genus") +
+  ylab("Elevation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
 
 ggplot(filter(fl_net_elev, sites > 0), 
        aes(reorder(plant.sp, elev.med), elev.mean)) +
@@ -654,6 +688,110 @@ ggplot(filter(fl_survey_elev, sites > 0 & elev.ceiling < 1750),
   ylab("Elevation") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
+### FL traits by elevation -- do we see a sharp change at the tree line?
+```{r}
+survey_trait_elev <- survey %>%
+  group_by(site, year, elev.mean,  k.type) %>%
+  summarize(abund = sum(flower.cover)) %>%
+  group_by(site, elev.mean, year) %>%
+  mutate(div = length(unique(k.type)))
+
+net_trait_elev <- net %>%
+  group_by(site, year, elev.mean,  k.type) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, year) %>%
+  mutate(div = length(unique(k.type)))
+
+survey_genus_elev <- survey %>%
+  group_by(site, year, elev.mean, plant.genus) %>%
+  summarize(abund = sum(flower.cover)) %>%
+  group_by(site, elev.mean, year) %>%
+  mutate(div = length(unique(plant.genus)))
+
+survey_family_elev <- survey %>%
+  group_by(site, year, elev.mean,  plant.family) %>%
+  summarize(abund = sum(flower.cover)) %>%
+  group_by(site, elev.mean, year) %>%
+  mutate(div = length(unique(plant.family)))
+
+net_genus_elev <- survey %>%
+  group_by(site, year, elev.mean,  plant.genus) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, year) %>%
+  mutate(div = length(unique(plant.genus)))
+
+net_family_elev <- survey %>%
+  group_by(site, year, elev.mean,  plant.family) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, year) %>%
+  mutate(div = length(unique(plant.family)))
+
+ggplot(survey_trait_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth() +
+  facet_wrap(~k.type, scales = "free_y")
+
+ggplot(net_trait_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth() +
+  facet_wrap(~k.type, scales = "free_y")
+
+ggplot(survey_trait_elev, aes(elev.mean, div)) +
+  geom_point() +
+  stat_smooth()
+
+ggplot(net_trait_elev, aes(elev.mean, div)) +
+  geom_point() +
+  stat_smooth()
+
+ggplot(survey_genus_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth() +
+  facet_wrap(~plant.genus, scales = "free_y")
+
+ggplot(survey_family_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth() +
+  facet_wrap(~plant.family, scales = "free_y")
+
+ggplot(survey_genus_elev, aes(elev.mean, div)) +
+  geom_point() +
+  stat_smooth()
+
+ggplot(survey_family_elev, aes(elev.mean, div)) +
+  geom_point() +
+  stat_smooth()
+
+ggplot(net_genus_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth() +
+  facet_wrap(~plant.genus, scales = "free_y")
+
+ggplot(net_family_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth() +
+  facet_wrap(~plant.family, scales = "free_y")
+
+ggplot(net_genus_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth(se = FALSE) +
+  facet_wrap(~plant.genus)
+
+ggplot(net_genus_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth() +
+  facet_wrap(~plant.genus, scales = "free_y")
+ggplot(net_genus_elev, aes(elev.mean, abund)) +
+  geom_point() +
+  stat_smooth(se = FALSE) +
+  facet_wrap(~plant.genus)
+
+ggplot(net_genus_elev, aes(elev.mean, div)) +
+  geom_point() +
+  stat_smooth()
+```
+
 
 ### BB abundance, diversity, and per-capita resource availability
 ```{r eval=FALSE, echo=FALSE, include=FALSE}
