@@ -11,7 +11,6 @@ library(mgcv)
 library(mgcViz)
 #library(lme4)
 #library(lmerTest)
-install.packages("taxize")
 library(taxize)
 library(tidyverse)
 library(lubridate)
@@ -610,12 +609,12 @@ fl_survey_elev <- survey %>%
          elev.med = elev.floor + ((elev.ceiling - elev.floor)/2),
          sites = length(unique(site))) 
 
-fl_survey_elev_genus <- survey %>%
+fl_survey_elev_family <- survey %>%
   filter(flower.cover > 0) %>%
-  group_by(site, genus) %>%
+  group_by(site, plant.family) %>%
   summarize(abund = sum(flower.cover)) %>%
   left_join(site_data) %>%
-  group_by(genus) %>%
+  group_by(plant.family) %>%
   mutate(elev.floor = min(elev.mean),
          elev.ceiling = max(elev.mean),
          elev.range = elev.ceiling - elev.floor,
@@ -633,7 +632,7 @@ fl_net_elev <- net %>%
          sites = length(unique(site))) 
 
 ggplot(filter(fl_survey_elev, sites > 0), 
-       aes(reorder(plant.sp, elev.med), elev.mean)) +
+       aes(reorder(plant.sp, elev.ceiling), elev.mean)) +
   geom_line(size = 1, color = "gray60") +
   geom_point(alpha = 0.5) +
   theme_light(14) +
@@ -641,13 +640,13 @@ ggplot(filter(fl_survey_elev, sites > 0),
   xlab("Plant species") +
   ylab("Elevation")
 
-ggplot(filter(fl_survey_elev_genus, sites > 0), 
-       aes(reorder(genus, elev.med), elev.mean)) +
+ggplot(filter(fl_survey_elev_family, sites > 0), 
+       aes(reorder(plant.family, elev.med), elev.mean)) +
   geom_line(size = 1, color = "gray60") +
   geom_point(alpha = 0.5) +
   theme_light(10) +
   #theme(axis.text.x = element_blank()) +
-  xlab("Plant genus") +
+  xlab("Plant family") +
   ylab("Elevation") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
@@ -1020,7 +1019,7 @@ ggplot(abund_div, aes(elev.mean, fl.rich)) +
   geom_smooth(color = "black", linetype = "dashed", size = 0.75) +
   theme_light(16) +
   xlab("Elevation") +
-  ylab("Floral abundance")
+  ylab("Floral richness")
 
 ### Floral richness ~ GDD
 ggplot(abund_div, aes(gdd.cum, fl.rich)) +
@@ -1139,27 +1138,12 @@ fl_abund_yday <- gam(fl.abund ~ year +
 fl_abund_yday.vis <- getViz(fl_abund_yday)
 check.gamViz(fl_abund_yday.vis)
 summary(fl_abund_yday.vis)
-plot(sm(fl_abund_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL abundance 2010 (yday)") +
+
+plot(fl_abund_yday.vis, allTerms = TRUE) +
+  ggtitle("FL abundance (yday)") +
   xlab("Day of year") +
   ylab("Elevation")
-plot(sm(fl_abund_yday.vis, 2)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL abundance 2011 (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(fl_abund_yday.vis, 3)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL abundance 2012 (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
+
 
 fl_abund_gdd <- gam(fl.abund ~ year +
                     te(gdd.cum, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
@@ -1173,11 +1157,11 @@ summary(fl_abund_gdd.vis)
 
 plot(fl_abund_gdd.vis, allTerms = TRUE) +
   ggtitle("FL abundance (gdd)") +
-  xlab("Day of year") +
+  xlab("GDD") +
   ylab("Elevation")
 ```
 
-##### Floral richness
+##### Floral richness -- since year does not seem to change the overall pattern (though perhaps the magnitude), I could use a simpler model, perhaps with year as a random intercept effect
 ```{r eval=FALSE, include=FALSE}
 fl_rich_yday <- gam(fl.rich ~ year +
                     te(yday, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
@@ -1187,25 +1171,9 @@ fl_rich_yday <- gam(fl.rich ~ year +
 fl_rich_yday.vis <- getViz(fl_rich_yday)
 check.gamViz(fl_rich_yday.vis)
 summary(fl_rich_yday.vis)
-plot(sm(fl_rich_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL richness 2010 (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(fl_rich_yday.vis, 2)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL richness 2011 (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(fl_rich_yday.vis, 3)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("FL richness 2012 (yday)") +
+
+plot(fl_rich_yday.vis, allTerms = TRUE) +
+  ggtitle("FL richness (yday)") +
   xlab("Day of year") +
   ylab("Elevation")
 
@@ -1235,25 +1203,9 @@ bb_abund_yday <- gam(bb.abund ~ year +
 bb_abund_yday.vis <- getViz(bb_abund_yday)
 check.gamViz(bb_abund_yday.vis)
 summary(bb_abund_yday.vis)
-plot(sm(bb_abund_yday.vis, 1)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("bb abundance 2010 (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(bb_abund_yday.vis, 2)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("bb abundance 2011 (yday)") +
-  xlab("Day of year") +
-  ylab("Elevation")
-plot(sm(bb_abund_yday.vis, 3)) +
-  l_fitRaster() +
-  l_fitContour() +
-  l_points() +
-  ggtitle("bb abundance 2012 (yday)") +
+
+plot(bb_abund_yday.vis, allTerms = TRUE) +
+  ggtitle("BB abundance (yday)") +
   xlab("Day of year") +
   ylab("Elevation")
 
@@ -1268,7 +1220,7 @@ summary(bb_abund_gdd.vis)
 
 plot(bb_abund_gdd.vis, allTerms = TRUE) +
   ggtitle("BB abundance (gdd)") +
-  xlab("Day of year") +
+  xlab("GDD") +
   ylab("Elevation")
 ```
 
