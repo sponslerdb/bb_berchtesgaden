@@ -5,6 +5,7 @@ output: html_document
 
 ### Prepare environment
 ```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = FALSE)
 library(bipartite)
 library(mgcv)
 library(mgcViz)
@@ -17,7 +18,7 @@ library(GGally)
 
 ### Define functions
 #### Colony phase breakpoint functions
-```{r}
+```{r include=FALSE}
 # Find breakpoints on GDD scale
 breakpoints_gdd <- function(x, year, t1, t2) {
   
@@ -259,7 +260,7 @@ binomial_smooth <- function(...) {
 ```
 
 #### Rarefied network analysis
-```{r}
+```{r, include=FALSE}
 # Rare_net function: rarefies networks by iteratively subsampling more frequently sampled networks to match the transect count of the least frequently sampled one
 # species level
 rare_net_sp <- function(net, n, iter) {
@@ -439,7 +440,7 @@ rare_net_sp2 <- function(net, n, iter) {
 
 
 ### Load site data
-```{r}
+```{r, include=FALSE}
 site_data <- read_csv("./processed_data/site_data.csv") %>%
   dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
   mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
@@ -447,14 +448,14 @@ site_data <- read_csv("./processed_data/site_data.csv") %>%
 ```
 
 ### Climate data
-```{r}
+```{r, include=FALSE}
 gdd <- read_csv("./processed_data/climate.csv") %>%
   mutate(year = factor(year)) %>%
   select(site, date, gdd.cum)
 ```
 
 ### Colony phase breakpoint analysis
-```{r}
+```{r, include=FALSE}
 castes <- read_csv("./processed_data/network.csv") %>%
   filter(bb.sp != "psit") %>% # We do not want to consider Psithyrus, since these parasitic species do not have a worker caste
   group_by(site, date, year, caste) %>%
@@ -506,7 +507,7 @@ breaks <- full_join(breaks_yday, breaks_gdd, by = c("site", "year")) %>%
 ```
 
 ### Plot phase breakpoints
-```{r}
+```{r, include=FALSE}
 breaks_summary <- full_join(breaks_gdd_summary, breaks_yday_summary) %>%
   select(site, date, year, elev.class2, yday, gdd.cum, break1, break2, caste, prop) %>%
   gather(time.metric, value, -c(site, date, year, elev.class2, break1, break2, caste, prop))
@@ -538,7 +539,7 @@ ggplot(breaks_summary, aes(value, prop, color = caste)) +
 ```
 
 ### Load network and survey data
-```{r}
+```{r, include=FALSE}
 bb_traits <- read_csv("./processed_data/bb_traits.csv") %>%
   select(subgenus, bb.sp, pbl.w, pbl.w.class)
 
@@ -575,7 +576,7 @@ survey <- read_csv("./processed_data/floral_survey.csv") %>%
   arrange(site, date)
 ```
 ### BB and floral turnover ~ elevation
-```{r}
+```{r, include=FALSE}
 bb_range <- net %>%
   group_by(site, elev.mean, bb.sp) %>%
   summarize(abund = n()) %>%
@@ -633,10 +634,29 @@ ggplot(bb_range, aes(reorder(bb.sp, elev.med), elev.mean)) +
   xlab("BB species") +
   ylab("Elevation") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+### Plot only the plants that drop out at 1750 m
+ggplot(filter(fl_net_elev, sites > 0 & elev.ceiling < 1750), 
+       aes(reorder(plant.sp, elev.med), elev.mean)) +
+  geom_line(size = 1, color = "gray60") +
+  geom_point(alpha = 0.5, aes(size = abund)) +
+  theme_light(8) +
+  xlab("Plant species") +
+  ylab("Elevation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(filter(fl_survey_elev, sites > 0 & elev.ceiling < 1750), 
+       aes(reorder(plant.sp, elev.med), elev.mean)) +
+  geom_line(size = 1, color = "gray60") +
+  geom_point(alpha = 0.5, aes(size = abund)) +
+  theme_light(8) +
+  xlab("Plant species") +
+  ylab("Elevation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ### BB abundance, diversity, and per-capita resource availability
-```{r eval=FALSE, echo=FALSE}
+```{r eval=FALSE, echo=FALSE, include=FALSE}
 ### Per-transect Bombus density
 bb_abund <- net %>%
   group_by(site, date, dayofyear, gdd.cum, year, elev.class2, 
@@ -689,8 +709,10 @@ abund_div_mean <- abund_div %>%
   gather(metric, value, -c(site, date, gdd.cum, year, elev.class2, elev.mean, phase)) %>%
   group_by(site, year, elev.class2, elev.mean, metric) %>%
   summarize(value = mean(value, na.rm = TRUE))
+```
 
-
+### Plotting abundance and diversity patterns
+```{r}
 ### BB abundance ~ floral abundance
 ggplot(abund_div, aes(log(fl.abund), bb.abund, color = year)) +
   geom_point(alpha = 0.5) +
@@ -855,6 +877,13 @@ ggplot(abund_div, aes(elev.mean, fl.rich)) +
   geom_smooth() +
   facet_grid(year ~ phase)
 
+ggplot(abund_div, aes(elev.mean, fl.rich)) +
+  geom_point(alpha = 0.5, aes(color = year)) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.75) +
+  theme_light(16) +
+  xlab("Elevation") +
+  ylab("Floral abundance")
+
 ### Floral richness ~ GDD
 ggplot(abund_div, aes(gdd.cum, fl.rich)) +
   geom_point() +
@@ -873,6 +902,25 @@ ggplot(abund_div, aes(elev.mean, log(fl.abund))) +
   geom_smooth() +
   facet_grid(year ~ phase, scales = "free") +
   theme_light()
+
+ggplot(abund_div, aes(elev.mean, log(fl.abund), color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  theme_light()
+
+ggplot(abund_div, aes(elev.mean, fl.abund)) +
+  geom_point(alpha = 0.5, aes(color = year)) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.75) +
+  theme_light(16) +
+  xlab("Elevation") +
+  ylab("Floral abundance")
+
+ggplot(abund_div, aes(elev.mean, log(fl.abund))) +
+  geom_point(alpha = 0.5, aes(color = year)) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.75) +
+  theme_light(16) +
+  xlab("Elevation") +
+  ylab("log(Floral abundance)")
 
 ### Floral abundance ~ GDD
 ggplot(abund_div, aes(gdd.cum, log(fl.abund))) +
@@ -940,11 +988,10 @@ ggplot(abund_div, aes(log(fl.per.bb), web.asymmetry)) +
   facet_grid(year ~ .)
 ```
 
-
 ### GAM surface plots of abundance and diversity metrics
 #### HGAM elevation x time x year (I would really like someone -- maybe my future self -- to check that I'm doing this right)
 ##### Floral abundance
-```{r}
+```{r eval=FALSE, include=FALSE}
 fl_abund_yday <- gam(fl.abund ~ year +
                     te(yday, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
                     data = filter(abund_div),
@@ -993,7 +1040,7 @@ plot(fl_abund_gdd.vis, allTerms = TRUE) +
 ```
 
 ##### Floral richness
-```{r}
+```{r eval=FALSE, include=FALSE}
 fl_rich_yday <- gam(fl.rich ~ year +
                     te(yday, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
                     data = filter(abund_div),
@@ -1041,7 +1088,7 @@ plot(fl_rich_gdd.vis, allTerms = TRUE) +
 ```
 
 ##### BB abundance
-```{r}
+```{r eval=FALSE, include=FALSE}
 bb_abund_yday <- gam(bb.abund ~ year +
                     te(yday, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
                     data = filter(abund_div),
@@ -1088,7 +1135,7 @@ plot(bb_abund_gdd.vis, allTerms = TRUE) +
 ```
 
 ##### BB richness
-```{r}
+```{r eval=FALSE, include=FALSE}
 bb_rich_yday <- gam(bb.rich ~ year +
                     te(yday, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
                     data = filter(abund_div),
@@ -1135,9 +1182,8 @@ plot(bb_rich_gdd.vis, allTerms = TRUE) +
   ylab("Elevation")
 ```
 
-
 ### Rarefied network analysis (not broken down by phase)
-```{r}
+```{r, include = FALSE}
 ### Determine the minimum transect count per site*year to set rarefaction sampling
 transects <- net %>%
   select(site, year, date) %>%
@@ -1227,7 +1273,7 @@ ggplot(filter(spmet_2010,
 #### Community mean d
 ggplot(filter(spmet_mean, metric == "d"), aes(elev.mean, value)) +
   geom_point(aes(color = year)) +
-  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10), color = "black", linetype = "dashed", size = 0.75) +
   xlab("Elevation") +
   ylab("Community mean d'") +
   theme_light(16)
@@ -1377,9 +1423,8 @@ plot(gam_webass.vis, allTerms = TRUE) +
   xlab("Elevation")
 ```
 
-
 ### Let's look at how abundance varies on a per-species basis
-```{r}
+```{r eval=FALSE, include=FALSE}
 species <- net %>%
   group_by(site, date, year, dayofyear, gdd.cum, phase, elev.mean, elev.class2, bb.sp, subgenus, pbl.w, pbl.w.class) %>%
   summarize(abund = n()) %>%
@@ -1458,7 +1503,7 @@ ggpairs(species, columns = c("bb.sp", "abund"),
 ```
 
 ### Plot some dang networks
-```{r}
+```{r eval=FALSE, include=FALSE}
 web <- net %>%
   group_by(year, elev.class2, phase, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
   summarize(freq = n()) %>%
@@ -1476,7 +1521,7 @@ visweb(web[[2]])
 
 ### Per-transect network analysis -- is it worth it? I would have to filter out the transects for which the networks are too small.
 #### Network level
-```{r}
+```{r eval=FALSE, include=FALSE}
 per.transect_netmet <- net %>%
   group_by(site, dayofyear, gdd.cum, year, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
   summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
@@ -1566,7 +1611,7 @@ ggplot(filter(per.transect_netmet, size > 10),
 ```
 
 #### Species level
-```{r}
+```{r eval=FALSE, include=FALSE}
 per.transect_spmet <- net %>%
   group_by(site, dayofyear, gdd.cum, year, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
   summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
@@ -1640,7 +1685,7 @@ ggplot(filter(per.transect_spmet, size >= 10),
 
 
 ### Phase x elev network analysis
-```{r}
+```{r eval=FALSE, include=FALSE}
 ### Prepare pxe abundance and diversity table
 pxe_abund_div <- abund_div %>%
   select(-gdd.cum, -yday, -week, -month, -date, -elev.class2) %>%
