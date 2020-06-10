@@ -339,106 +339,89 @@ rare_net_nt <- function(net, n, iter) {
       left_join(site_data)
 }
 
+```
 
-# network level PxE
-rare_net_nt_pxe <- function(net, n, iter) {
+### Rarefied network analysis by floral k.type instead of floral species
+```{r}
+# Rare_net function: rarefies networks by iteratively subsampling more frequently sampled networks to match the transect count of the least frequently sampled one
+# species level
+rare_net_sp_k.type.s <- function(net, n, iter) {
   
   out <- data.frame()
   
-  t_filter <- net %>%
-    select(site, date, phase, year) %>%
-    unique() %>%
-    group_by(site, phase, year) %>%
-    mutate(transects = n()) %>%
-    filter(transects >= n)
-  
   for(i in 1:iter) {
     temp <- net %>%
-      semi_join(t_filter) %>%
-      select(site, date, phase, year) %>%
+      select(site, date) %>%
       unique() %>%
-      group_by(site, phase, year) %>%
+      group_by(site) %>%
       sample_n(n) %>%
       left_join(net) %>%
-      group_by(site, phase, year, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
+      group_by(site, bb.sp, k.type.s) %>% # group by site, date, bee species, plant species
       summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
-      group_by(site, phase, year) %>%
-      filter(length(unique(bb.sp)) > 1 & length(unique(plant.sp)) > 1) %>%
+      na.omit() %>%
+      group_by(site) %>%
+      filter(length(unique(bb.sp)) > 1 & length(unique(k.type.s)) > 1) %>%
       ungroup() %>%
-      unite(webID, c(site, phase, year), sep = "_") %>%
-      dplyr::select(higher = bb.sp, lower = plant.sp, webID, freq) %>% # rename columns to match bipartite's expectations
+      filter(freq > 1) %>% # remove singletons
+      dplyr::select(higher = bb.sp, lower = k.type.s, webID = site, freq) %>% # rename columns to match bipartite's expectations
       data.frame() %>% # convert to data frame
       frame2webs() %>% # convert to to bipartite web
-      map(networklevel, weighted = TRUE, level = "higher",
-          index = c("web asymmetry", "weighted NODF", "H2", "C score", "niche overlap", "generality")) %>% 
-      data.frame() %>%
-      t() %>%
-      data.frame() %>%
-      rownames_to_column() %>%
-      dplyr::select(id = rowname, everything()) %>%
-      as_tibble() %>%
-      mutate(iteration = rep(i, n()))
-    
-    out <- bind_rows(out, temp)
-  } 
-  out <- out  %>%
-      gather(metric, value, -c(id, iteration)) %>% # get mean value across iterations for each metric
-      group_by(id, metric) %>%
-      summarize(value = mean(value)) %>%
-      separate(id, sep = "_", into = c("site", "phase", "year")) %>%
-      mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
-      left_join(site_data)
-}
-
-# species level version 2
-rare_net_sp2 <- function(net, n, iter) {
-  
-  out <- data.frame()
-  
-  t_filter <- net %>%
-    select(site, date, phase, year) %>%
-    unique() %>%
-    group_by(site, phase, year) %>%
-    mutate(transects = n()) %>%
-    filter(transects >= n)
-  
-  for(i in 1:iter) {
-    temp <- net %>%
-      semi_join(t_filter) %>%
-      select(site, date, phase, year) %>%
-      unique() %>%
-      group_by(site, phase, year) %>%
-      sample_n(n) %>%
-      left_join(net) %>%
-      group_by(site, phase, year, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
-      summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
-      group_by(site, phase, year) %>%
-      filter(length(unique(bb.sp)) > 1 & length(unique(plant.sp)) > 1) %>%
-      ungroup() %>%
-      unite(webID, c(site, phase, year), sep = "_") %>%
-      dplyr::select(higher = bb.sp, lower = plant.sp, webID, freq) %>% # rename columns to match bipartite's expectations
-      data.frame() %>% # convert to data frame
-      frame2webs() %>% # convert to to bipartite web
-      map(specieslevel, level = "higher", index = c("d", "species strength")) %>%
+      map(specieslevel, level = "higher", index = c("d", "species strength", "proportional generality")) %>%
       map(rownames_to_column) %>%
       map(as_tibble) %>%
-      bind_rows(.id = "id") %>% # Collapse list into big data frame
+      bind_rows(.id = "site") %>% # Collapse list into big data frame
       rename(sp = rowname) %>%
       mutate(iteration = rep(i, n()))
     
     out <- bind_rows(out, temp)
   } 
   out <- out %>%
-    gather(metric, value, -c(sp, id, iteration)) %>% # get mean value across iterations for each metric
-    group_by(sp, id, metric) %>%
+    gather(metric, value, -c(sp, site, iteration)) %>% # get mean value across iterations for each metric
+    group_by(sp, site, metric) %>%
     summarize(value = mean(value)) %>%
-    separate(id, sep = "_", into = c("site", "phase", "year")) %>%
-    mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
     left_join(site_data) %>%
     left_join(bb_traits, by = c("sp" = "bb.sp"))
 }
-```
 
+# network level
+rare_net_nt_k.type.s <- function(net, n, iter) {
+  
+  out <- data.frame()
+  
+  for(i in 1:iter) {
+    temp <- net %>%
+      select(site, date) %>%
+      unique() %>%
+      group_by(site) %>%
+      sample_n(n) %>%
+      left_join(net) %>%
+      group_by(site, bb.sp, k.type.s) %>% # group by site, date, bee species, plant species
+      summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+      na.omit() %>%
+      group_by(site) %>%
+      filter(length(unique(bb.sp)) > 1 & length(unique(k.type.s)) > 1) %>%
+      ungroup() %>%
+      dplyr::select(higher = bb.sp, lower = k.type.s, webID = site, freq) %>% # rename columns to match bipartite's expectations
+      data.frame() %>% # convert to data frame
+      frame2webs() %>% # convert to to bipartite web
+      map(networklevel, weighted = TRUE, level = "higher", index = c("H2", "weighted NODF", "niche overlap", "C score", "generality", "web asymmetry", "weighted connectance")) %>% # We probably care mainly about the BB level of the network
+      data.frame() %>%
+      t() %>%
+      data.frame() %>%
+      rownames_to_column() %>%
+      dplyr::select(site = rowname, everything()) %>%
+      as_tibble() %>%
+      mutate(iteration = rep(i, n()))
+    
+    out <- bind_rows(out, temp)
+  } 
+  out <- out  %>%
+      gather(metric, value, -c(site, iteration)) %>% # get mean value across iterations for each metric
+      group_by(site, metric) %>%
+      summarize(value = mean(value)) %>%
+      left_join(site_data)
+}
+```
 
 ### Load site data
 ```{r, include=FALSE}
@@ -544,8 +527,10 @@ ggplot(breaks_summary, aes(value, prop, color = caste)) +
 bb_traits <- read_csv("./processed_data/bb_traits.csv") %>%
   select(subgenus, bb.sp, pbl.w, pbl.w.class)
 
-fl_traits <- read.csv("./processed_data/floral_k_type.csv") %>%
-  select(plant.sp, k.type)
+fl_traits <- read.csv("./processed_data/floral_k_type_nom_fix.csv") %>%
+  select(plant.sp, k.type) %>%
+  mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"),
+         k.type.ss = str_extract(k.type, "[-+]?[0-9]*"))
 
 fl_tax <- read_csv("./processed_data/floral_tax.csv") 
 
@@ -691,16 +676,82 @@ ggplot(filter(fl_survey_elev, sites > 0 & elev.ceiling < 1750),
 ### FL traits by elevation -- do we see a sharp change at the tree line?
 ```{r}
 survey_trait_elev <- survey %>%
-  group_by(site, year, elev.mean,  k.type) %>%
-  summarize(abund = sum(flower.cover)) %>%
-  group_by(site, elev.mean, year) %>%
-  mutate(div = length(unique(k.type)))
+  group_by(site, year, elev.mean,  k.type.s) %>%
+  summarize(abund = sum(flower.cover))
+
+survey_trait_elev2 <- survey %>%
+  group_by(site, year, elev.mean,  k.type.ss) %>%
+  summarize(abund = sum(flower.cover))
 
 net_trait_elev <- net %>%
-  group_by(site, year, elev.mean,  k.type) %>%
-  summarize(abund = n()) %>%
-  group_by(site, elev.mean, year) %>%
-  mutate(div = length(unique(k.type)))
+  group_by(site, year, elev.mean,  k.type.s) %>%
+  summarize(abund = n()) 
+
+net_trait_elev2 <- net %>%
+  group_by(site, year, elev.mean,  k.type.ss) %>%
+  summarize(abund = n()) 
+
+ggplot(survey_trait_elev, aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~k.type.s, scales = "free_y")
+
+ggplot(survey_trait_elev2, aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~k.type.ss, scales = "free_y")
+
+
+ggplot(net_trait_elev, aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~k.type.s, scales = "free_y")
+
+ggplot(net_trait_elev2, aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~k.type.ss, scales = "free_y")
+
+
+net_trait_genus_elev <- net %>%
+  group_by(site, year, elev.mean, plant.genus, k.type.s) %>%
+  summarize(abund = n()) 
+
+survey_trait_genus_elev <- survey %>%
+  group_by(site, year, elev.mean, plant.genus, k.type.s) %>%
+  summarize(abund = sum(flower.cover))
+
+ggplot(filter(net_trait_genus_elev, k.type.s == 5.1), 
+       aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~plant.genus)
+
+ggplot(filter(survey_trait_genus_elev, k.type.s %in% c(5.1)), 
+       aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~plant.genus, ncol = 5) +
+  ylab("sqrt(Abundance)") +
+  xlab("Elevation")
+
+ggplot(filter(net_trait_genus_elev, k.type.s %in% c(5.1)), 
+       aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~plant.genus, ncol = 5) +
+  ylab("sqrt(Visitation frequency)") +
+  xlab("Elevation")
+```
+
+### Genera and families by elevation
+```{r}
 
 survey_genus_elev <- survey %>%
   group_by(site, year, elev.mean, plant.genus) %>%
@@ -726,24 +777,7 @@ net_family_elev <- survey %>%
   group_by(site, elev.mean, year) %>%
   mutate(div = length(unique(plant.family)))
 
-ggplot(survey_trait_elev, aes(elev.mean, log(abund))) +
-  geom_point() +
-  stat_smooth() +
-  facet_wrap(~k.type, scales = "free_y")
-
-ggplot(net_trait_elev, aes(elev.mean, log(abund))) +
-  geom_point() +
-  stat_smooth() +
-  facet_wrap(~k.type, scales = "free_y")
-
-ggplot(survey_trait_elev, aes(elev.mean, div)) +
-  geom_point() +
-  stat_smooth()
-
-ggplot(net_trait_elev, aes(elev.mean, div)) +
-  geom_point() +
-  stat_smooth()
-
+#### Plot
 ggplot(survey_genus_elev, aes(elev.mean, log(abund))) +
   geom_point() +
   stat_smooth() +
@@ -859,6 +893,13 @@ ggplot(abund_div, aes(log(fl.abund), bb.abund, color = year)) +
   xlab("log(floral cover)") +
   theme_bw()
 
+ggplot(abund_div, aes(log(fl.abund), bb.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  ylab("BB abundance") +
+  xlab("log(floral cover)") +
+  theme_bw()
+
 ### BB richness ~ floral abundance
 ggplot(abund_div, aes(log(fl.abund), bb.rich, color = year)) +
   geom_point(alpha = 0.5) +
@@ -898,6 +939,15 @@ ggplot(abund_div, aes(elev.mean, log(fl.per.bb))) +
   #stat_summary(aes(y = log(fl.per.bb), group=1), fun.y=mean, colour="black", geom="point",group=1) +
   geom_smooth() +
   facet_grid(year~phase, scales = "free") +
+  ylab("log(fl-per-bb)") +
+  xlab("Elevation") +
+  theme_light()
+
+ggplot(abund_div, aes(elev.mean, log(fl.per.bb))) +
+  geom_point(alpha = 0.5) +
+  #stat_summary(aes(y = log(fl.per.bb), group=1), fun.y=mean, colour="black", geom="point",group=1) +
+  geom_smooth() +
+  facet_grid(.~year, scales = "free") +
   ylab("log(fl-per-bb)") +
   xlab("Elevation") +
   theme_light()
@@ -947,6 +997,23 @@ ggplot(filter(abund_div_mean, metric == "fl.per.bb"), aes(elev.mean, value)) +
   xlab("Elevation") +
   theme_light()
 
+
+ggplot(filter(abund_div_mean, metric == "fl.per.bb"), aes(elev.mean, log(value), color = year)) +
+  geom_point(alpha = 1) +
+  #geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  geom_smooth() +
+  ylab("FL per BB") +
+  xlab("Elevation") +
+  theme_light()
+
+ggplot(filter(abund_div_mean, metric == "fl.per.bb"), aes(elev.mean, log(value))) +
+  geom_point(alpha = 1, aes(color = year)) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  #geom_smooth() +
+  ylab("FL per BB") +
+  xlab("Elevation") +
+  theme_light(16)
+
 ### Per-capita floral resource abundance ~ GDD
 ggplot(abund_div, aes(gdd.cum, log(fl.per.bb))) +
   geom_point(alpha = 0.5, aes(color = phase)) +
@@ -976,7 +1043,7 @@ ggplot(abund_div, aes(yday, log(fl.per.bb))) +
 ggplot(abund_div, aes(elev.mean, bb.rich)) +
   geom_point() +
   geom_smooth() +
-  facet_grid(year ~ phase)
+  facet_grid(.~year)
 
 ### BB richness ~ GDD
 ggplot(abund_div, aes(gdd.cum, bb.rich)) +
@@ -995,6 +1062,25 @@ ggplot(abund_div, aes(elev.mean, bb.abund)) +
   geom_point() +
   geom_smooth() +
   facet_grid(year ~ phase, scales = "free")
+
+ggplot(abund_div, aes(elev.mean, bb.abund)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(.~year, scales = "free")
+
+ggplot(abund_div, aes(elev.mean, bb.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  xlab("Elevation") +
+  ylab("BB abundance")  +
+  theme_light(16)
+
+ggplot(abund_div, aes(elev.mean, sqrt(bb.abund), color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  xlab("Elevation") +
+  ylab("sqrt(BB abundance)")  +
+  theme_light(16)
 
 ### BB abundance ~ GDD
 ggplot(abund_div, aes(gdd.cum, bb.abund)) +
@@ -1058,6 +1144,26 @@ ggplot(abund_div, aes(elev.mean, log(fl.abund))) +
   theme_light(16) +
   xlab("Elevation") +
   ylab("log(Floral abundance)")
+
+ggplot(abund_div, aes(elev.mean, fl.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  theme_light(16) +
+  xlab("Elevation") +
+  ylab("Floral abundance")
+
+ggplot(abund_div, aes(elev.mean, log(fl.abund), color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  theme_light(16) +
+  xlab("Elevation") +
+  ylab("log(Floral abundance)")
+
+ggplot(abund_div, aes(elev.mean, sqrt(bb.abund), color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  xlab("Elevation") +
+  ylab("sqrt(BB abundance)")  +
+  theme_light(16)
 
 ### Floral abundance ~ GDD
 ggplot(abund_div, aes(gdd.cum, log(fl.abund))) +
@@ -1161,8 +1267,9 @@ plot(fl_abund_gdd.vis, allTerms = TRUE) +
   ylab("Elevation")
 ```
 
-##### Floral richness -- since year does not seem to change the overall pattern (though perhaps the magnitude), I could use a simpler model, perhaps with year as a random intercept effect
+##### Floral richness -- since year does not seem to change the overall pattern (though perhaps the magnitude), I could use a simpler model, perhaps with year as a random intercept effect; some explanat
 ```{r eval=FALSE, include=FALSE}
+### By year
 fl_rich_yday <- gam(fl.rich ~ year +
                     te(yday, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
                     data = filter(abund_div),
@@ -1173,11 +1280,32 @@ check.gamViz(fl_rich_yday.vis)
 summary(fl_rich_yday.vis)
 
 plot(fl_rich_yday.vis, allTerms = TRUE) +
+  ggtitle("FL abundance (gdd)") +
+  xlab("Day of year") +
+  ylab("Elevation")
+
+### With year as parametric term
+fl_rich_yday2 <- gam(fl.rich ~ year +
+                    te(yday, elev.mean, bs= "cc", k= 10, m=1),
+                    data = filter(abund_div),
+                    method = "REML")
+
+fl_rich_yday2.vis <- getViz(fl_rich_yday2)
+check.gamViz(fl_rich_yday2.vis)
+summary(fl_rich_yday2.vis)
+
+plot(sm(fl_rich_yday2.vis, 1)) + 
+  l_fitRaster() + 
+  l_fitContour() + 
+  l_points(size = 1) +
   ggtitle("FL richness (yday)") +
   xlab("Day of year") +
   ylab("Elevation")
 
+plot(pterm(fl_rich_yday2.vis, 1))
 
+
+### By year
 fl_rich_gdd <- gam(fl.rich ~ year +
                     te(gdd.cum, elev.mean, by=year, bs= c("cc", "tp"), k=c(10, 10), m=1),
                     data = filter(abund_div),
@@ -1189,8 +1317,28 @@ summary(fl_rich_gdd.vis)
 
 plot(fl_rich_gdd.vis, allTerms = TRUE) +
   ggtitle("FL richness (gdd)") +
+  xlab("GDD") +
+  ylab("Elevation")
+
+### With year as parametric term
+fl_rich_gdd2 <- gam(fl.rich ~ year +
+                    te(gdd.cum, elev.mean, bs= "cc", k= 10, m=1),
+                    data = filter(abund_div),
+                    method = "REML")
+
+fl_rich_gdd2.vis <- getViz(fl_rich_gdd2)
+check.gamViz(fl_rich_gdd2.vis)
+summary(fl_rich_gdd2.vis)
+
+plot(sm(fl_rich_gdd2.vis, 1)) + 
+  l_fitRaster() + 
+  l_fitContour() + 
+  l_points(size = 1) +
+  ggtitle("FL richness (gdd)") +
   xlab("Day of year") +
   ylab("Elevation")
+
+plot(pterm(fl_rich_gdd2.vis, 1))
 ```
 
 ##### BB abundance
@@ -1511,6 +1659,324 @@ summary(gam_webass.vis)
 
 plot(gam_webass.vis, allTerms = TRUE) +
   xlab("Elevation")
+```
+
+### Rarefied network analysis by k.type instead of by plant sp
+```{r, include = FALSE}
+### Create yearly subsets to feed to rare_net
+net_2012 <- filter(net, year == "2012")
+net_2011 <- filter(net, year == "2011")
+net_2010 <- filter(net, year == "2010")
+
+### Species level
+spmet_2012 <- rare_net_sp_k.type(net_2012, 9, 20) %>%
+  mutate(year = factor(rep("2012", n())))
+spmet_2011 <- rare_net_sp(net_2011, 4, 20) %>%
+  mutate(year = factor(rep("2011", n())))  
+spmet_2010 <- rare_net_sp(net_2010, 3, 20) %>%
+  mutate(year = factor(rep("2010", n())))
+
+spmet <- bind_rows(spmet_2012, spmet_2011, spmet_2010)
+
+spmet_mean <- spmet %>%
+  group_by(site, year, elev.mean, metric) %>%
+  summarize(value = mean(value))
+
+### Network- and group-level
+netmet_rare_2012 <- rare_net_nt_k.type(net_2012, n = 9, iter = 20) %>%
+  mutate(year = factor(rep("2012", n())))
+netmet_rare_2011 <- rare_net_nt_k.type(net_2011, n = 4, iter = 20)  %>%
+  mutate(year = factor(rep("2011", n())))
+netmet_rare_2010 <- rare_net_nt_k.type(net_2010, n = 3, iter = 20) %>%
+  mutate(year = factor(rep("2010", n())))
+
+netmet <- bind_rows(netmet_rare_2012, 
+                    netmet_rare_2011, 
+                    netmet_rare_2010) %>%
+  mutate(metric = factor(metric, levels = c("H2",
+                                            "weighted.NODF",
+                                            "niche.overlap.HL", 
+                                            "C.score.HL",
+                                            "generality.HL",
+                                            "web.asymmetry",
+                                            "weighted.connectance")))
+
+### Plot
+#### Per species values
+ggplot(filter(spmet_2012,
+              sp %in% c("bss", "hort", "pasc", "prat", "soro", "wurf")), 
+       aes(elev.mean, value)) +
+  geom_point() +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth() +
+  facet_grid(metric~sp, scales = "free")
+
+ggplot(filter(spmet_2011,
+              sp %in% c("bss", "hort", "pasc", "prat", "soro", "wurf")), 
+       aes(elev.mean, value)) +
+  geom_point() +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth() +
+  facet_grid(metric~sp, scales = "free")
+
+ggplot(filter(spmet_2010,
+              sp %in% c("bss", "hort", "pasc", "prat", "soro", "wurf")), 
+       aes(elev.mean, value)) +
+  geom_point() +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth() +
+  facet_grid(metric~sp, scales = "free")
+
+#### Community mean d
+ggplot(filter(spmet_mean, metric == "d"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10), color = "black", linetype = "dashed", size = 0.75) +
+  xlab("Elevation") +
+  ylab("Community mean d'") +
+  theme_light(16)
+
+gam_d <- gam(value ~ year + s(elev.mean, k = 10), 
+             data = filter(spmet, metric == "d"),
+             method = "REML")
+
+gam_d.vis <- getViz(gam_d)
+check.gamViz(gam_d.vis)
+summary(gam_d.vis)
+
+plot(gam_d.vis, allTerms = TRUE) +
+  xlab("Elevation") 
+
+#### Network level
+ggplot(netmet, aes(elev.mean, value)) +
+  geom_point() +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth() +
+  facet_grid(metric~year, scales = "free")
+
+##### H2
+ggplot(filter(netmet, metric == "H2"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  xlab("Elevation") +
+  ylab("H2'") +
+  theme_light(16)
+
+gam_H2 <- gam(value ~ year + s(elev.mean), 
+              data = filter(netmet, metric == "H2"),
+              method = "REML")
+
+gam_H2.vis <- getViz(gam_H2)
+check.gamViz(gam_H2.vis)
+summary(gam_H2.vis)
+
+plot(gam_H2.vis, allTerms = TRUE) +
+  xlab("Elevation") 
+
+##### niche overlap
+ggplot(filter(netmet, metric == "niche.overlap.HL"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  #geom_smooth() +
+  xlab("Elevation") +
+  ylab("Niche overlap") +
+  theme_light(16)
+
+gam_niche.overlap <- gam(value ~ year + s(elev.mean), 
+                         data = filter(netmet, metric == "niche.overlap.HL"),
+                         method = "REML")
+
+gam_niche.overlap.vis <- getViz(gam_niche.overlap)
+check.gamViz(gam_niche.overlap.vis)
+summary(gam_niche.overlap.vis)
+
+plot(gam_niche.overlap.vis, allTerms = TRUE) +
+  xlab("Elevation") 
+
+
+##### C.score
+ggplot(filter(netmet, metric == "C.score.HL"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  #geom_smooth() +
+  xlab("Elevation") +
+  ylab("C score") +
+  theme_light(16)
+
+gam_cscore <- gam(value ~ year + s(elev.mean), 
+                  data = filter(netmet, metric == "C.score.HL"),
+                  method = "REML")
+
+gam_cscore.vis <- getViz(gam_cscore)
+check.gamViz(gam_cscore.vis)
+summary(gam_cscore.vis)
+
+plot(gam_cscore.vis, allTerms = TRUE) +
+  xlab("Elevation")
+
+
+##### Connectance
+ggplot(filter(netmet, metric == "weighted.connectance"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  #geom_smooth() +
+  xlab("Elevation") +
+  ylab("Connectance (weighted)") +
+  theme_light(16)
+
+gam_connectance <- gam(value ~ year + s(elev.mean), 
+                  data = filter(netmet, metric == "weighted.connectance"),
+                  method = "REML")
+
+gam_connectance.vis <- getViz(gam_connectance)
+check.gamViz(gam_connectance.vis)
+summary(gam_connectance.vis)
+
+plot(gam_connectance.vis, allTerms = TRUE) +
+  xlab("Elevation")
+
+##### NODF
+ggplot(filter(netmet, metric == "weighted.NODF"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  #geom_smooth() +
+  xlab("Elevation") +
+  ylab("NODF (weighted)") +
+  theme_light(16)
+
+gam_NODF <- gam(value ~ year + s(elev.mean), 
+                data = filter(netmet, metric == "weighted.NODF"),
+                method = "REML")
+
+gam_NODF.vis <- getViz(gam_NODF)
+check.gamViz(gam_NODF.vis)
+summary(gam_NODF.vis)
+
+plot(gam_NODF.vis, allTerms = TRUE) +
+  xlab("Elevation")
+
+##### Web asymmetry
+ggplot(filter(netmet, metric == "web.asymmetry"), aes(elev.mean, value)) +
+  geom_point(aes(color = year)) +
+  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
+  #geom_smooth() +
+  xlab("Elevation") +
+  ylab("Web asymmetry") +
+  theme_light(16)
+
+gam_webass <- gam(value ~ year + s(elev.mean), 
+                data = filter(netmet, metric == "web.asymmetry"),
+                method = "REML")
+
+gam_webass.vis <- getViz(gam_webass)
+check.gamViz(gam_webass.vis)
+summary(gam_webass.vis)
+
+plot(gam_webass.vis, allTerms = TRUE) +
+  xlab("Elevation")
+```
+
+### Do BB species differ in their k.type associations?
+```{r}
+web_by_site <- net %>%
+  group_by(site, bb.sp, k.type.s) %>% # group by site, date, bee species, plant species
+  summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+  na.omit() %>%
+  group_by(site) %>%
+  filter(length(unique(bb.sp)) > 1 & length(unique(k.type.s)) > 1) %>%
+  ungroup() %>%
+  dplyr::select(higher = bb.sp, lower = k.type.s, webID = site, freq) %>% # rename columns to match bipartite's expectations
+  data.frame() %>% # convert to data frame
+  frame2webs()
+
+visweb(web[[1]])
+plotweb(web[[1]])
+
+web <- net %>%
+  group_by(year, elev.class2, bb.sp, k.type.s) %>% # group by site, date, bee species, plant species
+  summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+  na.omit() %>%
+  unite(webID, c(year, elev.class2), sep = "_") %>%
+  dplyr::select(higher = bb.sp, lower = k.type.s, webID, freq) %>% # rename columns to match bipartite's expectations
+  data.frame() %>% # convert to data frame
+  frame2webs()
+
+# 2010 high
+visweb(web[[1]])
+plotweb(web[[1]])
+
+# 2010 low
+visweb(web[[2]])
+plotweb(web[[2]])
+
+# 2010 med
+visweb(web[[3]])
+plotweb(web[[3]])
+
+# 2011 high
+visweb(web[[4]])
+plotweb(web[[4]])
+
+# 2011 low
+visweb(web[[5]])
+plotweb(web[[5]])
+
+# 2011 med
+visweb(web[[6]])
+plotweb(web[[6]])
+
+# 2012 high
+visweb(web[[7]])
+plotweb(web[[7]])
+
+# 2012 low
+visweb(web[[8]])
+plotweb(web[[8]])
+
+# 2012 med
+visweb(web[[9]])
+plotweb(web[[9]])
+
+```
+
+### Does tongue length class predict k.type association? Remember that B. wurflenii is primarily a nectar robber.
+```{r}
+library(infer)
+
+kugler_desc <- read_delim("./kugler.tsv", delim = "\t") %>%
+  select(1,2)
+
+ggplot(bb_traits, aes(pbl.w)) +
+  geom_histogram()
+
+net_cont <- net %>%
+  group_by(year, elev.class2, pbl.w.class, k.type.ss) %>%
+  summarize(freq = n()) %>%
+  group_by(elev.class2, pbl.w.class) %>%
+  mutate(prop = freq/sum(freq))
+
+ggplot(net_cont, aes(pbl.w.class, freq, fill = k.type.ss)) +
+  geom_col() +
+  facet_grid(.~elev.class2)
+
+ggplot(net_cont, aes(pbl.w.class, prop, fill = k.type.ss)) +
+  geom_col() +
+  facet_grid(.~elev.class2)
+
+chisq_mod <- chisq.test(net$pbl.w.class, net$k.type.ss)
+chisq_mod
+
+
+  c <- net %>%
+  select(k.type.s, pbl.w.class) %>%
+  mutate(k.type.s = factor(k.type.s),
+         pbl.w.class = factor(pbl.w.class)) %>%
+  chisq_test(k.type.s ~ pbl.w.class)
+
 ```
 
 ### Let's look at how abundance varies on a per-species basis
@@ -1952,4 +2418,106 @@ ggplot(filter(pxe_sp,
   theme_light() +
   xlab("Elevation") +
   ylab("d'")
+```
+
+```{r}
+
+# network level PxE
+rare_net_nt_pxe <- function(net, n, iter) {
+  
+  out <- data.frame()
+  
+  t_filter <- net %>%
+    select(site, date, phase, year) %>%
+    unique() %>%
+    group_by(site, phase, year) %>%
+    mutate(transects = n()) %>%
+    filter(transects >= n)
+  
+  for(i in 1:iter) {
+    temp <- net %>%
+      semi_join(t_filter) %>%
+      select(site, date, phase, year) %>%
+      unique() %>%
+      group_by(site, phase, year) %>%
+      sample_n(n) %>%
+      left_join(net) %>%
+      group_by(site, phase, year, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
+      summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+      group_by(site, phase, year) %>%
+      filter(length(unique(bb.sp)) > 1 & length(unique(plant.sp)) > 1) %>%
+      ungroup() %>%
+      unite(webID, c(site, phase, year), sep = "_") %>%
+      dplyr::select(higher = bb.sp, lower = plant.sp, webID, freq) %>% # rename columns to match bipartite's expectations
+      data.frame() %>% # convert to data frame
+      frame2webs() %>% # convert to to bipartite web
+      map(networklevel, weighted = TRUE, level = "higher",
+          index = c("web asymmetry", "weighted NODF", "H2", "C score", "niche overlap", "generality")) %>% 
+      data.frame() %>%
+      t() %>%
+      data.frame() %>%
+      rownames_to_column() %>%
+      dplyr::select(id = rowname, everything()) %>%
+      as_tibble() %>%
+      mutate(iteration = rep(i, n()))
+    
+    out <- bind_rows(out, temp)
+  } 
+  out <- out  %>%
+      gather(metric, value, -c(id, iteration)) %>% # get mean value across iterations for each metric
+      group_by(id, metric) %>%
+      summarize(value = mean(value)) %>%
+      separate(id, sep = "_", into = c("site", "phase", "year")) %>%
+      mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
+      left_join(site_data)
+}
+
+# species level version 2
+rare_net_sp2 <- function(net, n, iter) {
+  
+  out <- data.frame()
+  
+  t_filter <- net %>%
+    select(site, date, phase, year) %>%
+    unique() %>%
+    group_by(site, phase, year) %>%
+    mutate(transects = n()) %>%
+    filter(transects >= n)
+  
+  for(i in 1:iter) {
+    temp <- net %>%
+      semi_join(t_filter) %>%
+      select(site, date, phase, year) %>%
+      unique() %>%
+      group_by(site, phase, year) %>%
+      sample_n(n) %>%
+      left_join(net) %>%
+      group_by(site, phase, year, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
+      summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+      group_by(site, phase, year) %>%
+      filter(length(unique(bb.sp)) > 1 & length(unique(plant.sp)) > 1) %>%
+      ungroup() %>%
+      unite(webID, c(site, phase, year), sep = "_") %>%
+      dplyr::select(higher = bb.sp, lower = plant.sp, webID, freq) %>% # rename columns to match bipartite's expectations
+      data.frame() %>% # convert to data frame
+      frame2webs() %>% # convert to to bipartite web
+      map(specieslevel, level = "higher", index = c("d", "species strength")) %>%
+      map(rownames_to_column) %>%
+      map(as_tibble) %>%
+      bind_rows(.id = "id") %>% # Collapse list into big data frame
+      rename(sp = rowname) %>%
+      mutate(iteration = rep(i, n()))
+    
+    out <- bind_rows(out, temp)
+  } 
+  out <- out %>%
+    gather(metric, value, -c(sp, id, iteration)) %>% # get mean value across iterations for each metric
+    group_by(sp, id, metric) %>%
+    summarize(value = mean(value)) %>%
+    separate(id, sep = "_", into = c("site", "phase", "year")) %>%
+    mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
+    left_join(site_data) %>%
+    left_join(bb_traits, by = c("sp" = "bb.sp"))
+}
+
 ```

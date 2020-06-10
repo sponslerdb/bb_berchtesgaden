@@ -6,7 +6,7 @@ author:
 - Katharina Kallnik
 - Alice Claßen
 - A. Fabienne Maihoff
-- Ingolf Steffan-Dewenter
+- Ingolf Steffan-Dewenter 
 output:
   pdf_document: default
   word_document:

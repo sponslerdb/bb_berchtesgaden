@@ -10,6 +10,7 @@ Achillea setacea,Achillea,setacea,7.2c
 Acinos alpinus,Acinos,alpinus,5.1
 Aconitum degenii,Aconitum,degenii,5.2
 Aconitum lycoctonum,Aconitum,lycoctonum,5.2
+Aconitum vulparia,Aconitum,vulparia,5.2
 Aconitum napellus,Aconitum,napellus,5.2
 Aconitum plicatum,Aconitum,plicatum,5.2
 Aconitum tauricum,Aconitum,tauricum,5.2
@@ -86,7 +87,9 @@ Bartsia alpina,Bartsia,alpina,5.3
 Bellis perennis,Bellis,perennis,7.2c
 Berberis vulgaris,Berberis,vulgaris,1.2bc
 Betonica alopecuros,Betonica,alopecuros,5.1
+Stachys alopecuros,Stachys,alopecuros,5.1
 Betonica officinalis,Betonica,officinalis,5.1
+Stachys officinalis,Stachys,officinalis,5.1
 Biscutella laevigata,Biscutella,laevigata,1.2bb
 Bistorta vivipara,Bistorta,vivipara,3.2
 Brachypodium pinnatum,Brachypodium,pinnatum,0
@@ -106,6 +109,7 @@ Campanula trachelium,Campanula,trachelium,3.2
 Cardamine dentata,Cardamine,dentata,1.2bb
 Cardamine pratensis,Cardamine,pratensis,1.2bb
 Cardamine udicola,Cardamine,udicola,1.2bb
+Cardamine enneaphyllos,Cardamine,enneaphyllos,1.2bb
 Carduus defloratus,Carduus,defloratus,7.2a
 Carex alba,Carex,alba,0
 Carex atrata,Carex,atrata,0
@@ -192,6 +196,8 @@ Euphorbia cyparissias,Euphorbia,cyparissias,1.2a
 Euphrasia frigida,Euphrasia,frigida,5.1
 Euphrasia minima,Euphrasia,minima,5.1
 Euphrasia officinalis,Euphrasia,officinalis,5.1
+Euphrasia picta,Euphrasia,picta,5.1
+Euphrasia rostkoviana,Euphrasia,rostkoviana,5.1
 Festuca nigrescens,Festuca,nigrescens,0
 Festuca pratensis,Festuca,pratensis,0
 Festuca quadriflora,Festuca,quadriflora,0
@@ -203,6 +209,7 @@ Galeobdolon argentatum,Galeobdolon,argentatum,5.1
 Galeobdolon flavidum,Galeobdolon,flavidum,5.1
 Galeobdolon luteum,Galeobdolon,luteum,5.1
 Galeobdolon montanum,Galeobdolon,montanum,5.1
+Lamium galeobdolon,Galeobdolon,galeobdolon,5.1
 Galeopsis speciosa,Galeopsis,speciosa,5.1
 Galeopsis tetrahit,Galeopsis,tetrahit,5.1
 Galium album,Galium,album,1.2a
@@ -220,7 +227,9 @@ Gentiana pannonica,Gentiana,pannonica,2.1
 Gentiana utriculosa,Gentiana,utriculosa,4.1
 Gentiana verna,Gentiana,verna,4.1
 Gentianella aspera,Gentianella,aspera,2.1
+Gentiana aspera,Gentiana,aspera,2.1
 Gentianella ciliata,Gentianella,ciliata,2.1
+Gentiana ciliata,Gentiana,ciliata,2.1
 Geranium purpureum,Geranium,purpureum,1.2bb
 Geranium robertianum,Geranium,robertianum,1.2bb
 Geranium sylvaticum,Geranium,sylvaticum,1.2bb
@@ -362,6 +371,7 @@ Luzula pilosa,Luzula,pilosa,0
 Luzula sudetica,Luzula,sudetica,0
 Luzula sylvatica,Luzula,sylvatica,0
 Lychnis flos-cuculi,Lychnis,flos-cuculi,4.2
+Silene flos-cuculi,Silene,flos-cuculi,4.2
 Lysimachia nemorum,Lysimachia,nemorum,1.1
 Lysimachia nummularia,Lysimachia,nummularia,1.1
 Maianthemum bifolium,Maianthemum,bifolium,1.2a
@@ -471,6 +481,7 @@ Rosa dumalis,Rosa,dumalis,1.1
 Rubus idaeus,Rubus,idaeus,1.2ba
 Rumex acetosa,Rumex,acetosa,0
 Rumex arifolius,Rumex,arifolius,0
+Rumex alpestris,Rumex,alpestris,0
 Rumex obtusifolius,Rumex,obtusifolius,0
 Sagina procumbens,Sagina,procumbens,1.2bb
 Sagina saginoides,Sagina,saginoides,1.2bb
@@ -507,6 +518,7 @@ Stellaria nemorum,Stellaria,nemorum,1.2bb
 Taraxacum sect.,Taraxacum,sect.,7.2b
 Taraxacum sect.,Taraxacum,sect.,7.2b
 Taraxacum sect.,Taraxacum,sect.,7.2b
+Taraxacum officinale,Taraxacum,officinale,7.2b
 Teucrium chamaedrys,Teucrium,chamaedrys,5.1
 Thalictrum aquilegiifolium,Thalictrum,aquilegiifolium,9
 Thesium alpinum,Thesium,alpinum,1.2ba

@@ -28,6 +28,12 @@ write_csv(fl_survey, "./processed_data/floral_survey.csv")
 ### Visitation data
 network <- read_delim("./raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim = ";", 
                            locale = locale(decimal_mark = ",", grouping_mark = ".")) %>%
+  mutate(plant_sp_latin = str_replace_all(plant_sp_latin, 
+                                         c("Arabis caerula" = "Arabis caerulea", # correct nomenclature typos and synonyms
+                                           "Arctostaphylos alpina" = "Arctous alpina",
+                                           "Calluna vulagris" = "Calluna vulgaris",
+                                           "Deschampsia caespitosa" = "Deschampsia cespitosa",
+                                           "Gymnadenia bifolia" = "Platanthera bifolia")))%>%
   separate(col = plant_sp_latin, into = c("genus", "species", "w", "x", "y", "z"), sep = " ") %>%
   unite(plant_sp_latin, genus, species, sep = " ") %>%
   dplyr::select(-c(w,x,y,z)) %>%
@@ -92,7 +98,7 @@ site_data <- read_tsv("./raw_data/SiteLocationFabriceUpdate2020.tsv",
   mutate(elev.class2 = case_when(
     elev.mean < 1000 ~ "low",
     elev.mean >= 1000 & elev.mean < 1500 ~ "mid",
-    elev.mean >= 1500 ~ "high"
+    elev.mean >= 1750 ~ "high"
   ))
 
 write_csv(site_data, "./processed_data/site_data.csv")
