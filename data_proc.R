@@ -131,3 +131,139 @@ write_csv(climate, "./processed_data/climate.csv")
 
 ### TRY data
 try <- read_delim("./raw_data/TRY_13_05_2020.txt", delim = "\t")
+
+### Parasite data
+#### 2010
+parasites2010 <- read_delim("./raw_data/lab-data_parasites_2010_raw-data.csv", delim = ";") %>%
+  select(-c(year, ovary_development, fatbody_look, comment, dissector)) %>%
+  gather(var, value, -sample_number) %>%
+  mutate(value = as.numeric(value),
+         var = str_replace_all(var, "-", "_")) %>%
+  na.omit() %>%
+  spread(var, value) %>%
+  filter(!is.na(size)) %>% #remove the few cases where size was not measured 
+  replace(is.na(.), 0) %>%
+  mutate(ecto.mites = ecto_mites_l + ecto_mites_m + ecto_mites_s + ecto_mites_xs,
+         conopids = parasitoid_conopidae_dead_larvae +
+           parasitoid_conopidae_dead_larvae +
+           parasitoid_conopidae_dorsal_egg +
+           parasitoid_conopidae_dorsal_larvae +
+           parasitoid_conopidae_ventral_egg +
+           parasitoid_conopidae_ventral_larvae) %>%
+  select(sample_number, size, ecto.mites, conopids, 
+         nosema = parasite_nosema, apicystis = parasite_apicystis,
+         crithidia = parasite_crithidia, braconids = parasitoid_braconidae_larvae,
+         tracheal.mites = tracheal_mites, nematodes = nematode) %>%
+  gather(var, value, -sample_number, -size) %>%
+  mutate(value = as.numeric(value),
+         bin.value = case_when(
+           value > 0 ~ TRUE,
+           value == 0 ~ FALSE
+         )) %>%
+  na.omit() 
+  
+sampling2010 <- read_delim("./raw_data/field-data_bumblebees_2010_raw-data.csv", delim = ";") %>%
+  select(site = site_name, elev.mean = site_elevation, year, date, yday = dayofyear, bb.sp = bumb_species, 
+         caste, plant.sp = forage_plant, sample_number) %>%
+  mutate(date = dmy(date),
+         caste = str_trim(caste))
+
+psite_2010 <- parasites2010 %>%
+  left_join(sampling2010, by = c("sample_number")) %>%
+  select(site, date, year, yday, elev.mean, bb.sp, size, caste, 
+         plant.sp, var, value, bin.value, sample_number)
+
+#### 2011
+parasites2011 <- read_delim("./raw_data/lab-data_parasites_2011_raw-data.csv", delim = ";") %>%
+  select(-c(year, ovary_development, fatbody_look, comment, dissector)) %>%
+  gather(var, value, -sample_number) %>%
+  mutate(value = as.numeric(value),
+         var = str_replace_all(var, "-", "_")) %>%
+  na.omit() %>%
+  spread(var, value) %>%
+  filter(!is.na(size)) %>% #remove the few cases where size was not measured 
+  replace(is.na(.), 0) %>%
+  mutate(ecto.mites = ecto_mites_l + ecto_mites_m + ecto_mites_s + ecto_mites_xs,
+         conopids = parasitoid_conopidae_dead_larvae +
+           parasitoid_conopidae_dead_larvae +
+           parasitoid_conopidae_dorsal_egg +
+           parasitoid_conopidae_dorsal_larvae +
+           parasitoid_conopidae_ventral_egg +
+           parasitoid_conopidae_ventral_larvae) %>%
+  select(sample_number, size, ecto.mites, conopids, 
+         braconids = parasitoid_braconidae_larvae,
+         tracheal.mites = tracheal_mites, nematodes = nematode) %>%
+  gather(var, value, -sample_number, -size) %>%
+  mutate(value = as.numeric(value),
+         bin.value = case_when(
+           value > 0 ~ TRUE,
+           value == 0 ~ FALSE
+         )) %>%
+  na.omit()  %>%
+  mutate(sample_number = as.character(sample_number))
+
+sampling2011 <- read_delim("./raw_data/field-data_bumblebees_2011_raw-data.csv", delim = ";") %>%
+  select(site = site_name, elev.mean = site_elevation, year, date, yday = dayofyear, bb.sp = bumb_species, 
+         caste, plant.sp = forage_plant, sample_number) %>%
+  mutate(date = dmy(date),
+         caste = str_trim(caste)) %>%
+  mutate(sample_number = as.character(sample_number))
+
+psite_2011 <- parasites2011 %>%
+  left_join(sampling2011, by = c("sample_number")) %>%
+  select(site, date, year, yday, elev.mean, bb.sp, size, caste, 
+         plant.sp, var, value, bin.value, sample_number)
+
+ggplot(psite_2011, aes(bin.value)) +
+  geom_bar() +
+  facet_wrap(~var, scale = "free")
+
+ggplot(psite_2011, aes(value)) +
+  geom_bar() +
+  facet_wrap(~var, scale = "free")
+
+#### 2012
+parasites2012 <- read_delim("./raw_data/lab-data_parasites_2012_raw-data_mod.csv", delim = "\t") %>%
+  select(-c(year, ovary_development, comment, dissector)) %>%
+  gather(var, value, -sample_number) %>%
+  mutate(value = as.numeric(value),
+         var = str_replace_all(var, "-", "_")) %>%
+  na.omit() %>%
+  spread(var, value) %>%
+  filter(!is.na(size)) %>% #remove the few cases where size was not measured 
+  replace(is.na(.), 0) %>%
+  mutate(ecto.mites = ecto_mites_l + ecto_mites_m + ecto_mites_s + ecto_mites_xs,
+         conopids = parasitoid_conopidae_dead_larvae +
+           parasitoid_conopidae_dead_larvae +
+           parasitoid_conopidae_dorsal_egg +
+           parasitoid_conopidae_dorsal_larvae +
+           parasitoid_conopidae_ventral_egg +
+           parasitoid_conopidae_ventral_larvae) %>%
+  select(sample_number, size, ecto.mites, conopids, 
+         nosema = parasite_nosema, apicystis = parasite_apicystis,
+         crithidia = parasite_crithidia, braconids = parasitoid_braconidae_larvae,
+         tracheal.mites = tracheal_mites, nematodes = nematode) %>%
+  gather(var, value, -sample_number, -size) %>%
+  mutate(value = as.numeric(value),
+         bin.value = case_when(
+           value > 0 ~ TRUE,
+           value == 0 ~ FALSE
+         )) %>%
+  na.omit() %>%
+  mutate(sample_number = as.character(sample_number))
+
+sampling2012 <- read_delim("./raw_data/field-data_bumblebees_2012_raw-data.csv", delim = ";") %>%
+  select(site = site_name, elev.mean = site_elevation, year, date, yday = dayofyear, bb.sp = bumb_species, 
+         caste, plant.sp = forage_plant, sample_number) %>%
+  mutate(caste = str_trim(caste)) %>%
+  filter(sample_number > 0) %>%
+  mutate(sample_number = as.character(sample_number))
+
+psite_2012 <- parasites2012 %>%
+  left_join(sampling2012, by = c("sample_number")) %>%
+  select(site, date, year, yday, elev.mean, bb.sp, size, caste, 
+         plant.sp, var, value, bin.value, sample_number)
+
+parasites <- bind_rows(psite_2010, psite_2011, psite_2012)
+
+write_csv(parasites, "./processed_data/parasites.csv")
