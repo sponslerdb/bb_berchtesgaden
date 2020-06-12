@@ -1622,7 +1622,9 @@ spmet_BB <- bind_rows(spmet_2012_BB, spmet_2011_BB, spmet_2010_BB)
 
 spmet_mean_BB <- spmet_BB %>%
   group_by(site, year, elev.mean, metric) %>%
-  summarize(value = mean(value, na.rm = TRUE))
+  summarize(value = mean(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(year = factor(year))
 
 #### plants
 spmet_2012_FL <- rare_net_sp_FL(net_2012, 9, 100) %>%
@@ -1636,7 +1638,9 @@ spmet_FL <- bind_rows(spmet_2012_FL, spmet_2011_FL, spmet_2010_FL)
 
 spmet_mean_FL <- spmet_FL %>%
   group_by(site, year, elev.mean, metric) %>%
-  summarize(value = mean(value))
+  summarize(value = mean(value, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(year = factor(year))
 
 ### Network- and group-level
 netmet_rare_2012 <- rare_net_nt(net_2012, n = 9, iter = 25) %>%
@@ -1658,7 +1662,9 @@ netmet <- bind_rows(netmet_rare_2012,
                                             "C.score.LL",
                                             "generality.LL",
                                             "web.asymmetry",
-                                            "weighted.connectance")))
+                                            "weighted.connectance"))) %>%
+  ungroup() %>%
+  mutate(year = factor(year))
 ```
 
 ### Plot network analysis
@@ -1689,20 +1695,22 @@ ggplot(filter(spmet_2010_BB,
 ##### BB
 ggplot(filter(spmet_mean_BB, metric == "d"), aes(elev.mean, value)) +
   geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) +
   xlab("Elevation") +
   ylab("Community mean d'") +
   facet_wrap(~year) +
   theme_light(16)
 
-gam_d <- gamV(value ~ year + s(elev.mean, k = 15, bs = "tp", by = factor(year)), 
-             data = filter(spmet_BB, metric == "d"),
+gam_d1 <- gamV(value ~ s(year, bs = "re") + s(elev.mean, k = 5, bs = "tp", by = year, m = 1), 
+             data = filter(spmet_mean_BB, metric == "d"),
              method = "REML")
 
-check.gamViz(gam_d)
-summary(gam_d)
+check.gamViz(gam_d1)
+summary(gam_d1)
+plot(gam_d1, allTerms = TRUE) 
 
-plot(gam_d, allTerms = TRUE) 
+summary(lm(value ~ elev.mean, data =  filter(spmet_mean_BB, metric == "d" & year == 2012)))
+plot(lm(value ~ elev.mean, data =  filter(spmet_mean_BB, metric == "d" & year == 2012)))
 
 ##### FL
 ggplot(filter(spmet_mean_FL, metric == "d"), aes(elev.mean, value)) +
@@ -1725,7 +1733,7 @@ ggplot(filter(netmet, metric == "niche.overlap.HL"), aes(elev.mean, value)) +
   facet_wrap(~year) +
   theme_light(16)
 
-gam_niche.overlap <- gamV(value ~ year + s(elev.mean, k = 10, bs = "tp", by = factor(year)), 
+gam_niche.overlap <- gamV(value ~ s(year, bs = "re") + s(elev.mean, by = year, k = 10, bs = "tp", m = 2), 
                          data = filter(netmet, metric == "niche.overlap.HL"),
                          method = "REML")
 
@@ -1734,24 +1742,7 @@ summary(gam_niche.overlap)
 
 plot(gam_niche.overlap, allTerms = TRUE) 
 
-ggplot(filter(netmet, metric == "niche.overlap.LL"), aes(elev.mean, value)) +
-  geom_point(aes(color = year)) +
-  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
-  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
-  #geom_smooth() +
-  xlab("Elevation") +
-  ylab("Niche overlap") +
-  facet_wrap(~year, scales = "free") +
-  theme_light(16)
-
 ##### C.score
-ggplot(filter(netmet, metric == "C.score.HL"), aes(elev.mean, value)) +
-  geom_point(aes(color = year)) +
-  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
-  xlab("Elevation") +
-  ylab("C score") +
-  theme_light(16)
-
 ggplot(filter(netmet, metric == "C.score.HL"), aes(elev.mean, value)) +
   geom_point() +
   geom_smooth(method = "gam", formula = y ~ s(x)) +
@@ -1760,7 +1751,7 @@ ggplot(filter(netmet, metric == "C.score.HL"), aes(elev.mean, value)) +
   facet_wrap(~year) +
   theme_light(16)
 
-gam_cscore <- gamV(value ~ year + s(elev.mean, bs = "tp", k = 10, by = factor(year)), 
+gam_cscore <- gamV(value ~ s(year, bs = "re") + s(elev.mean, by = factor(year), bs = "tp", k = 6, m = 1), 
                   data = filter(netmet, metric == "C.score.HL"),
                   #family = "scat",
                   method = "REML")
@@ -1768,17 +1759,7 @@ gam_cscore <- gamV(value ~ year + s(elev.mean, bs = "tp", k = 10, by = factor(ye
 check.gamViz(gam_cscore)
 summary(gam_cscore)
 
-plot(gam_cscore.vis, allTerms = TRUE)
-
-ggplot(filter(netmet, metric == "C.score.LL"), aes(elev.mean, value)) +
-  geom_point(aes(color = year)) +
-  #geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
-  geom_smooth(method = "gam", formula = y ~ s(x), color = "black", linetype = "dashed", size = 0.75) +
-  #geom_smooth() +
-  xlab("Elevation") +
-  ylab("C score") +
-  facet_wrap(~year, scales = "free") +
-  theme_light(16)
+plot(gam_cscore, allTerms = TRUE)
 ```
 
 ### Rarefied network analysis by k.type instead of by plant sp
