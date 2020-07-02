@@ -1,0 +1,852 @@
+---
+title: "community_basic_analysis"
+output: html_document
+---
+
+### Prepare environment
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = FALSE)
+# library(bipartite)
+# library(mgcv)
+# library(mgcViz)
+#library(lme4)
+#library(lmerTest)
+library(tidyverse)
+library(lubridate)
+library(GGally)
+```
+
+### Load site data
+```{r, include=FALSE}
+site_data <- read_csv("../processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
+  mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
+         elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) # turn elav.class into an ordered factor
+```
+
+### Climate data
+```{r, include=FALSE}
+gdd <- read_csv("../processed_data/climate.csv") %>%
+  mutate(year = factor(year)) %>%
+  select(site, date, gdd.cum)
+```
+
+### Load network and survey data
+```{r, include=FALSE}
+bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
+  select(subgenus, bb.sp, pbl.w, pbl.w.class)
+
+fl_traits <- read.csv("../processed_data/floral_k_type_nom_fix.csv") %>%
+  select(plant.sp, k.type) %>%
+  mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"),
+         k.type.ss = str_extract(k.type, "[-+]?[0-9]*"))
+
+fl_tax <- read_csv("../processed_data/floral_tax.csv") 
+
+breaks <- read_csv("./output/breaks.csv") %>%
+  mutate(year = factor(year))
+
+net <- read_csv("../processed_data/network.csv") %>%
+  unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
+  unite(site.date, site, date, sep = "_", remove = FALSE) %>%
+  mutate(year = factor(year)) %>% # convert year to factor
+  full_join(bb_traits, by = c("bb.sp" = "bb.sp")) %>%
+  left_join(site_data, by = "site") %>%
+  left_join(gdd, by = c("site", "date")) %>%
+  left_join(breaks, by = c("site", "year")) %>%
+  left_join(fl_traits) %>%
+  left_join(fl_tax, by = "plant.genus") %>%
+  ungroup() %>%
+  mutate(phase = case_when(
+    gdd.cum < break1.gdd ~ "founding",
+    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
+    gdd.cum > break2.gdd ~ "reproductive"
+  )) %>%
+  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
+  arrange(site, date)
+
+survey <- read_csv("../processed_data/floral_survey.csv") %>%
+  mutate(year = factor(year)) %>% # convert year to factor
+  semi_join(net, by = "plant.sp") %>% # Consider only plants visited at a given site-date
+  left_join(gdd, by = c("site", "date")) %>%
+  left_join(breaks, by = c("site", "year")) %>%
+  left_join(site_data, by = "site") %>%
+  left_join(fl_traits) %>%
+  left_join(fl_tax) %>%
+  ungroup() %>%
+  mutate(phase = case_when(
+    gdd.cum < break1.gdd ~ "founding",
+    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
+    gdd.cum > break2.gdd ~ "reproductive"
+  )) %>%
+  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
+  arrange(site, date)
+
+ggplot(net, aes(site, elev.mean, 
+                color = elev.class2, 
+                shape = transect)) +
+  geom_point() +
+  geom_hline(yintercept = 1750, linetype = "dashed")
+```
+
+### BB and floral turnover ~ elevation
+```{r, include=FALSE}
+bb_range <- net %>%
+  group_by(site, year, elev.mean, bb.sp) %>%
+  summarize(abund = n()) %>%
+  group_by(year, bb.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2))
+
+fl_survey_elev <- survey %>%
+  filter(flower.cover > 0) %>%
+  group_by(site, plant.sp) %>%
+  summarize(abund = sum(flower.cover)) %>%
+  left_join(site_data) %>%
+  group_by(plant.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2),
+         sites = length(unique(site))) 
+
+fl_survey_elev_family <- survey %>%
+  filter(flower.cover > 0) %>%
+  group_by(site, plant.family) %>%
+  summarize(abund = sum(flower.cover)) %>%
+  left_join(site_data) %>%
+  group_by(plant.family) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2),
+         sites = length(unique(site)))
+
+fl_net_elev <- net %>%
+  group_by(site, elev.mean, plant.sp) %>%
+  summarize(abund = n()) %>%
+  group_by(plant.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2),
+         sites = length(unique(site))) 
+
+ggplot(filter(fl_survey_elev, sites > 0), 
+       aes(reorder(plant.sp, elev.ceiling), elev.mean)) +
+  geom_line(size = 1, color = "gray60") +
+  geom_point(alpha = 0.5) +
+  theme_light(14) +
+  theme(axis.text.x = element_blank()) +
+  xlab("Plant species") +
+  ylab("Elevation")
+
+ggplot(filter(fl_survey_elev_family, sites > 0), 
+       aes(reorder(plant.family, elev.med), elev.mean)) +
+  geom_line(size = 1, color = "gray60") +
+  geom_point(alpha = 0.5) +
+  theme_light(10) +
+  #theme(axis.text.x = element_blank()) +
+  xlab("Plant family") +
+  ylab("Elevation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(filter(fl_net_elev, sites > 0), 
+       aes(reorder(plant.sp, elev.med), elev.mean)) +
+  geom_line(size = 1, color = "gray60") +
+  geom_point(alpha = 0.5) +
+  theme_light(14) +
+  theme(axis.text.x = element_blank()) +
+  xlab("Plant species") +
+  ylab("Elevation")
+
+ggplot(bb_range, aes(reorder(bb.sp, elev.med), elev.mean)) +
+  geom_line(size = 3, color = "gray60") +
+  geom_point(aes(size = abund), alpha = 0.5) +
+  theme_light(14) +
+  xlab("BB species") +
+  ylab("Elevation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(~year)
+
+### Plot only the plants that drop out at 1750 m
+ggplot(filter(fl_net_elev, sites > 0 & elev.ceiling < 1750), 
+       aes(reorder(plant.sp, elev.med), elev.mean)) +
+  geom_line(size = 1, color = "gray60") +
+  geom_point(alpha = 0.5, aes(size = abund)) +
+  theme_light(8) +
+  xlab("Plant species") +
+  ylab("Elevation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(filter(fl_survey_elev, sites > 0 & elev.ceiling < 1750), 
+       aes(reorder(plant.sp, elev.med), elev.mean)) +
+  geom_line(size = 1, color = "gray60") +
+  geom_point(alpha = 0.5, aes(size = abund)) +
+  theme_light(8) +
+  xlab("Plant species") +
+  ylab("Elevation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### FL traits by elevation -- do we see a sharp change at the tree line?
+```{r}
+### Floral survey based
+survey_trait_elev <- survey %>%
+  group_by(site, year, elev.mean,  k.type.s) %>%
+  summarize(abund = sum(flower.cover))
+
+survey_trait_elev2 <- survey %>%
+  group_by(site, year, elev.mean,  k.type.ss) %>%
+  summarize(abund = sum(flower.cover))
+
+### Network based
+net_trait_elev <- net %>%
+  group_by(site, year, elev.mean,  k.type.s) %>%
+  summarize(abund = n()) 
+
+net_trait_elev2 <- net %>%
+  group_by(site, year, elev.mean,  k.type.ss) %>%
+  summarize(abund = n()) 
+
+### Plot
+ggplot(survey_trait_elev, aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~k.type.s, scales = "free_y")
+
+ggplot(survey_trait_elev2, aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~k.type.ss, scales = "free_y")
+
+
+ggplot(net_trait_elev, aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~k.type.s, scales = "free_y")
+
+ggplot(net_trait_elev2, aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~k.type.ss, scales = "free_y")
+
+### See which genera comprise each k.type
+net_trait_genus_elev <- net %>%
+  group_by(site, year, elev.mean, plant.genus, k.type.s) %>%
+  summarize(abund = n()) 
+
+survey_trait_genus_elev <- survey %>%
+  group_by(site, year, elev.mean, plant.genus, k.type.s) %>%
+  summarize(abund = sum(flower.cover))
+
+### Plot
+ggplot(filter(net_trait_genus_elev, k.type.s == 5.1), 
+       aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~plant.genus)
+
+ggplot(filter(survey_trait_genus_elev, k.type.s %in% c(5.1)), 
+       aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~plant.genus, ncol = 5) +
+  ylab("sqrt(Abundance)") +
+  xlab("Elevation")
+
+ggplot(filter(net_trait_genus_elev, k.type.s %in% c(5.1)), 
+       aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~plant.genus, ncol = 5) +
+  ylab("sqrt(Visitation frequency)") +
+  xlab("Elevation")
+
+ggplot(filter(survey_trait_genus_elev, k.type.s %in% c(6.1)), 
+       aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~plant.genus, ncol = 5) +
+  ylab("sqrt(Abundance)") +
+  xlab("Elevation")
+
+ggplot(filter(net_trait_genus_elev, k.type.s %in% c(6.1)), 
+       aes(elev.mean, sqrt(abund))) +
+  geom_point() +
+  geom_smooth() +
+  geom_vline(xintercept = 1750, color = "red") +
+  facet_wrap(~plant.genus, ncol = 5) +
+  ylab("sqrt(Visitation frequency)") +
+  xlab("Elevation")
+```
+
+### Genera and families by elevation
+```{r}
+survey_genus_elev <- survey %>%
+  group_by(site, year, elev.mean, plant.genus) %>%
+  summarize(abund = sum(flower.cover)) %>%
+  group_by(site, elev.mean, year) %>%
+  mutate(div = length(unique(plant.genus)))
+
+survey_family_elev <- survey %>%
+  group_by(site, year, elev.mean,  plant.family) %>%
+  summarize(abund = sum(flower.cover)) %>%
+  group_by(site, elev.mean, year) %>%
+  mutate(div = length(unique(plant.family)))
+
+net_genus_elev <- survey %>%
+  group_by(site, year, elev.mean,  plant.genus) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, year) %>%
+  mutate(div = length(unique(plant.genus)))
+
+net_family_elev <- survey %>%
+  group_by(site, year, elev.mean,  plant.family) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, year) %>%
+  mutate(div = length(unique(plant.family)))
+
+#### Plot
+ggplot(survey_genus_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth() +
+  facet_wrap(~plant.genus, scales = "free_y")
+
+ggplot(survey_family_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth() +
+  facet_wrap(~plant.family, scales = "free_y")
+
+ggplot(survey_genus_elev, aes(elev.mean, div)) +
+  geom_point() +
+  stat_smooth()
+
+ggplot(survey_family_elev, aes(elev.mean, div)) +
+  geom_point() +
+  stat_smooth()
+
+ggplot(net_genus_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth() +
+  facet_wrap(~plant.genus, scales = "free_y")
+
+ggplot(net_family_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth() +
+  facet_wrap(~plant.family, scales = "free_y")
+
+ggplot(net_genus_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth(se = FALSE) +
+  facet_wrap(~plant.genus)
+
+ggplot(net_genus_elev, aes(elev.mean, log(abund))) +
+  geom_point() +
+  stat_smooth() +
+  facet_wrap(~plant.genus, scales = "free_y")
+ggplot(net_genus_elev, aes(elev.mean, abund)) +
+  geom_point() +
+  stat_smooth(se = FALSE) +
+  facet_wrap(~plant.genus)
+
+ggplot(net_genus_elev, aes(elev.mean, div)) +
+  geom_point() +
+  stat_smooth()
+```
+
+
+### BB abundance, diversity, and per-capita resource availability
+```{r eval=FALSE, echo=FALSE, include=FALSE}
+### Per-transect Bombus density
+bb_abund <- net %>%
+  group_by(site, date, dayofyear, gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd) %>%
+  summarize(bb.abund = n()) 
+
+### Per-transect Bombus richness
+bb_rich <- net %>%
+  group_by(site, date, dayofyear, gdd.cum, year, elev.class2,
+           elev.mean, break1.gdd, break2.gdd) %>%
+  summarize(bb.rich = length(unique(bb.sp)))
+
+### Per-transect floral abund
+fl_abund <- survey %>%
+  group_by(site, date, dayofyear, gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd) %>%
+  summarize(fl.abund = sum(flower.cover)) %>%
+  rename("yday" = "dayofyear")
+
+### Per-transect floral richness
+fl_rich <- survey %>%
+  filter(flower.cover > 0) %>%
+  group_by(site, date, dayofyear, gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd) %>%
+  summarize(fl.rich = n()) %>%
+  rename("yday" = "dayofyear")
+
+### Join BB density and floral cover
+abund_div <- bb_abund %>%
+  full_join(bb_rich) %>%
+  full_join(fl_abund) %>% # Note that there is not perfect alignment in site-dates between the network observations and the floral surveying, so this join will cause some NAs that will need to be removed, causing some transects to drop out of the dataset
+  full_join(fl_rich) %>%
+  #na.omit() %>%
+  ungroup %>%
+  mutate(fl.per.bb = fl.abund/bb.abund,
+         site = factor(site),
+         yday = dayofyear,
+         week = week(date),
+         month = month(date)) %>%
+  ungroup() %>%
+  mutate(phase = case_when(
+    gdd.cum < break1.gdd ~ "founding",
+    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
+    gdd.cum > break2.gdd ~ "reproductive"
+  )) %>%
+  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive")),
+         total.rich = bb.rich + fl.rich,
+         web.asymmetry = (bb.rich - fl.rich) / (bb.rich + fl.rich))
+
+abund_div_mean <- abund_div %>%
+  select(-dayofyear, -week, -month, -break1.gdd, -break2.gdd) %>%
+  gather(metric, value, -c(site, date, gdd.cum, year, elev.class2, elev.mean, phase)) %>%
+  group_by(site, year, elev.class2, elev.mean, metric) %>%
+  summarize(value = mean(value, na.rm = TRUE))
+```
+
+### Plotting abundance and diversity patterns
+```{r}
+### BB abundance ~ floral abundance
+ggplot(abund_div, aes(log(fl.abund), bb.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_grid(elev.class2 ~ phase, scales = "free") +
+  ylab("BB abundance") +
+  xlab("log(floral cover)") +
+  theme_bw()
+
+ggplot(abund_div, aes(log(fl.abund), bb.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  ylab("BB abundance") +
+  xlab("log(floral cover)") +
+  theme_bw()
+
+### BB richness ~ floral abundance
+ggplot(abund_div, aes(log(fl.abund), bb.rich, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_grid(elev.class2 ~ phase, scales = "free") +
+  ylab("BB richness") +
+  xlab("log(floral cover)") +
+  theme_bw()
+
+### BB abundance ~ floral richness
+ggplot(abund_div, aes(fl.rich, bb.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_grid(elev.class2 ~ phase, scales = "free") +
+  ylab("BB abundance") +
+  xlab("Floral richness")
+
+### BB richness ~ floral richness
+ggplot(abund_div, aes(fl.rich, bb.rich, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_grid(elev.class2 ~ phase, scales = "free") +
+  ylab("BB richness") +
+  xlab("Floral richness")
+
+### Floral richness ~ floral abundance
+ggplot(abund_div, aes(log(fl.abund), fl.rich, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_grid(elev.class2 ~ phase, scales = "free") +
+  ylab("Floral richness") +
+  xlab("log(floral cover)")
+
+### Per-capita floral resource abundance ~ elevation
+ggplot(abund_div, aes(elev.mean, log(fl.per.bb))) +
+  geom_point(alpha = 0.5) +
+  #stat_summary(aes(y = log(fl.per.bb), group=1), fun.y=mean, colour="black", geom="point",group=1) +
+  geom_smooth() +
+  facet_grid(year~phase, scales = "free") +
+  ylab("log(fl-per-bb)") +
+  xlab("Elevation") +
+  theme_light()
+
+ggplot(abund_div, aes(elev.mean, log(fl.per.bb))) +
+  geom_point(alpha = 0.5) +
+  #stat_summary(aes(y = log(fl.per.bb), group=1), fun.y=mean, colour="black", geom="point",group=1) +
+  geom_smooth() +
+  facet_grid(.~year, scales = "free") +
+  ylab("log(fl-per-bb)") +
+  xlab("Elevation") +
+  theme_light()
+
+ggplot(abund_div, aes(elev.mean, log(fl.per.bb))) +
+  geom_point(alpha = 0.5, aes(color = phase)) +
+  #stat_summary(aes(y = log(fl.per.bb), group=1), fun.y=mean, colour="black", geom="point",group=1) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  facet_grid(year~., scales = "free") +
+  ylab("log(fl-per-bb)") +
+  xlab("Elevation") +
+  theme_light()
+
+ggplot(abund_div, aes(elev.mean, log(fl.per.bb))) +
+  geom_point(alpha = 0.5, aes(color = phase)) +
+  #stat_summary(aes(y = log(fl.per.bb), group=1), fun.y=mean, colour="black", geom="point",group=1) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  ylab("log(fl-per-bb)") +
+  xlab("Elevation") +
+  theme_light()
+
+ggplot(abund_div, aes(elev.mean, fl.per.bb)) +
+  geom_point(alpha = 0.5, aes(color = phase)) +
+  #stat_summary(aes(y = log(fl.per.bb), group=1), fun.y=mean, colour="black", geom="point",group=1) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  ylab("log(fl-per-bb)") +
+  xlab("Elevation") +
+  theme_light()
+
+ggplot(filter(abund_div_mean, metric == "fl.per.bb"), aes(elev.mean, log(value))) +
+  geom_point(alpha = 1) +
+  #geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2)) +
+  ylab("log(fl-per-bb)") +
+  xlab("Elevation") +
+  facet_wrap(~year) +
+  theme_light()
+
+lm1 <- lm(value ~ elev.mean * year, data = filter(abund_div_mean, metric == "fl.per.bb"))
+summary(lm1)
+
+ggplot(filter(abund_div_mean, metric == "fl.per.bb"), aes(elev.mean, value)) +
+  geom_point(alpha = 1) +
+  #geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  geom_smooth() +
+  ylab("fl-per-bb") +
+  xlab("Elevation") +
+  theme_light()
+
+
+ggplot(filter(abund_div_mean, metric == "fl.per.bb"), aes(elev.mean, log(value), color = year)) +
+  geom_point(alpha = 1) +
+  #geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  geom_smooth() +
+  ylab("FL per BB") +
+  xlab("Elevation") +
+  theme_light()
+
+ggplot(filter(abund_div_mean, metric == "fl.per.bb"), aes(elev.mean, log(value))) +
+  geom_point(alpha = 1, aes(color = year)) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  #geom_smooth() +
+  ylab("FL per BB") +
+  xlab("Elevation") +
+  theme_light(16)
+
+### Per-capita floral resource abundance ~ GDD
+ggplot(abund_div, aes(gdd.cum, log(fl.per.bb))) +
+  geom_point(alpha = 0.5, aes(color = phase)) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  facet_grid(elev.class2 ~ year, scales = "free") +
+  ylab("log(fl-per-bb)") +
+  xlab("GDD") +
+  theme_light()
+
+ggplot(abund_div, aes(gdd.cum, log(fl.per.bb))) +
+  geom_point(alpha = 0.5, aes(color = phase)) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  ylab("log(fl-per-bb)") +
+  xlab("GDD") +
+  theme_light()
+
+### Per-capita floral resource abundance ~ Julian day
+ggplot(abund_div, aes(yday, log(fl.per.bb))) +
+  geom_point(alpha = 0.5, aes(color = phase)) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  facet_grid(elev.class2 ~ year, scales = "free") +
+  ylab("log(fl-per-bb)") +
+  xlab("Julian day") +
+  theme_light()
+
+### BB richness ~ elevation
+ggplot(abund_div, aes(elev.mean, bb.rich)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(.~year)
+
+### BB richness ~ GDD
+ggplot(abund_div, aes(gdd.cum, bb.rich)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(elev.class2 ~ year)
+
+### BB richness ~ Julian day
+ggplot(abund_div, aes(yday, bb.rich)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(elev.class2 ~ year)
+
+### BB abundance ~ elevation
+ggplot(abund_div, aes(elev.mean, bb.abund)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(year ~ phase, scales = "free")
+
+ggplot(abund_div, aes(elev.mean, bb.abund)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(.~year, scales = "free")
+
+ggplot(abund_div, aes(elev.mean, bb.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  xlab("Elevation") +
+  ylab("BB abundance")  +
+  theme_light(16)
+
+ggplot(abund_div, aes(elev.mean, sqrt(bb.abund), color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  xlab("Elevation") +
+  ylab("sqrt(BB abundance)")  +
+  theme_light(16)
+
+### BB abundance ~ GDD
+ggplot(abund_div, aes(gdd.cum, bb.abund)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(elev.class2 ~ year)
+
+### BB abundance ~ Julian day
+ggplot(abund_div, aes(yday, bb.abund)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(elev.class2 ~ year)
+
+### Floral richness ~ elevation
+ggplot(abund_div, aes(elev.mean, fl.rich)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(year ~ phase)
+
+ggplot(abund_div, aes(elev.mean, fl.rich)) +
+  geom_point(alpha = 0.5, aes(color = year)) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.75) +
+  theme_light(16) +
+  xlab("Elevation") +
+  ylab("Floral richness")
+
+### Floral richness ~ GDD
+ggplot(abund_div, aes(gdd.cum, fl.rich)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(elev.class2 ~ year)
+
+### Floral richness ~ Julian day
+ggplot(abund_div, aes(yday, fl.rich)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(elev.class2 ~ year)
+
+### Floral abundance ~ elevation
+ggplot(abund_div, aes(elev.mean, log(fl.abund))) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  facet_grid(year ~ phase, scales = "free") +
+  theme_light()
+
+ggplot(abund_div, aes(elev.mean, log(fl.abund), color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  theme_light()
+
+ggplot(abund_div, aes(elev.mean, fl.abund)) +
+  geom_point(alpha = 0.5, aes(color = year)) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.75) +
+  theme_light(16) +
+  xlab("Elevation") +
+  ylab("Floral abundance")
+
+ggplot(abund_div, aes(elev.mean, log(fl.abund))) +
+  geom_point(alpha = 0.5, aes(color = year)) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.75) +
+  theme_light(16) +
+  xlab("Elevation") +
+  ylab("log(Floral abundance)")
+
+ggplot(abund_div, aes(elev.mean, fl.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  theme_light(16) +
+  xlab("Elevation") +
+  ylab("Floral abundance")
+
+ggplot(abund_div, aes(elev.mean, log(fl.abund), color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  theme_light(16) +
+  xlab("Elevation") +
+  ylab("log(Floral abundance)")
+
+ggplot(abund_div, aes(elev.mean, sqrt(bb.abund), color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  xlab("Elevation") +
+  ylab("sqrt(BB abundance)")  +
+  theme_light(16)
+
+### Floral abundance ~ GDD
+ggplot(abund_div, aes(gdd.cum, log(fl.abund))) +
+  geom_point(aes(color = phase), alpha =  0.5) +
+  geom_smooth(color = "black", linetype = "dashed", size = 0.5) +
+  facet_grid(elev.class2 ~ year, scales = "free") +
+  theme_light()
+
+### Floral abundance ~ Julian day
+ggplot(abund_div, aes(yday, log(fl.abund))) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(elev.class2 ~ year)
+
+### Total (BB = FL) richness ~ elevation
+ggplot(abund_div, aes(elev.mean, total.rich)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(year ~ phase, scales = "free")
+
+### Web asymmetry ~ elevation
+ggplot(abund_div, aes(elev.mean, web.asymmetry)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  facet_grid(year ~ phase, scales = "free")
+
+ggplot(filter(abund_div_mean, metric == "web.asymmetry"), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(year ~ ., scales = "free")
+
+### Web asymmetry ~ gdd
+ggplot(abund_div, aes(gdd.cum, web.asymmetry)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  facet_grid(year ~.)
+
+### Web asymmetry ~ yday
+ggplot(abund_div, aes(yday, web.asymmetry)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  facet_grid(year ~.)
+
+### Web asymmetry ~ floral abundance
+ggplot(abund_div, aes(log(fl.abund), web.asymmetry)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  facet_grid(year ~ phase, scales = "free")
+
+### Web asymmetry ~ BB abundance
+ggplot(abund_div, aes(bb.abund, web.asymmetry)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  facet_grid(year ~ phase, scales = "free")
+
+### Web asymmetry ~ Per-capita floral resource abundance
+ggplot(abund_div, aes(log(fl.per.bb), web.asymmetry)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  facet_grid(year ~ phase, scales = "free")
+
+ggplot(abund_div, aes(log(fl.per.bb), web.asymmetry)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  facet_grid(year ~ .)
+```
+
+### Let's look at how abundance varies on a per-species basis
+```{r eval=FALSE, include=FALSE}
+species <- net %>%
+  group_by(site, date, year, dayofyear, gdd.cum, phase, elev.mean, elev.class2, bb.sp, subgenus, pbl.w, pbl.w.class) %>%
+  summarize(abund = n()) %>%
+  group_by(site, date) %>%
+  mutate(prop = abund/sum(abund))
+
+subgenera <- net %>%
+  group_by(site, date, year, dayofyear, gdd.cum, phase, elev.mean, elev.class2, subgenus, pbl.w, pbl.w.class) %>%
+  summarize(abund = n()) %>%
+  group_by(site, date) %>%
+  mutate(prop = abund/sum(abund))
+
+ggplot(species, aes(dayofyear, abund)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_grid(year ~ bb.sp)
+
+ggplot(species, aes(dayofyear, prop)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_grid(year ~ bb.sp)
+
+ggplot(species, aes(elev.mean, abund)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = FALSE, span = 1) +
+  facet_grid(year ~ bb.sp, scales = "free")
+
+ggplot(species, aes(elev.mean, prop)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = FALSE, span = 1) +
+  facet_grid(year ~ bb.sp, scales = "free")
+
+
+ggplot(subgenera, aes(dayofyear, abund)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_grid(year ~ subgenus)
+
+ggplot(subgenera, aes(dayofyear, prop)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_grid(year ~ subgenus)
+
+ggplot(subgenera, aes(elev.mean, abund)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_grid(year ~ subgenus)
+
+ggplot(subgenera, aes(elev.mean, prop)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(se = FALSE, span = 1) +
+  facet_grid(year ~ subgenus)
+
+### Pairs analysis
+species_pairs <- species %>%
+  select(site, year, date, bb.sp, abund) %>%
+  ungroup() %>%
+  spread(bb.sp, abund) %>%
+  replace(is.na(.), 0) 
+
+ggplot(species_pairs, aes(pasc, prat)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~year)
+
+ggpairs(species_pairs, columns = c("bss", "camp", "flav", 
+                                   "gers", "hort", "humi",
+                                   "hypn", "jone", "lapi",
+                                   "mend", "mont", "muci",
+                                   "pasc", "prat", "psyt",
+                                   "pyre", "soro", "wurf"))
+
+ggpairs(species, columns = c("bb.sp", "abund"),
+        cardinality_threshold = 20)
+
+```

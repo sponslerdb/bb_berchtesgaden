@@ -1,0 +1,304 @@
+---
+title: "Beta Diversity through Time and Space"
+output: html_document
+---
+
+### Prepare environment
+```{r message=FALSE, warning=FALSE}
+library(vegan)
+library(lubridate)
+library(gdm)
+library(bipartite)
+library(sf)
+library(mgcv)
+library(mgcViz)
+library(tidyverse)
+```
+
+### Climate data
+```{r, include=FALSE, echo=FALSE}
+gdd <- read_csv("../processed_data/climate.csv") %>%
+  mutate(year = factor(year),
+         yday = yday(date)) %>%
+  dplyr::select(site, year, date, yday, gdd.cum) %>%
+  semi_join(read_csv("../processed_data/network.csv"), by = "site")
+
+gdd_total <- gdd %>%
+  group_by(site, year) %>%
+  summarize(gdd.total = max(gdd.cum))
+```
+
+### Load site data
+```{r, include=FALSE, echo=FALSE}
+site_data <- read_csv("../processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
+  mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
+         elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) %>% # turn elav.class into an ordered factor %>%
+  semi_join(read_csv("../processed_data/network.csv"), by = "site")  %>%
+  left_join(gdd_total, by = "site")
+
+
+### A quick little analysis
+ggplot(site_data, aes(elev.mean, gdd.total, color = year)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  ylab("Total GDD")
+
+# intercept only model
+gdd_year.gam1 <- gam(gdd.total ~ s(elev.mean) + year,
+                    data = site_data) %>% getViz()
+summary(gdd_year.gam1)
+check.gamViz(gdd_year.gam1)
+plot(gdd_year.gam1)
+
+# factor smooth model
+gdd_year.gam2 <- gam(gdd.total ~ s(elev.mean, year, bs = "fs", k = 5),
+                    data = site_data) %>% getViz()
+summary(gdd_year.gam2)
+check.gamViz(gdd_year.gam2)
+plot(gdd_year.gam2)
+
+# AIC
+AIC(gdd_year.gam1, gdd_year.gam2)
+
+
+site_pairwise_distance_t <- site_data %>%
+  ungroup() %>%
+  dplyr::select(site, lat, lon) %>%
+  unique() %>%
+  st_as_sf(coords = c("lon", "lat")) %>%
+  st_set_crs(4326) %>%
+  st_distance() %>%
+  data.frame()
+
+colnames(site_pairwise_distance_t) <- unique(site_data$site)
+rownames(site_pairwise_distance_t) <- unique(site_data$site)
+
+site_pairwise_distance <- site_pairwise_distance_t %>%
+  rownames_to_column("site1") %>%
+  pivot_longer(names_to = "site2", values_to = "distance", -site1)
+```
+
+
+### Load network and survey data and generate site.year and site.month.year webs
+```{r}
+bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
+  dplyr::select(subgenus, bb.sp, pbl.w, pbl.w.class)
+
+fl_traits <- read.csv("../processed_data/floral_k_type_nom_fix.csv") %>%
+  dplyr::select(plant.sp, k.type) %>%
+  mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"),
+         k.type.ss = str_extract(k.type, "[-+]?[0-9]*"))
+
+fl_tax <- read_csv("../processed_data/floral_tax.csv") 
+
+breaks <- read_csv("./output/breaks.csv") %>%
+  mutate(year = factor(year))
+
+net <- read_csv("../processed_data/network.csv") %>%
+  unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
+  unite(site.date, site, date, sep = "_", remove = FALSE) %>%
+  mutate(year = factor(year)) %>% # convert year to factor
+  full_join(bb_traits, by = c("bb.sp" = "bb.sp")) %>%
+  left_join(site_data, by = "site") %>%
+  left_join(gdd, by = c("site", "date")) %>%
+  left_join(breaks, by = c("site", "year")) %>%
+  left_join(fl_traits) %>%
+  left_join(fl_tax, by = "plant.genus") %>%
+  ungroup() %>%
+  mutate(phase = case_when(
+    gdd.cum < break1.gdd ~ "founding",
+    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
+    gdd.cum > break2.gdd ~ "reproductive"
+  )) %>%
+  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
+  arrange(site, date)
+
+web_site.year <- net %>%
+  group_by(site.year, bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>% 
+  dplyr::select(higher = bb.sp, lower = plant.sp, webID = site.year, freq) %>% # rename columns to match bipartite's expectations
+  data.frame() %>% # convert to data frame
+  frame2webs() # convert to to bipartite web
+
+web_site <- net %>%
+  group_by(site, bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>% 
+  dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
+  data.frame() %>% # convert to data frame
+  frame2webs() # convert to to bipartite web
+
+survey <- read_csv("../processed_data/floral_survey.csv") %>%
+  mutate(year = factor(year)) %>% # convert year to factor
+  semi_join(net, by = "plant.sp") %>% # Consider only plants visited at a given site-date
+  left_join(gdd, by = c("site", "date", "year")) %>%
+  left_join(breaks, by = c("site", "year")) %>%
+  left_join(site_data, by = "site") %>%
+  left_join(fl_traits) %>%
+  left_join(fl_tax) %>%
+  ungroup() %>%
+  mutate(phase = case_when(
+    gdd.cum < break1.gdd ~ "founding",
+    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
+    gdd.cum > break2.gdd ~ "reproductive"
+  )) %>%
+  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
+  arrange(site, date)
+```
+
+### Tabulate webs
+S	= beta_S, the dissimilarity in species composition
+OS = beta_OS, the dissimilarity (component) explained by "rewiring" among shared species
+WN = beta_WN, the dissimilarity between the two networks
+ST = beta_ST, the dissimilarity (component) explained by difference in species community composition 
+```{r}
+array_site <- webs2array(web_site)
+array_site.year <- webs2array(web_site.year)
+
+beta_site <- betalinkr_multi(array_site, partition.st = TRUE, partition.rr = TRUE) %>%
+  as_tibble() %>%
+  rename(site1 = i) %>%
+  rename(site2 = j) %>%
+  left_join(site_data, by = c("site1" = "site")) %>%
+  dplyr::select(site1, site2, S, OS, WN, ST, 
+         ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+         elev1 = elev.mean, man1 = management, lon1 = lon, lat1 = lat) %>%
+  left_join(site_data, by = c("site2" = "site")) %>%
+  dplyr::select(site1, site2, S, OS, WN, ST, 
+         ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+         elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
+  mutate(elev.diff = abs(elev1 - elev2),
+         mean.elev = (elev1 + elev2)/2,
+         man.diff = case_when(
+           man1 == man2 ~ FALSE,
+           man1 != man2 ~ TRUE
+         )) %>%
+  gather(metric, value, -c(site1, site2, elev1, elev2, elev.diff, 
+                           man1, man2, man.diff, mean.elev, lon1, lat1, lon2, lat2)) %>%
+  left_join(site_pairwise_distance) %>%
+  mutate(metric.class = case_when(
+    metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
+    metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
+    metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
+    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
+  ))
+
+
+beta_site.year <- betalinkr_multi(array_site.year, partition.st = TRUE, partition.rr = TRUE) %>%
+  as_tibble() %>%
+  separate(i, into = c("site1", "year1"), sep = "_") %>%
+  separate(j, into = c("site2", "year2"), sep = "_") %>%
+  left_join(site_data, by = c("site1" = "site")) %>%
+  dplyr::select(site1, year1, site2, year2, S, OS, WN, ST, 
+         ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+         elev1 = elev.mean, man1 = management, lon1 = lon, lat1 = lat) %>%
+  left_join(site_data, by = c("site2" = "site")) %>%
+  dplyr::select(site1, year1, site2, year2, S, OS, WN, ST, 
+         ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+         elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
+  mutate(elev.diff = abs(elev1 - elev2),
+         mean.elev = (elev1 + elev2)/2,
+         man.diff = case_when(
+           man1 == man2 ~ FALSE,
+           man1 != man2 ~ TRUE
+         )) %>%
+  gather(metric, value, -c(site1, year1, site2, year2, elev1, elev2, elev.diff, 
+                           man1, man2, man.diff, mean.elev, lon1, lat1, lon2, lat2))
+```
+
+# Beta diversity by elevation difference
+```{r}
+# No apparent differences across years, so we will use the pooled data
+ggplot(filter(beta_site.year, year1 == year2), 
+       aes(metric, value, color = year1)) +
+  geom_boxplot() +
+  facet_wrap(~metric, scales = "free")
+
+# And not much of a pattern in response to geographical distance
+ggplot(beta_site, 
+       aes(as.numeric(distance), value, color = metric)) +
+  geom_smooth()
+
+# Interaction beta diversity by elevation difference
+ggplot(beta_site, 
+       aes(elev.diff, value, color = metric)) +
+  geom_point(alpha = 0.05) +
+  geom_smooth() +
+  facet_wrap(~metric.class)
+```
+
+### Let's look at floral survey diversity patterns
+```{r}
+survey_bioData <- survey %>%
+  filter(flower.cover > 0) %>%
+  mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
+  group_by(site, plant.sp) %>%
+  summarize(cover = mean(flower.cover)) %>%
+  spread(plant.sp, cover) %>%
+  replace(is.na(.), 0)
+
+predData <- site_data %>%
+  ungroup() %>%
+  dplyr::select(site, elev.mean, lat, lon) %>%
+  unique()
+
+survey_sitepair <- formatsitepair(survey_bioData, bioFormat = 1, siteColumn = "site", dist = "jaccard",
+                              XColumn = "lon", YColumn = "lat", predData = predData)
+
+### Call gdm()
+gdm_survey <- gdm(survey_sitepair, geo = TRUE)
+gdm.varImp(survey_sitepair, geo = TRUE)
+
+summary(gdm_survey)
+plot(gdm_survey)
+plotUncertainty(survey_sitepair, sampleSites = 0.7, bsIters = 50, geo  = TRUE)
+```
+
+### And now Bombus diversity patterns
+```{r}
+BB_bioData <- net %>%
+  group_by(site, date, bb.sp) %>%
+  summarize(count = n()) %>%
+  group_by(site, date) %>%
+  mutate(prop = count/sum(count)) %>%
+  group_by(site, bb.sp) %>%
+  summarize(abund = mean(prop)) %>%
+  spread(bb.sp, abund) %>%
+  replace(is.na(.), 0)
+
+predData <- site_data %>%
+  ungroup() %>%
+  dplyr::select(site, elev.mean, lat, lon) %>%
+  unique()
+
+bb_sitepair <- formatsitepair(BB_bioData, bioFormat = 1, siteColumn = "site", dist = "jaccard",
+                              XColumn = "lon", YColumn = "lat", predData = predData)
+
+### Call gdm()
+gdm_bb <- gdm(bb_sitepair, geo = TRUE)
+gdm.varImp(bb_sitepair, geo = TRUE)
+
+summary(gdm_bb)
+plot(gdm_bb)
+plotUncertainty(bb_sitepair, sampleSites = 0.7, bsIters = 50, geo  = TRUE)
+```
+
+### Now let's look at interaction beta diversity
+```{r}
+net_sitepair <- beta_site %>%
+  filter(metric == "WN") %>%
+  mutate(weights = rep(1, n())) %>%
+  dplyr::select(distance = value, weights,
+         s1.xCoord = lon1, s1.yCoord = lat1, 
+         s2.xCoord = lon2, s2.yCoord = lat2, 
+         s1.elev.mean = elev1, s2.elev.mean = elev2) %>%
+  data.frame()
+
+### Call gdm()
+gdm_net <- gdm(net_sitepair, geo = TRUE)
+gdm.varImp(net_sitepair, geo = TRUE)
+
+summary(gdm_net)
+plot(gdm_net)
+plotUncertainty(net_sitepair, sampleSites = 0.7, bsIters = 50, geo  = TRUE)
+```

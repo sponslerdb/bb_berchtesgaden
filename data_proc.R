@@ -8,7 +8,7 @@ fl_survey <- read_delim("./raw_data/data_plantcover_forDoug_2020.01.17.csv", del
   na.omit() %>%
   separate(col = species_plant, into = c("genus", "species", "w", "x", "y", "z"), sep = " ") %>%
   unite(species_plant, genus, species, sep = " ") %>%
-  select(-c(w,x,y,z)) %>%
+  dplyr::select(-c(w,x,y,z)) %>%
   mutate(species_plant = str_replace_all(species_plant, 
                                          c("Arabis caerula" = "Arabis caerulea", # correct nomenclature typos and synonyms
                                            "Arctostaphylos alpina" = "Arctous alpina",
@@ -21,7 +21,8 @@ fl_survey <- read_delim("./raw_data/data_plantcover_forDoug_2020.01.17.csv", del
   mutate(temp.date = as_date(dayofyear),
          day = day(temp.date),
          month = month(temp.date),
-         date = make_date(year, month, day))
+         date = make_date(year, month, day)) %>%
+  dplyr::select(-temp.date)
   
 write_csv(fl_survey, "./processed_data/floral_survey.csv")
 
@@ -56,7 +57,8 @@ network <- read_delim("./raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim 
                                         "Bombus sylvestris" = "Psithyrus",
                                         "Bombus quadricolor" = "Psithyrus",
                                         "Bombus campestris" = "Psithyrus",
-                                        "Bombus flavidus" = "Psithyrus")))
+                                        "Bombus flavidus" = "Psithyrus"))) %>%
+  dplyr::select(-temp.date)
 
 write_csv(network, "./processed_data/network.csv")
 
@@ -97,7 +99,7 @@ site_data <- read_tsv("./raw_data/SiteLocationFabriceUpdate2020.tsv",
   mutate(elev.class = factor(elev.class, ordered = TRUE, levels = c("unten", "mitte", "oben"))) %>%
   mutate(elev.class2 = case_when(
     elev.mean < 1000 ~ "low",
-    elev.mean >= 1000 & elev.mean < 1500 ~ "mid",
+    elev.mean >= 1000 & elev.mean < 1705 ~ "mid",
     elev.mean >= 1750 ~ "high"
   ))
 
@@ -267,3 +269,29 @@ psite_2012 <- parasites2012 %>%
 parasites <- bind_rows(psite_2010, psite_2011, psite_2012)
 
 write_csv(parasites, "./processed_data/parasites.csv")
+
+### Weather data
+weather2010 <- read_delim("./raw_data/field-data_bumblebees_2010_raw-data.csv", delim = ";") %>%
+  dplyr::select(site = site_name, date, weather, temperature) %>% 
+  unique() %>%
+  mutate(date = dmy(date))
+
+weather2011 <- read_delim("./raw_data/field-data_bumblebees_2011_raw-data.csv", delim = ";") %>%
+  dplyr::select(site = site_name, date, weather, temperature) %>% 
+  unique() %>%
+  mutate(date = dmy(date))
+
+weather2012 <- read_delim("./raw_data/field-data_bumblebees_2012_raw-data.csv", delim = ";") %>%
+  dplyr::select(site = site_name, date, weather, temperature) %>%
+  mutate(site = str_replace_all(site, "salix", "")) %>%
+  mutate(site = str_replace_all(site, "garden", "")) %>%
+  unique() 
+
+weather <- bind_rows(weather2010, weather2011, weather2012) %>%
+  write_csv("./processed_data/weather.csv")
+
+temperature <- read_delim("./raw_data/climate2.txt", delim = "\t") %>%
+  rename(site = PlotID) %>%
+  mutate(date = dmy(date),
+         site = str_to_lower(site)) %>%
+  write_csv("./processed_data/temperature.csv")

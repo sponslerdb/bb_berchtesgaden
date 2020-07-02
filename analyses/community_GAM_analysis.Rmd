@@ -1,0 +1,1565 @@
+---
+title: "community_GAM_analysis"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+### Prepare environment
+```{r setup, include=FALSE, echo=FALSE}
+library(mgcv)
+library(mgcViz)
+library(tidymv)
+#library(lme4)
+#library(lmerTest)
+library(tidyverse)
+library(lubridate)
+```
+
+### Climate and weather data
+```{r, include=FALSE, echo=FALSE}
+gdd <- read_csv("../processed_data/climate.csv") %>%
+  mutate(year = factor(year)) %>%
+  dplyr::select(site, year, date, gdd.cum) %>%
+  semi_join(read_csv("../processed_data/network.csv"), by = "site")
+# 
+# temperature <- read_csv("../processed_data/temperature.csv")
+# 
+# gdd_total <- gdd %>%
+#   group_by(site, year) %>%
+#   summarize(gdd.total = max(gdd.cum))
+```
+
+### Load site data
+```{r, include=FALSE, echo=FALSE}
+site_data <- read_csv("../processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
+  mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
+         elev.class2 = factor(elev.class2, levels = c("high", "mid", "low")))
+
+# %>% # turn elav.class into an ordered factor
+#   left_join(gdd_total, by = "site")
+```
+
+### Load network and survey data
+```{r, echo=FALSE, include=FALSE}
+bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
+  dplyr::select(subgenus, bb.sp, pbl.w, pbl.w.class)
+
+fl_traits <- read.csv("../processed_data/floral_k_type_nom_fix.csv") %>%
+  dplyr::select(plant.sp, k.type) %>%
+  mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"),
+         k.type.ss = str_extract(k.type, "[-+]?[0-9]*"))
+
+fl_corolla_depth <- read.csv("../processed_data/flower_morphology_GitaBenadi.csv") %>%
+  group_by(plant.sp = Species) %>%
+  summarize(corolla.depth = mean(LN))
+
+fl_tax <- read_csv("../processed_data/floral_tax.csv") 
+
+breaks <- read_csv("./output/breaks.csv") %>%
+  mutate(year = factor(year))
+
+net <- read_csv("../processed_data/network.csv") %>%
+  unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
+  unite(site.date, site, date, sep = "_", remove = FALSE) %>%
+  mutate(year = factor(year)) %>% # convert year to factor
+  full_join(bb_traits, by = c("bb.sp" = "bb.sp")) %>%
+  left_join(site_data, by = c("site")) %>%
+  left_join(gdd, by = c("site", "date", "year")) %>%
+  left_join(breaks, by = c("site", "year")) %>%
+  left_join(fl_traits) %>%
+  left_join(fl_corolla_depth) %>%
+  left_join(fl_tax, by = "plant.genus") %>%
+  #left_join(temperature, by = c("site", "date")) %>%
+  ungroup() %>%
+  mutate(phase = case_when(
+    gdd.cum < break1.gdd ~ "founding",
+    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
+    gdd.cum > break2.gdd ~ "reproductive"
+  )) %>%
+  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
+  mutate(caste = case_when(
+    caste == "worker" ~ "worker",
+    caste == "male" ~ "reproductive",
+    caste == "youngqueen" ~ "reproductive",
+    caste == "queen" ~ "foundress",
+    caste == "oldqueen" ~ "foundress"
+  )) %>%
+  rename(yday = dayofyear) %>%
+  arrange(site, date)
+
+survey <- read_csv("../processed_data/floral_survey.csv") %>%
+  mutate(year = factor(year)) %>% # convert year to factor
+  semi_join(net, by = "plant.sp") %>% # Consider only plants visited at a given site-date
+  left_join(gdd, by = c("site", "date", "year")) %>%
+  left_join(breaks, by = c("site", "year")) %>%
+  left_join(site_data, by = c("site")) %>%
+  left_join(fl_traits) %>%
+  left_join(fl_traits) %>%
+  left_join(fl_tax) %>%
+  #left_join(temperature, by = c("site", "date")) %>%
+  ungroup() %>%
+  mutate(phase = case_when(
+    gdd.cum < break1.gdd ~ "founding",
+    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
+    gdd.cum > break2.gdd ~ "reproductive"
+  )) %>%
+  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
+  rename(yday = dayofyear) %>%
+  arrange(site, date)
+```
+
+### FL and BB abundance / diversity
+```{r echo=FALSE, include=FALSE}
+### Per-transect Bombus abundance
+bb_abund <- net %>%
+  group_by(site, date, yday = dayofyear, gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd) %>%
+  summarize(bb.abund = n()) 
+
+ggplot(bb_abund, aes(log(top.fl.abund + 0.01), bb.abund, color = year)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_grid(elev.class2~phase, scales = "free")
+
+ggplot(bb_abund, aes(log(top.fl.abund + 0.01), bb.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  #geom_smooth(method = "lm") +
+  geom_smooth() +
+  facet_wrap(~bb.sp, scales = "free")
+
+#### Species-level 
+bb_abund_sp <- net %>%
+  group_by(site, date, yday, gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd, bb.sp) %>%
+  summarize(bb.abund = n()) %>%
+  ungroup() %>%
+  mutate(bb.sp = factor(bb.sp))
+
+bb_abund_sp_workers <- net %>%
+  filter(caste == "worker") %>%
+  group_by(site, date, yday = dayofyear, gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd, bb.sp) %>%
+  summarize(bb.abund = n()) %>%
+  ungroup() %>%
+  mutate(bb.sp = factor(bb.sp))
+
+bb_abund_caste <- net %>%
+  group_by(site, date, yday = dayofyear, gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd, caste) %>%
+  summarize(bb.abund = n()) %>%
+  ungroup() %>%
+  mutate(caste = factor(caste))
+
+bb_abund_caste_sp <- net %>%
+  group_by(site, date, yday = dayofyear, gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd, caste, bb.sp) %>%
+  summarize(bb.abund = n()) %>%
+  ungroup() %>%
+  mutate(caste = factor(caste),
+         bb.sp = factor(bb.sp))
+
+### Per-transect Bombus richness
+bb_rich <- net %>%
+  group_by(site, date, yday = dayofyear, gdd.cum, year, elev.class2,
+           elev.mean, break1.gdd, break2.gdd) %>%
+  summarize(bb.rich = length(unique(bb.sp))) %>%
+  mutate(year2010 = ifelse(year == 2010, 1, 0),
+         year2011 = ifelse(year == 2011, 1, 0),
+         year2012 = ifelse(year == 2012, 1, 0))
+
+ggplot(bb_rich, aes(yday, bb.rich)) +
+  geom_point() +
+  facet_wrap(~year)
+
+### Per-transect floral abund
+fl_abund <- survey %>%
+  group_by(site, date, yday = dayofyear, gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd) %>%
+  summarize(fl.abund = sum(flower.cover)) %>%
+  mutate(year2010 = ifelse(year == 2010, 1, 0),
+         year2011 = ifelse(year == 2011, 1, 0),
+         year2012 = ifelse(year == 2012, 1, 0))
+
+### Per-transect floral richness
+fl_rich <- survey %>%
+  filter(flower.cover > 0) %>%
+  group_by(site, date, yday = dayofyear, gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd) %>%
+  summarize(fl.rich = n())  %>%
+  mutate(year2010 = ifelse(year == 2010, 1, 0),
+         year2011 = ifelse(year == 2011, 1, 0),
+         year2012 = ifelse(year == 2012, 1, 0))
+```
+
+### Get most important plants for each BB species
+```{r}
+# Per transect visitation rates of flower species per BB species
+visit_rates <- net %>%
+  group_by(bb.sp, plant.sp, year, site, date, yday, gdd.cum, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd, phase) %>%
+  summarize(visits = n()) %>%
+  group_by(year, site, date, bb.sp, yday, gdd.cum, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
+  arrange(site, year, date, bb.sp, -prop.visits) %>%
+  mutate(cum.prop.visits = cumsum(prop.visits))
+
+### Per-transect floral abund
+fl_abund_sp <- survey %>%
+  group_by(site, date, year, plant.sp, yday, gdd.cum, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd, phase) %>%
+  summarize(fl.abund = sum(flower.cover))
+
+### Preference per transect per species
+prop_fl_abund <- visit_rates %>%
+  left_join(fl_abund_sp) %>%
+  na.omit() %>% # drop the samples without floral survey complement
+  group_by(site, date, year, bb.sp, yday, gdd.cum, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd, phase) %>%
+  mutate(prop.fl.abund = fl.abund/sum(fl.abund)) 
+
+### Median preference per bb.sp per plant.sp
+prop_fl_abund.med <- prop_fl_abund %>%
+  group_by(bb.sp, plant.sp, year) %>%
+  summarize(visits.median = median(visits),
+            prop.visits.median = median(prop.visits),
+            prop.fl.abund.median = median(prop.fl.abund)) %>%
+  filter(prop.fl.abund.median < 1)
+
+prop_fl_abund_median.lm <- lm(prop.visits.median ~ poly(prop.fl.abund.median, 2) + year, 
+                       data = prop_fl_abund.med)
+summary(prop_fl_abund_median.lm)
+plot(prop_fl_abund_median.lm)
+
+### Extract residuals
+prop_fl_abund_mean.resid <- residuals(prop_fl_abund_median.lm) %>%
+  data.frame() %>%
+  as_tibble() %>%
+  rename(preference = 1)
+
+### Join residuals back into data
+preference <- prop_fl_abund.mean %>%
+  filter(prop.fl.abund.mean != 1) %>%
+  bind_cols(prop_fl_abund_mean.resid)
+
+### Join preference data to floral abundance data
+fl_abund_sp_pref <- fl_abund_sp %>%
+  inner_join(preference) %>%
+  mutate(fl.abund.weighted = fl.abund^(1 + preference)) # Is this the right way to model preference?
+
+ggplot(fl_abund_sp_pref, aes(preference)) +
+  geom_histogram()
+
+### Summarize weighted fl.abund by site*date (i.e. transect)
+fl_abund_pref <- fl_abund_sp_pref %>%
+  group_by(site, date, year, bb.sp, yday, gdd.cum, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd, phase) %>%
+  summarize(fl.abund = sum(fl.abund),
+            fl.abund.weighted = sum(fl.abund.weighted)) %>%
+  left_join(bb_abund_sp) %>%
+  replace_na(list(bb.abund = 0))
+
+ggplot(fl_abund_pref, aes(log(fl.abund.weighted + 0.01), bb.abund, color = year)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~bb.sp, scales = "free")
+
+ggplot(fl_abund_pref, aes(log(fl.abund + 0.01), bb.abund, color = year)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~bb.sp, scales = "free")
+
+fl_abund_pref.sum <- fl_abund_pref %>%
+  group_by(site, year, bb.sp) %>%
+  summarize(tot.fl.abund.weighted = sum(fl.abund.weighted),
+            tot.fl.abund = sum(fl.abund),
+            tot.bb.abund = sum(bb.abund))
+
+ggplot(fl_abund_pref.sum, aes(log(tot.fl.abund.weighted + 0.01), tot.bb.abund, color = year)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~bb.sp, scales = "free")
+
+ggplot(fl_abund_pref.sum, aes(log(tot.fl.abund + 0.01), tot.bb.abund, color = year)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~bb.sp, scales = "free")
+
+
+
+ggplot(filter(preference, plant.sp == "Trifolium pratense"), 
+       aes(bb.sp, preference, color = year)) +
+  geom_point()
+
+ggplot(filter(preference, plant.sp == "Acinos alpinus"), 
+       aes(bb.sp, preference, color = year)) +
+  geom_point()
+  
+  
+
+ggplot(filter(prop_fl_abund, prop.fl.abund != 1), aes(prop.fl.abund, prop.visits)) +
+  geom_point(alpha = 0.05) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2)) 
+  #geom_smooth()
+
+ggplot(filter(prop_fl_abund.mean, prop.fl.abund.mean != 1), 
+       aes(prop.fl.abund.mean, prop.visits.mean)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "lm") 
+
+```
+
+**The shape of floral resource variation in time, space, and space-time** \
+
+If we consider floral resource abundance with respect to time alone, we basically get a monotonic and unimodal response
+```{r}
+fl_abund_time <- bam(log(fl.abund + 0.01) ~
+                       year +
+                       s(yday, 
+                         bs = "tp", 
+                         k = 10, m = 2),
+                     data = fl_abund,
+                     discrete = TRUE,
+                     method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_time)
+summary(fl_abund_time)
+print(plot(fl_abund_time , allTerms = TRUE), pages = 1)
+plot(sm(fl_abund_time, 1)) + 
+  l_points() + 
+  l_fitLine() + 
+  l_ciLine()
+
+fl_abund_time_2010 <- bam(log(fl.abund + 0.01) ~
+                            s(yday, bs = "tp", k = 10, m = 2),
+                          data = filter(fl_abund, year == 2010),
+                          discrete = TRUE,
+                          method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_time_2010)
+summary(fl_abund_time_2010)
+print(plot(fl_abund_time_2010 , allTerms = TRUE), pages = 1)
+
+fl_abund_time_2011 <- bam(log(fl.abund + 0.01) ~
+                            s(yday, bs = "tp", k = 10, m = 2),
+                          data = filter(fl_abund, year == 2011),
+                          discrete = TRUE,
+                          method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_time_2011)
+summary(fl_abund_time_2011)
+print(plot(fl_abund_time_2011 , allTerms = TRUE), pages = 1)
+
+fl_abund_time_2012 <- bam(log(fl.abund + 0.01) ~
+                            s(yday, bs = "tp", k = 10, m = 2),
+                          data = filter(fl_abund, year == 2012),
+                          discrete = TRUE,
+                          method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_time_2012)
+summary(fl_abund_time_2012)
+print(plot(fl_abund_time_2012 , allTerms = TRUE), pages = 1)
+
+
+ggplot(fl_abund, aes(yday, fl.abund, color = year)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~site, scales = "free")
+```
+
+If we look at floral abundance solely in terms of elevation, we get a more wiggly picture, with peaks ~1000 m and ~1600 m.
+```{r}
+fl_abund_elev <- bam(log(fl.abund + 0.01) ~
+                       year +
+                       s(elev.mean, 
+                         bs = "tp", 
+                         k = 10, m = 2),
+                     data = fl_abund,
+                     discrete = TRUE,
+                     method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_elev)
+summary(fl_abund_elev)
+print(plot(fl_abund_elev, allTerms = TRUE), pages = 1)
+plot(sm(fl_abund_elev, 1)) + 
+  l_points() + 
+  l_fitLine() + 
+  l_ciLine()
+
+fl_abund_elev_2010 <- bam(log(fl.abund + 0.01) ~
+                            s(elev.mean, bs = "tp", k = 10, m = 2),
+                          data = filter(fl_abund, year == 2010),
+                          discrete = TRUE,
+                          method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_elev_2010)
+summary(fl_abund_elev_2010)
+print(plot(fl_abund_elev_2010 , allTerms = TRUE), pages = 1)
+
+fl_abund_elev_2011 <- bam(log(fl.abund + 0.01) ~
+                            s(elev.mean, bs = "tp", k = 10, m = 2),
+                          data = filter(fl_abund, year == 2011),
+                          discrete = TRUE,
+                          method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_elev_2011)
+summary(fl_abund_elev_2011)
+print(plot(fl_abund_elev_2011 , allTerms = TRUE), pages = 1)
+
+fl_abund_elev_2012 <- bam(log(fl.abund + 0.01) ~
+                            s(elev.mean, bs = "tp", k = 10, m = 2),
+                          data = filter(fl_abund, year == 2012),
+                          discrete = TRUE,
+                          method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_elev_2012)
+summary(fl_abund_elev_2012)
+print(plot(fl_abund_elev_2012 , allTerms = TRUE), pages = 1)
+
+```
+
+But now let's look at space and time together in a 2D GAM.
+```{r}
+# Call models
+fl_abund_2D <- bam(log(fl.abund + 0.01) ~ year +
+                            te(yday, elev.mean, 
+                               bs= c("tp", "tp"), 
+                               k=c(10, 10), m=2),
+                    data = fl_abund,
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_2D)
+summary(fl_abund_2D)
+plot(sm(fl_abund_2D, 1), too.far = 0.05) + l_fitRaster() + l_fitContour() + l_points()
+plot(pterm(fl_abund_2D, 1))
+
+fl_abund_2D_2010 <- bam(log(fl.abund + 0.01) ~ te(yday, elev.mean, 
+                                                  bs= c("tp", "tp"), 
+                                                  k=c(10, 10), m=2),
+                        data = filter(fl_abund, year == 2010),
+                        discrete = TRUE,
+                        method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_2D_2010)
+summary(fl_abund_2D_2010)
+plot(sm(fl_abund_2D_2010, 1)) + 
+  l_fitRaster() + 
+  l_fitContour() + 
+  l_points()
+
+fl_abund_2D_2011 <- bam(log(fl.abund + 0.01) ~ te(yday, elev.mean, 
+                                                  bs= c("tp", "tp"), 
+                                                  k=c(10, 10), m=2),
+                        data = filter(fl_abund, year == 2011),
+                        discrete = TRUE,
+                        method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_2D_2011)
+summary(fl_abund_2D_2011)
+plot(sm(fl_abund_2D_2011, 1)) + 
+  l_fitRaster() + 
+  l_fitContour() + 
+  l_points()
+
+fl_abund_2D_2012 <- bam(log(fl.abund + 0.01) ~ te(yday, elev.mean, 
+                                                  bs= c("tp", "tp"), 
+                                                  k=c(10, 10), m=2),
+                        data = filter(fl_abund, year == 2012),
+                        discrete = TRUE,
+                        method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_2D_2012)
+summary(fl_abund_2D_2012)
+plot(sm(fl_abund_2D_2012, 1)) + 
+  l_fitRaster() + 
+  l_fitContour() + 
+  l_points()
+```
+
+How does the pooled abundance of each bumble bee species' top 5 floral hosts vary in time and elevation?
+```{r}
+fl_abund_2D_2010_top <- bam(log(top.fl.abund + 0.01) ~ te(yday, elev.mean, 
+                                                  by = factor(bb.sp),
+                                                  bs= c("tp", "tp"), 
+                                                  k=c(10, 10), m=1),
+                        data = filter(fl_abund_top_plants_pooled, year == 2010),
+                        discrete = TRUE,
+                        method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_2D_2010_top)
+summary(fl_abund_2D_2010_top)
+print(plot(fl_abund_2D_2010_top , allTerms = TRUE), pages = 1)
+
+fl_abund_2D_2011_top <- bam(log(top.fl.abund + 0.01) ~ te(yday, elev.mean, 
+                                                  by = factor(bb.sp),
+                                                  bs= c("tp", "tp"), 
+                                                  k=c(10, 10), m=1),
+                        data = filter(fl_abund_top_plants_pooled, year == 2011),
+                        discrete = TRUE,
+                        method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_2D_2011_top)
+summary(fl_abund_2D_2011_top)
+print(plot(fl_abund_2D_2011_top , allTerms = TRUE), pages = 1)
+
+fl_abund_2D_2012_top <- bam(log(top.fl.abund + 0.01) ~ te(yday, elev.mean, 
+                                                  by = factor(bb.sp),
+                                                  bs= c("tp", "tp"), 
+                                                  k=c(10, 10), m=1),
+                        data = filter(fl_abund_top_plants_pooled, year == 2012),
+                        discrete = TRUE,
+                        method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_2D_2012_top)
+summary(fl_abund_2D_2012_top)
+print(plot(fl_abund_2D_2012_top , allTerms = TRUE), pages = 1)
+
+```
+
+Now let's do the same with BB abundance. First by time.
+```{r}
+bb_abund_time_2010 <- bam(bb.abund ~ s(yday, bs = "tp", k = 20, m = 2),
+                          data = filter(bb_abund, year == 2010),
+                          discrete = TRUE,
+                          family = "poisson",
+                          method = "fREML") %>% getViz()
+
+bb_abund_time_2011 <- bam(bb.abund ~ s(yday, bs = "tp", k = 20, m = 2),
+                          data = filter(bb_abund, year == 2011),
+                          discrete = TRUE,
+                          family = "poisson",
+                          method = "fREML") %>% getViz()
+
+bb_abund_time_2012 <- bam(bb.abund ~ s(yday, bs = "tp", k = 20, m = 2),
+                          data = filter(bb_abund, year == 2012),
+                          discrete = TRUE,
+                          family = "poisson",
+                          method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund_time_2010)
+summary(bb_abund_time_2010)
+print(plot(bb_abund_time_2010 , allTerms = TRUE), pages = 1)
+
+check.gamViz(bb_abund_time_2011)
+summary(bb_abund_time_2011)
+print(plot(bb_abund_time_2011 , allTerms = TRUE), pages = 1)
+
+check.gamViz(bb_abund_time_2012)
+summary(bb_abund_time_2012)
+print(plot(bb_abund_time_2012 , allTerms = TRUE), pages = 1)
+
+ggplot(bb_abund_sp, aes(yday, bb.abund, color = bb.sp)) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  facet_grid(year~site, scales = "free")
+
+ggplot(filter(bb_abund_sp, bb.sp == "prat"), aes(yday, bb.abund)) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  facet_grid(year~site, scales = "free")
+```
+
+Then by elevation...this kinda sucks
+```{r}
+bb_abund_elev_2010 <- bam(bb.abund ~ s(elev.mean, bs = "tp", k = 10, m = 2),
+                          data = filter(bb_abund, year == 2010),
+                          discrete = TRUE,
+                          family = "poisson",
+                          method = "fREML") %>% getViz()
+
+bb_abund_elev_2011 <- bam(bb.abund ~ s(elev.mean, bs = "tp", k = 10, m = 2),
+                          data = filter(bb_abund, year == 2011),
+                          discrete = TRUE,
+                          family = "poisson",
+                          method = "fREML") %>% getViz()
+
+bb_abund_elev_2012 <- bam(bb.abund ~ s(elev.mean, bs = "tp", k = 10, m = 2),
+                          data = filter(bb_abund, year == 2012),
+                          discrete = TRUE,
+                          family = "poisson",
+                          method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund_elev_2010)
+summary(bb_abund_elev_2010)
+print(plot(bb_abund_elev_2010 , allTerms = TRUE), pages = 1)
+
+check.gamViz(bb_abund_elev_2011)
+summary(bb_abund_elev_2011)
+print(plot(bb_abund_elev_2011 , allTerms = TRUE), pages = 1)
+
+check.gamViz(bb_abund_elev_2012)
+summary(bb_abund_elev_2012)
+print(plot(bb_abund_elev_2012 , allTerms = TRUE), pages = 1)
+```
+
+But now let's look at space and time together in a 2D GAM.
+```{r}
+### Pooled across species
+bb_abund_2010 <- bam(bb.abund ~ te(yday, elev.mean, 
+                            bs = c("tp", "tp"), k = c(10, 10)),
+                       data = filter(bb_abund, year == 2010),
+                       discrete = TRUE,
+                       method = "fREML",
+                       family = "poisson",
+                       select = TRUE) %>% getViz()
+                         
+check.gamViz(bb_abund_2010)
+summary(bb_abund_2010)
+print(plot(bb_abund_2010, allTerms = TRUE), pages = 1)
+
+bb_abund_2011 <- bam(bb.abund ~ te(yday, elev.mean, 
+                            bs = c("tp", "tp"), k = c(10, 10)),
+                       data = filter(bb_abund, year == 2011),
+                       discrete = TRUE,
+                       method = "fREML",
+                       family = "poisson",
+                       select = TRUE) %>% getViz()
+                         
+check.gamViz(bb_abund_2011)
+summary(bb_abund_2011)
+print(plot(bb_abund_2011, allTerms = TRUE), pages = 1)
+
+bb_abund_2012 <- bam(bb.abund ~ te(yday, elev.mean, 
+                            bs = c("tp", "tp"), k = c(10, 10)),
+                       data = filter(bb_abund, year == 2012),
+                       discrete = TRUE,
+                       method = "fREML",
+                       family = "poisson",
+                       select = TRUE) %>% getViz()
+                         
+check.gamViz(bb_abund_2012)
+summary(bb_abund_2012)
+print(plot(bb_abund_2012, allTerms = TRUE), pages = 1)
+# 
+# 
+# bb_abund_2010.caste <- bam(bb.abund ~ caste + 
+#                              te(yday, elev.mean, by = caste,
+#                                 bs = c("tp", "tp"), k = c(10, 10)),
+#                            data = filter(bb_abund_caste, year == 2010),
+#                            discrete = TRUE,
+#                            method = "fREML",
+#                            family = "poisson",
+#                            select = TRUE) %>% getViz()
+#                          
+# check.gamViz(bb_abund_2010.caste)
+# summary(bb_abund_2010.caste)
+# print(plot(bb_abund_2010.caste, allTerms = TRUE), pages = 1)
+# 
+# bb_abund_2011.caste <- bam(bb.abund ~ caste + 
+#                              te(yday, elev.mean, by = caste,
+#                                 bs = c("tp", "tp"), k = c(10, 10)),
+#                            data = filter(bb_abund_caste, year == 2011),
+#                            discrete = TRUE,
+#                            method = "fREML",
+#                            family = "poisson",
+#                            select = TRUE) %>% getViz()
+#                          
+# check.gamViz(bb_abund_2011.caste)
+# summary(bb_abund_2011.caste)
+# print(plot(bb_abund_2011.caste, allTerms = TRUE), pages = 1)
+# 
+# 
+# bb_abund_2012.caste <- bam(bb.abund ~ caste + 
+#                              te(yday, elev.mean, by = caste,
+#                                 bs = c("tp", "tp"), k = c(10, 10)),
+#                            data = filter(bb_abund_caste, year == 2012),
+#                            discrete = TRUE,
+#                            method = "fREML",
+#                            family = "poisson",
+#                            select = TRUE) %>% getViz()
+#                          
+# check.gamViz(bb_abund_2012.caste)
+# summary(bb_abund_2012.caste)
+# print(plot(bb_abund_2012.caste, allTerms = TRUE), pages = 1)
+# 
+
+### Species level
+bb_abund_sp <- net %>%
+  group_by(site, date, yday = dayofyear,  gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd, bb.sp) %>%
+  summarize(bb.abund = n()) %>%
+  ungroup() %>%
+  mutate(bb.sp = factor(bb.sp)) %>%
+  spread(bb.sp, bb.abund) %>%
+  gather(bb.sp, bb.abund, -c(site, date, yday,  
+                             gdd.cum, year, elev.class2, elev.mean, 
+                             break1.gdd, break2.gdd)) %>%
+  replace_na(list(bb.abund = 0)) %>%
+  mutate(bb.sp = factor(bb.sp)) %>%
+  group_by(bb.sp, year) %>%
+  filter(sum(bb.abund) > 5) # remove rare species (on a per-year basis)
+
+  
+
+# bb_fl_abund_sp <- left_join(bb_abund_sp, fl_abund)
+# bb_fl_abund_sp_2010 <- left_join(bb_abund_sp, fl_abund) %>% filter(year == 2010)
+# bb_fl_abund_sp_2011 <- left_join(bb_abund_sp, fl_abund) %>% filter(year == 2011)
+# bb_fl_abund_sp_2012 <- left_join(bb_abund_sp, fl_abund) %>% filter(year == 2012)
+
+bb_abund_sp_2010 <- bam(bb.abund ~ bb.sp +
+                                 te(yday, elev.mean, by = bb.sp, 
+                                    bs = c("tp", "tp"), k = c(10, 10), m = 1),
+                               data = filter(bb_abund_sp, year == 2010),
+                               discrete = TRUE,
+                               method = "fREML",
+                               family = "poisson") %>% getViz()
+                         
+check.gamViz(bb_abund_sp_2010)
+summary(bb_abund_sp_2010)
+print(plot(bb_abund_sp_2010, allTerms = TRUE), pages =4)
+
+
+bb_abund_sp_2011 <- bam(bb.abund ~ bb.sp +
+                                 te(yday, elev.mean, by = bb.sp, 
+                                    bs = c("tp", "tp"), k = c(10, 10), m = 1),
+                               data = filter(bb_abund_sp, year == 2011),
+                               discrete = TRUE,
+                               method = "fREML",
+                               family = "poisson") %>% getViz()
+                         
+check.gamViz(bb_abund_sp_2011)
+summary(bb_abund_sp_2011)
+print(plot(bb_abund_sp_2011, allTerms = TRUE), pages = 4)
+
+bb_abund_sp_2012 <- bam(bb.abund ~ bb.sp +
+                                 te(yday, elev.mean, by = bb.sp, 
+                                    bs = c("tp", "tp"), k = c(10, 10), m = 1),
+                               data = filter(bb_abund_sp, year == 2012),
+                               discrete = TRUE,
+                               method = "fREML",
+                               family = "poisson") %>% getViz()
+                         
+check.gamViz(bb_abund_sp_2012)
+summary(bb_abund_sp_2012)
+print(plot(bb_abund_sp_2012, allTerms = TRUE), pages = 4)
+```
+
+And BB richness
+```{r}
+bb_rich_2010 <- bam(bb.rich ~ te(yday, elev.mean, 
+                            bs = c("tp", "tp"), k = c(10, 10), m = 1),
+                       data = filter(bb_rich, year == 2010),
+                       discrete = TRUE,
+                       method = "fREML",
+                       family = "poisson",
+                       select = TRUE) %>% getViz()
+                         
+check.gamViz(bb_rich_2010)
+summary(bb_rich_2010)
+print(plot(bb_rich_2010, allTerms = TRUE), pages = 1)
+
+bb_rich_2011 <- bam(bb.rich ~ te(yday, elev.mean, 
+                            bs = c("tp", "tp"), k = c(10, 10), m = 1),
+                       data = filter(bb_rich, year == 2011),
+                       discrete = TRUE,
+                       method = "fREML",
+                       family = "poisson",
+                       select = TRUE) %>% getViz()
+                         
+check.gamViz(bb_rich_2011)
+summary(bb_rich_2011)
+print(plot(bb_rich_2011, allTerms = TRUE), pages = 1)
+
+bb_rich_2012 <- bam(bb.rich ~ te(yday, elev.mean, 
+                            bs = c("tp", "tp"), k = c(10, 10), m = 1),
+                       data = filter(bb_rich, year == 2012),
+                       discrete = TRUE,
+                       method = "fREML",
+                       family = "poisson",
+                       select = TRUE) %>% getViz()
+                         
+check.gamViz(bb_rich_2012)
+summary(bb_rich_2012)
+print(plot(bb_rich_2012, allTerms = TRUE), pages = 1)
+
+```
+
+To what extent is the relationship between BB abundance and elev*time reflect a relationship between BB abundance and floral abundance?
+```{r}
+bb_fl_abund <- left_join(bb_abund, fl_abund)
+bb_fl_abund_sp <- left_join(bb_abund_sp, fl_abund)
+bb_fl_abund.ktype <- left_join(bb_abund, fl_abund_ktype)
+bb_fl_abund_sp.ktype <- left_join(bb_abund_sp, fl_abund_ktype)
+bb_fl_abund.family <- left_join(bb_abund, fl_abund_family)
+bb_fl_abund_sp.family <- left_join(bb_abund_sp, fl_abund_family)
+bb_fl_abund_sp.genus <- left_join(bb_abund_sp, fl_abund_genus)
+
+
+
+ggplot(bb_fl_abund, aes(log(fl.abund), bb.abund)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~year)
+
+ggplot(bb_fl_abund_sp, aes(log(fl.abund), bb.abund)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~bb.sp)
+
+ggplot(bb_fl_abund.ktype, aes(log(fl.abund), bb.abund)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~k.type.ss)
+
+ggplot(bb_fl_abund_sp.ktype, aes(log(fl.abund), bb.abund)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(k.type.ss~bb.sp)
+
+ggplot(bb_fl_abund.family, aes(log(fl.abund), bb.abund, color = year)) +
+  #geom_point() +
+  geom_smooth(se = FALSE, method = "lm") +
+  facet_wrap(~plant.family)
+
+ggplot(filter(bb_fl_abund_sp.family,
+              bb.sp %in% c("pasc", "prat", "bss", "mont", "hort", "mont", "soro", "wurf", "psit") &
+                plant.family %in% c("Rosaceae", "Lamiaceae", "Asteraceae")), 
+       aes(log(fl.abund), bb.abund, color = year)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_grid(bb.sp~plant.family, scales = "free") +
+  theme_gray(8)
+
+### Let's see how tightly BB abundance is correlated with FL abundance within each site*year
+ggplot(filter(bb_fl_abund, year == 2012), aes(fl.abund, bb.abund)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~site, scales = "free")
+
+ggplot(filter(bb_fl_abund, year == 2011), aes(fl.abund, bb.abund)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~site, scales = "free")
+```
+Hmm...so, bumble bee abundance is correlated with floral abundance, but with a ton of noise. Perhaps that is due to the temporal patterns of colony growth.
+```{r}
+bb_fl_abund <- left_join(bb_abund, fl_abund)
+
+bb_abund_2010_2 <- gam(bb.abund ~ te(yday, log(fl.abund + 0.01), bs = c("tp", "tp"), k = c(10, 10)),
+                     data = filter(bb_fl_abund, year == 2010),
+                     method = "REML",
+                     family = "gaussian") %>% getViz()
+                         
+check.gamViz(bb_abund_2010_2)
+summary(bb_abund_2010_2)
+print(plot(bb_abund_2010_2, allTerms = TRUE), pages = 1)
+
+bb_abund_2012_2 <- gam(bb.abund ~ te(yday, log(fl.abund + 0.01), bs = c("tp", "tp"), k = c(10, 10)),
+                     data = filter(bb_fl_abund, year == 2012),
+                     method = "REML",
+                     family = "gaussian") %>% getViz()
+                         
+check.gamViz(bb_abund_2012_2)
+summary(bb_abund_2012_2)
+  plot <- print(plot(bb_abund_2012_2, allTerms = TRUE), pages = 1)
+
+
+```
+
+And dare we attempt to model the ratio of FL to BB abundance?
+```{r}
+fl_per_bb <- bb_fl_abund %>%
+  ungroup() %>%
+  mutate(fl.per.bb = fl.abund/bb.abund)
+
+fl_per_bb_2010 <- bam(log(fl.abund/bb.abund + 0.01) ~ te(yday, elev.mean, 
+                                             bs = c("tp", "tp"), 
+                                             k = c(10, 10)),
+                      data = filter(fl_per_bb, year == 2010),
+                      discrete = FALSE,
+                      method = "REML",
+                      #family = "poisson",
+                      select = TRUE) %>% getViz()
+                         
+check.gamViz(fl_per_bb_2010)
+summary(fl_per_bb_2010)
+print(plot(fl_per_bb_2010, allTerms = TRUE), pages = 1)
+
+fl_per_bb_2011 <- bam(log(fl.abund/bb.abund + 0.01) ~ te(yday, elev.mean, 
+                                             bs = c("tp", "tp"), 
+                                             k = c(10, 10)),
+                      data = filter(fl_per_bb, year == 2011),
+                      discrete = FALSE,
+                      method = "REML",
+                      #family = "poisson",
+                      select = TRUE) %>% getViz()
+                         
+check.gamViz(fl_per_bb_2011)
+summary(fl_per_bb_2011)
+print(plot(fl_per_bb_2011, allTerms = TRUE), pages = 1)
+
+fl_per_bb_2012 <- bam(log(fl.abund/bb.abund + 0.01) ~ te(yday, elev.mean, 
+                                             bs = c("tp", "tp"), 
+                                             k = c(10, 10)),
+                      data = filter(fl_per_bb, year == 2012),
+                      discrete = FALSE,
+                      method = "REML",
+                      #family = "poisson",
+                      select = TRUE) %>% getViz()
+                         
+check.gamViz(fl_per_bb_2012)
+summary(fl_per_bb_2012)
+print(plot(fl_per_bb_2012, allTerms = TRUE), pages = 1)
+
+```
+
+What if we split up flora by...stuff?
+```{r}
+# fl_abund_family <- survey %>%
+#   group_by(site, date, yday = dayofyear,  gdd.cum, year, elev.class2, 
+#            elev.mean, break1.gdd, break2.gdd, gdd.total, plant.family) %>%
+#   summarize(fl.abund = sum(flower.cover)) %>%
+#   mutate(year2010 = ifelse(year == 2010, 1, 0),
+#          year2011 = ifelse(year == 2011, 1, 0),
+#          year2012 = ifelse(year == 2012, 1, 0))
+# 
+# fl_abund_fam_2010 <- bam(log(fl.abund + 0.01) ~ plant.family +
+#                            te(yday, elev.mean, by = factor(plant.family), bs = c("tp", "tp"), k = c(10, 10)),
+#                          data = filter(fl_abund_family, year == 2010),
+#                          discrete = TRUE,
+#                          method = "fREML") %>% getViz()
+#                          
+# check.gamViz(fl_abund_fam_2010)
+# summary(fl_abund_fam_2010)
+# print(plot(fl_abund_fam_2010, allTerms = TRUE), pages = 1)
+
+### Prepare data
+# fl_abund_ktype.ss <- survey %>%
+#   group_by(site, date, yday = dayofyear,  gdd.cum, year, elev.mean, k.type.ss) %>%
+#   summarize(fl.abund = sum(flower.cover)) %>%
+#   ungroup() %>%
+#   spread(k.type.ss, fl.abund) %>%
+#   gather(k.type.ss, fl.abund, -c(site, date, yday, gdd.cum, year, elev.mean))
+# %>%
+#   gather()
+#   mutate(year2010 = ifelse(year == 2010, 1, 0),
+#          year2011 = ifelse(year == 2011, 1, 0),
+#          year2012 = ifelse(year == 2012, 1, 0),
+#          k.type.ss = factor(k.type.ss))
+# 
+# fl_abund_ktype.s <- survey %>%
+#   group_by(site, date, yday = dayofyear,  gdd.cum, year, elev.class2, 
+#            elev.mean, break1.gdd, break2.gdd, k.type.s) %>%
+#   summarize(fl.abund = sum(flower.cover)) %>%
+#   ungroup() %>%
+#   mutate(year2010 = ifelse(year == 2010, 1, 0),
+#          year2011 = ifelse(year == 2011, 1, 0),
+#          year2012 = ifelse(year == 2012, 1, 0),
+#          k.type.s = factor(k.type.s))
+
+top_plants <- net %>%
+  group_by(year, bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>%
+  group_by(year, bb.sp) %>%
+  top_n(3, visits) %>%
+  arrange(bb.sp, year, -visits)
+
+ggplot(top_plants, aes(year, visits, fill = plant.sp)) +
+  geom_col(position = "fill") +
+  facet_wrap(~bb.sp)
+
+fl_abund_sp <- survey %>%
+  group_by(site, date, yday = dayofyear,  gdd.cum, year, 
+           elev.mean, plant.sp) %>%
+  summarize(fl.abund = sum(flower.cover)) %>%
+  ungroup() %>%
+  spread(plant.sp, fl.abund) %>%
+  gather(plant.sp, fl.abund, -c(site, date, yday, gdd.cum, year, elev.mean)) %>%
+  replace_na(list(fl.abund = 0)) %>%
+  semi_join(top_plants, by = c("year", "plant.sp")) %>%
+  mutate(year2010 = ifelse(year == 2010, 1, 0),
+         year2011 = ifelse(year == 2011, 1, 0),
+         year2012 = ifelse(year == 2012, 1, 0),
+         plant.sp = factor(plant.sp))
+
+### As an example, let's see how some BB species are predicted by their #1 plant
+Stachys_alopecuros_2012 <- fl_abund_sp %>%
+  filter(plant.sp == "Stachys alopecuros", year == 2012) %>%
+  filter(fl.abund > 0)
+
+prat_2012 <- bb_abund_sp %>% 
+  filter(bb.sp == "prat", year == 2012) %>%
+  left_join(Stachys_alopecuros_2012)
+
+ggplot(prat_2012, aes(log(fl.abund), bb.abund)) +
+  geom_point()
+
+Rhododendron_hirsutum_2011 <- fl_abund_sp %>%
+  filter(plant.sp == "Rhododendron hirsutum", year == 2011) %>%
+  filter(fl.abund > 0)
+
+prat_2011 <- bb_abund_sp %>% 
+  filter(bb.sp == "prat", year == 2011) %>%
+  left_join(Rhododendron_hirsutum_2011) 
+
+ggplot(prat_2011, aes(log(fl.abund), bb.abund)) +
+  geom_point()
+
+Campanula_scheuchzeri_2012 <-  fl_abund_sp %>%
+  filter(plant.sp == "Campanula scheuchzeri", year == 2012) %>%
+  filter(fl.abund > 0)
+
+soro_2012 <- bb_abund_sp %>% 
+  filter(bb.sp == "soro", year == 2012) %>%
+  left_join(Campanula_scheuchzeri_2012) 
+
+ggplot(soro_2012, aes(log(fl.abund), bb.abund)) +
+  geom_point()
+
+
+
+# ### Call ktype.ss models
+# fl_abund_ktype.ss_2010 <- bam(log(fl.abund + 0.01) ~ k.type.ss +
+#                            te(yday, elev.mean, by = k.type.ss, bs = c("tp", "tp"), k = c(10, 10), m = 1),
+#                          data = filter(fl_abund_ktype.ss, year == 2010),
+#                          discrete = TRUE,
+#                          method = "fREML") %>% getViz()
+#                          
+# check.gamViz(fl_abund_ktype.ss_2010)
+# summary(fl_abund_ktype.ss_2010)
+# print(plot(fl_abund_ktype.ss_2010, allTerms = TRUE), pages = 1)
+# 
+# fl_abund_ktype.ss_2011 <- bam(log(fl.abund + 0.01) ~ k.type.ss +
+#                            te(yday, elev.mean, by = k.type.ss, bs = c("tp", "tp"), k = c(10, 10), m = 1),
+#                          data = filter(fl_abund_ktype.ss, year == 2011),
+#                          discrete = TRUE,
+#                          method = "fREML") %>% getViz()
+#                          
+# check.gamViz(fl_abund_ktype.ss_2011)
+# summary(fl_abund_ktype.ss_2011)
+# print(plot(fl_abund_ktype.ss_2011, allTerms = TRUE), pages = 1)
+# 
+# fl_abund_ktype.ss_2012 <- bam(log(fl.abund + 0.01) ~ k.type.ss +
+#                            te(yday, elev.mean, by = k.type.ss, bs = c("tp", "tp"), k = c(15, 15)),
+#                          data = filter(fl_abund_ktype.ss, year == 2012),
+#                          discrete = TRUE,
+#                          method = "fREML") %>% getViz()
+#                          
+# check.gamViz(fl_abund_ktype.ss_2012)
+# summary(fl_abund_ktype.ss_2012)
+# print(plot(fl_abund_ktype.ss_2012, allTerms = TRUE), pages = 1)
+# 
+# ### Call ktype.s models
+# fl_abund_ktype.s_2010 <- bam(log(fl.abund + 0.01) ~ k.type.s +
+#                            te(yday, elev.mean, by = k.type.s, bs = c("tp", "tp"), k = c(10, 10), m = 1),
+#                          data = filter(fl_abund_ktype.s, year == 2010),
+#                          discrete = TRUE,
+#                          method = "fREML") %>% getViz()
+#                          
+# check.gamViz(fl_abund_ktype.s_2010)
+# summary(fl_abund_ktype.s_2010)
+# print(plot(fl_abund_ktype.s_2010, allTerms = TRUE), pages = 1)
+# 
+# fl_abund_ktype.s_2011 <- bam(log(fl.abund + 0.01) ~ k.type.s +
+#                            te(yday, elev.mean, by = k.type.s, bs = c("tp", "tp"), k = c(10, 10), m = 1),
+#                          data = filter(fl_abund_ktype.s, year == 2011),
+#                          discrete = TRUE,
+#                          method = "fREML") %>% getViz()
+#                          
+# check.gamViz(fl_abund_ktype.s_2011)
+# summary(fl_abund_ktype.s_2011)
+# print(plot(fl_abund_ktype.s_2011, allTerms = TRUE), pages = 1)
+# 
+# fl_abund_ktype.s_2012 <- bam(log(fl.abund + 0.01) ~ k.type.s +
+#                            te(yday, elev.mean, by = k.type.s, bs = c("tp", "tp"), k = c(15, 15)),
+#                          data = filter(fl_abund_ktype.s, year == 2012),
+#                          discrete = TRUE,
+#                          method = "fREML") %>% getViz()
+#                          
+# check.gamViz(fl_abund_ktype.s_2012)
+# summary(fl_abund_ktype.s_2012)
+# print(plot(fl_abund_ktype.s_2012, allTerms = TRUE), pages = 1)
+
+### Call species models
+### What are the most visited species?
+fl_abund_sp_2010 <- bam(log(fl.abund + 0.01) ~ plant.sp +
+                           te(yday, elev.mean, by = plant.sp, bs = c("tp", "tp"), k = c(10, 10), m = 1),
+                         data = filter(fl_abund_sp, year == 2010),
+                         discrete = TRUE,
+                         method = "fREML") %>% getViz()
+                         
+check.gamViz(fl_abund_sp_2010)
+summary(fl_abund_sp_2010)
+print(plot(fl_abund_sp_2010, allTerms = TRUE), pages = 1)
+
+
+fl_abund_sp_2011 <- bam(log(fl.abund + 0.01) ~ plant.sp +
+                           te(yday, elev.mean, by = plant.sp, bs = c("tp", "tp"), k = c(10, 10), m = 1),
+                         data = filter(fl_abund_sp, year == 2011),
+                         discrete = TRUE,
+                         method = "fREML") %>% getViz()
+                         
+check.gamViz(fl_abund_sp_2011)
+summary(fl_abund_sp_2011)
+print(plot(fl_abund_sp_2011, allTerms = TRUE), pages = 1)
+
+fl_abund_sp_2012 <- bam(log(fl.abund + 0.01) ~ plant.sp +
+                           te(yday, elev.mean, by = plant.sp, bs = c("tp", "tp"), k = c(10, 10), m = 1),
+                         data = filter(fl_abund_sp, year == 2012),
+                         discrete = TRUE,
+                         method = "fREML") %>% getViz()
+                         
+check.gamViz(fl_abund_sp_2012)
+summary(fl_abund_sp_2012)
+print(plot(fl_abund_sp_2012, allTerms = TRUE), pages = 1)
+```
+
+Alright -- how does the visitation rate of each floral species differ (or not) from its surveyed abundance?
+```{r}
+fl_abund_net_sp <- net %>%
+  group_by(site, date, yday = dayofyear, gdd.cum, year, 
+           elev.mean, plant.sp) %>%
+  summarize(fl.abund = n()) %>%
+  ungroup() %>%
+  spread(plant.sp, fl.abund) %>%
+  gather(plant.sp, fl.abund, -c(site, date, yday, gdd.cum, year, elev.mean)) %>%
+  replace_na(list(fl.abund = 0)) %>%
+  semi_join(top_plants, by = c("year", "plant.sp")) %>%
+  mutate(year2010 = ifelse(year == 2010, 1, 0),
+         year2011 = ifelse(year == 2011, 1, 0),
+         year2012 = ifelse(year == 2012, 1, 0),
+         plant.sp = factor(plant.sp))
+
+fl_abund_net_sp_2012 <- bam(fl.abund ~ plant.sp +
+                           te(yday, elev.mean, by = plant.sp, bs = c("tp", "tp"), k = c(10, 10), m = 1),
+                         data = filter(fl_abund_net_sp, year == 2012 & plant.sp %in% c("Trifolium pratense", "Origanum vulgare", "Prunella vulgaris", "Stachys alopecuros")),
+                         discrete = TRUE,
+                         family = "poisson",
+                         method = "fREML") %>% getViz()
+                         
+check.gamViz(fl_abund_net_sp_2012)
+summary(fl_abund_net_sp_2012)
+print(plot(fl_abund_net_sp_2012, allTerms = TRUE), pages = 1)
+```
+
+Now let's get really granular
+```{r}
+sp_by_sp <- net %>%
+  group_by(site, date, yday = dayofyear, gdd.cum, year, 
+           elev.mean, bb.sp, plant.sp) %>%
+  summarize(fl.abund = n()) %>%
+  ungroup() %>%
+  spread(plant.sp, fl.abund) %>%
+  gather(plant.sp, fl.abund, -c(site, date, yday, gdd.cum, year, elev.mean, bb.sp)) %>%
+  replace_na(list(fl.abund = 0)) %>%
+  semi_join(top_plants, by = c("year", "plant.sp")) %>%
+  mutate(year2010 = ifelse(year == 2010, 1, 0),
+         year2011 = ifelse(year == 2011, 1, 0),
+         year2012 = ifelse(year == 2012, 1, 0),
+         plant.sp = factor(plant.sp))
+
+Stachys_alopecuros_2012 <-  bam(fl.abund ~ bb.sp +
+                           te(yday, elev.mean, by = factor(bb.sp), bs = c("tp", "tp"), k = c(10, 10), m = 1),
+                         data = filter(sp_by_sp, 
+                                       year == 2012 & 
+                                         bb.sp %in% c("prat", "pasc", "bss", "soro", "mont", "wurf") &
+                                         plant.sp == "Stachys alopecuros"),
+                         discrete = TRUE,
+                         family = "poisson",
+                         method = "fREML") %>% getViz()
+
+check.gamViz(Stachys_alopecuros_2012)
+summary(Stachys_alopecuros_2012)
+print(plot(Stachys_alopecuros_2012, allTerms = TRUE), pages = 1)
+
+Trifolium_pratense_2011 <-  bam(fl.abund ~ bb.sp +
+                           te(yday, elev.mean, by = factor(bb.sp), bs = c("tp", "tp"), k = c(10, 10), m = 1),
+                         data = filter(sp_by_sp, 
+                                       year == 2011 & 
+                                         bb.sp %in% c("prat", "pasc", "bss", "soro", "wurf") &
+                                         plant.sp == "Trifolium pratense"),
+                         discrete = TRUE,
+                         family = "poisson",
+                         method = "fREML") %>% getViz()
+
+check.gamViz(Trifolium_pratense_2011)
+summary(Trifolium_pratense_2011)
+print(plot(Trifolium_pratense_2011, allTerms = TRUE), pages = 1)
+```
+
+
+### GAM surface plots of abundance and diversity metrics
+#### After puzzling over whether to model the three years together, using year as a "by" factor, or to set up an independent model for each year, I've settled (for now) on the latter. Since the yday range of each year is determined largely by when the snow melted, I do not want to extrapolate beyond my data.
+##### Floral abundance
+```{r eval=FALSE, include=FALSE}
+### yday ranges
+tapply(fl_abund$yday, fl_abund$year, summary)
+tapply(fl_abund$gdd.cum, fl_abund$year, summary)
+
+fl_abund_yday_2010 <- bam(log(fl.abund + 0.001) ~ te(yday, elev.mean, bs= c("tp", "tp"), k=c(12, 12), m=1),
+                    data = filter(fl_abund, year == "2010"),
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_yday_2010)
+summary(fl_abund_yday_2010)
+print(plot(fl_abund_yday_2010, allTerms = TRUE), pages = 1)
+
+fl_abund_yday_2011 <- bam(log(fl.abund + 0.001) ~ te(yday, elev.mean, bs= c("tp", "tp"), k=c(12, 12), m=1),
+                    data = filter(fl_abund, year == "2011"),
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_yday_2011)
+summary(fl_abund_yday_2011)
+print(plot(fl_abund_yday_2011, allTerms = TRUE), pages = 1)
+
+fl_abund_yday_2012 <- bam(log(fl.abund + 0.001) ~ te(yday, elev.mean, bs= c("tp", "tp"), k=c(12, 12), m=1),
+                    data = filter(fl_abund, year == "2012"),
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_yday_2012)
+summary(fl_abund_yday_2012)
+print(plot(fl_abund_yday_2012, allTerms = TRUE), pages = 1)
+plot(predict(fl_abund_yday_2012))
+
+### HGAM as per Gavin's recommendation, but based on GDD instead of yday
+fl_abund_gdd <- bam(log(fl.abund + 0.001) ~ year +
+                      te(gdd.cum, elev.mean, k=c(10, 10)) +
+                      te(gdd.cum, elev.mean, by = year2010, bs= c("tp", "tp"), k=c(12, 12), m=1) +
+                      te(gdd.cum, elev.mean, by = year2011, bs= c("tp", "tp"), k=c(12, 12), m=1) +
+                      te(gdd.cum, elev.mean, by = year2012, bs= c("tp", "tp"), k=c(12, 12), m=1),
+                    data = fl_abund,
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+fl_abund_yday <- bam(log(fl.abund + 0.001) ~ year +
+                      te(yday, elev.mean, by = year, bs= c("tp", "tp"), k=c(15, 15), m=1),
+                    data = fl_abund,
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+fl_abund_yday <- bam(log(fl.abund + 0.001) ~ year +
+                      te(yday, elev.mean, by = year2010, bs= c("tp", "tp"), k=c(15, 15), m=1) +
+                       te(yday, elev.mean, by = year2011, bs= c("tp", "tp"), k=c(15, 15), m=1) +
+                       te(yday, elev.mean, by = year2012, bs= c("tp", "tp"), k=c(15, 15), m=1),
+                    data = fl_abund,
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_yday)
+summary(fl_abund_yday)
+print(plot(fl_abund_yday, allTerms = TRUE), pages = 1)
+```
+
+### Let's refine our plotting with tidymv
+```{r, eval=FALSE, include=FALSE}
+p2010 <- predict_gam(fl_abund_yday_2010)
+p2011 <- predict_gam(fl_abund_yday_2011)
+p2012 <- predict_gam(fl_abund_yday_2012)
+p <- predict_gam(fl_abund_gdd)
+
+
+ggplot(p2010, aes(yday, elev.mean, fit)) +
+  geom_raster(aes(fill = exp(fit))) +
+  #geom_contour(aes(z = fit), color = "black") +
+  geom_point(data = filter(fl_abund, year == 2010), 
+             aes(yday, elev.mean, size = fl.abund),
+             color = "white", alpha = 0.25) +
+  scale_fill_viridis_c()
+
+ggplot(p2011, aes(yday, elev.mean, fit)) +
+  geom_raster(aes(fill = exp(fit))) +
+  #geom_contour(aes(z = fit), color = "black") +
+  geom_point(data = filter(fl_abund, year == 2011), 
+             aes(yday, elev.mean, size = fl.abund),
+             color = "white", alpha = 0.25) +
+  scale_fill_viridis_c()
+
+ggplot(p2012, aes(yday, elev.mean, fit)) +
+  geom_raster(aes(fill = exp(fit))) +
+  #geom_contour(aes(z = fit), color = "black") +
+  geom_point(data = filter(fl_abund, year == 2012), 
+             aes(yday, elev.mean, size = fl.abund),
+             color = "white", alpha = 0.25) +
+  scale_fill_viridis_c()
+
+ggplot(p, aes(yday, elev.mean, fit)) +
+  geom_raster(aes(fill = exp(fit))) +
+  geom_contour(aes(z = fit), color = "black") +
+  geom_point(data = fl_abund,
+  aes(yday, elev.mean, size = fl.abund),
+  color = "white", alpha = 0.25) +
+  scale_fill_viridis_c() +
+  facet_wrap(~year)
+
+```
+
+##### Floral richness 
+```{r eval=FALSE, include=FALSE}
+fl_rich_yday_2010 <- bam(fl.rich ~ te(yday, elev.mean, bs= c("tp", "tp"), k=c(10, 10), m=1),
+                    data = filter(fl_rich, year == "2010"),
+                    discrete = TRUE,
+                    family = "poisson",
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_rich_yday_2010)
+summary(fl_rich_yday_2010)
+print(plot(fl_rich_yday_2010, allTerms = TRUE), pages = 1)
+
+fl_rich_yday_2011 <- bam(fl.rich ~ te(yday, elev.mean, bs= c("tp", "tp"), k=c(10, 10), m=1),
+                    data = filter(fl_rich, year == "2011"),
+                    discrete = TRUE,
+                    family = "poisson",
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_rich_yday_2011)
+summary(fl_rich_yday_2011)
+print(plot(fl_rich_yday_2011, allTerms = TRUE), pages = 1)
+
+fl_rich_yday_2012 <- bam(fl.rich ~ te(yday, elev.mean, bs= c("tp", "tp"), k=c(10, 10), m=1),
+                    data = filter(fl_rich, year == "2012"),
+                    discrete = TRUE,
+                    family = "poisson",
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_rich_yday_2012)
+summary(fl_rich_yday_2012)
+print(plot(fl_rich_yday_2012, allTerms = TRUE), pages = 1)
+```
+
+##### BB abundance
+```{r eval=FALSE, include=FALSE}
+bb_abund_yday_2012 <- bam(bb.abund ~ te(yday, elev.mean, bs= c("tp", "tp"), k=c(10, 10), m=1),
+                    data = filter(bb_abund, year == "2012"),
+                    family = "poisson",
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund_yday_2012)
+summary(bb_abund_yday_2012)
+print(plot(bb_abund_yday_2012, allTerms = TRUE), pages = 1)
+
+bb_abund_yday_2011 <- bam(bb.abund ~ te(yday, elev.mean, bs= c("tp", "tp"), k=c(10, 10), m=1),
+                    data = filter(bb_abund, year == "2011"),
+                    family = "poisson",
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund_yday_2011)
+summary(bb_abund_yday_2011)
+print(plot(bb_abund_yday_2011, allTerms = TRUE), pages = 1)
+
+bb_abund_yday_2010 <- bam(bb.abund ~ te(yday, elev.mean, bs= c("tp", "tp"), k=c(10, 10), m=1),
+                    data = filter(bb_abund, year == "2010"),
+                    family = "poisson",
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund_yday_2010)
+summary(bb_abund_yday_2010)
+print(plot(bb_abund_yday_2010, allTerms = TRUE), pages = 1)
+```
+
+##### BB abundance with species as a "by" factor smooth
+##### I am using family = "poisson"; this results in somewhat overdispersed models, but with a higher variance explained than when I use quasipoisson or negative binomial distributions, and the latter two distributions seem to introduce skew. I am more concerned with maximizing the explanatory power of my models than I am with having accurate p-values. We'll see what reviewers think, I guess. 
+```{r eval=FALSE, include=FALSE}
+### Species-level abundance
+bb_abund_sp <- net %>%
+  group_by(site, date, dayofyear, gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd, bb.sp) %>%
+  summarize(bb.abund = n()) %>%
+  rename(yday = dayofyear) %>%
+  ungroup() %>%
+  filter(bb.sp %in% c("bss", "hort", "pasc", "prat", "soro", "wurf")) %>% # we only want the common species I think
+  mutate(bb.sp = factor(bb.sp))
+
+### 2010
+bb_abund_sp_yday_2010 <- bam(bb.abund ~ te(yday, elev.mean, by= bb.sp, bs= c("tp", "tp"), k=c(12, 12), m=2),
+                             data = filter(bb_abund_sp, year == "2010"),
+                             family = "poisson",
+                             discrete = TRUE,
+                             method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund_sp_yday_2010)
+summary(bb_abund_sp_yday_2010)
+
+### 2011
+bb_abund_sp_yday_2011 <- bam(bb.abund ~ te(yday, elev.mean, by= bb.sp, bs= c("tp", "tp"), k=c(12, 12), m=2),
+                             data = filter(bb_abund_sp, year == "2011"),
+                             family = "poisson",
+                             discrete = TRUE,
+                             method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund_sp_yday_2011)
+summary(bb_abund_sp_yday_2011)
+
+### 2012
+bb_abund_sp_yday_2012 <- bam(bb.abund ~ te(yday, elev.mean, by= bb.sp, bs= c("tp", "tp"), k=c(15, 15), m=2),
+                             data = filter(bb_abund_sp, year == "2012"),
+                             family = "poisson",
+                             discrete = TRUE,
+                             method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund_sp_yday_2012)
+summary(bb_abund_sp_yday_2012)
+
+### Global HGAM
+bb_abund_sp_yday <- bam(bb.abund ~ year +
+                          te(elev.mean, yday, bs= c("tp", "tp"), k=c(10, 10), m=2) +
+                          te(yday, elev.mean, by= bb.sp, bs= c("tp", "tp"), k=c(15, 15), m=1),
+                             data = bb_abund_sp,
+                             family = "nb",
+                             discrete = TRUE,
+                             method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund_sp_yday)
+summary(bb_abund_sp_yday)
+
+### Extract fits
+bb2010 <- predict_gam(bb_abund_sp_yday_2010)
+bb2011 <- predict_gam(bb_abund_sp_yday_2011)
+bb2012 <- predict_gam(bb_abund_sp_yday_2012)
+bb <- predict_gam(bb_abund_sp_yday)
+
+
+### Plot
+ggplot(bb2010, aes(yday, elev.mean, fit)) +
+  geom_raster(aes(fill = fit)) +
+  geom_contour(aes(z = fit), color = "black") +
+  geom_point(data = filter(bb_abund_sp, year == 2010), 
+             aes(yday, elev.mean, size = bb.abund),
+             color = "white", alpha = 0.5) +
+  scale_fill_viridis_c() +
+  facet_wrap(~bb.sp)
+
+ggplot(bb2011, aes(yday, elev.mean, fit)) +
+  geom_raster(aes(fill = fit)) +
+  geom_contour(aes(z = fit), color = "black") +
+  geom_point(data = filter(bb_abund_sp, year == 2011), 
+             aes(yday, elev.mean, size = bb.abund),
+             color = "white", alpha = 0.5) +
+  scale_fill_viridis_c() +
+  facet_wrap(~bb.sp)
+
+ggplot(bb2012, aes(yday, elev.mean, fit)) +
+  geom_raster(aes(fill = fit)) +
+  geom_contour(aes(z = fit), color = "black") +
+  geom_point(data = filter(bb_abund_sp, year == 2012), 
+             aes(yday, elev.mean, size = bb.abund),
+             color = "white", alpha = 0.5) +
+  scale_fill_viridis_c() +
+  facet_wrap(~bb.sp)
+```
+
+##### FL abundance by k.type
+##### Need to go back through to simplify, include only ktypes that are used heavily
+```{r, eval=FALSE, include=FALSE}
+k.type_key <- read_delim("../processed_data/kugler_key.tsv", delim = "\t", col_names = FALSE)
+
+fl_abund_ktype_yday_2010 <- bam(log(fl.abund + 0.001) ~ te(yday, elev.mean, 
+                                                           by= k.type.ss, 
+                                                           bs= c("tp", "tp"), 
+                                                           k=c(12, 12), m=1),
+                    data = filter(fl_abund_ktype, year == "2010"),
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_ktype_yday_2010)
+summary(fl_abund_ktype_yday_2010)
+print(plot(fl_abund_ktype_yday_2010, allTerms = TRUE), pages = 10)
+
+fl_abund_ktype_yday_2011 <- bam(log(fl.abund + 0.001) ~ te(yday, elev.mean, 
+                                                           by= k.type.ss, 
+                                                           bs= c("tp", "tp"), 
+                                                           k=c(12, 12), m=1),
+                    data = filter(fl_abund_ktype, year == "2011"),
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_ktype_yday_2011)
+summary(fl_abund_ktype_yday_2011)
+print(plot(fl_abund_ktype_yday_2011, allTerms = TRUE), pages = 10)
+
+fl_abund_ktype_yday_2012 <- bam(log(fl.abund + 0.001) ~ te(yday, elev.mean, 
+                                                           by= k.type.ss, 
+                                                           bs= c("tp", "tp"), 
+                                                           k=c(12, 12), m=1),
+                    data = filter(fl_abund_ktype, year == "2012"),
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_ktype_yday_2012)
+summary(fl_abund_ktype_yday_2012)
+print(plot(fl_abund_ktype_yday_2012, allTerms = TRUE), pages = 10)
+```
+
+##### FL abundance by genus
+##### Need to go back through to simplify, include only ktypes that are used heavily
+```{r, eval=FALSE, include=FALSE}
+fl_abund_genus <- survey %>%
+  group_by(site, date, yday = dayofyear, gdd.cum, year, elev.class2, 
+           elev.mean, break1.gdd, break2.gdd, plant.genus) %>%
+  summarize(fl.abund = sum(flower.cover)) %>%
+  ungroup() %>%
+  mutate(plant.genus = factor(plant.genus))
+
+fl_abund_genus_yday_2010 <- bam(log(fl.abund + 0.001) ~ te(yday, elev.mean, 
+                                                           by= plant.genus, 
+                                                           bs= c("tp", "tp"), 
+                                                           k=c(8, 8), m=1),
+                    data = filter(fl_abund_genus, year == "2010"),
+                    discrete = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund_genus_yday_2010)
+summary(fl_abund_genus_yday_2010)
+print(plot(fl_abund_genus_yday_2010, allTerms = TRUE), pages = 10)
+
+```
+
+##### BB richness
+```{r eval=FALSE, include=FALSE}
+bb_rich_yday_2010 <- gamV(bb.rich ~ te(yday, elev.mean, bs= c("tp", "tp"), k=c(10, 10), m=1),
+                    data = filter(bb_rich, year == "2010"),
+                    family = "poisson",
+                    method = "REML")
+
+check.gamViz(bb_rich_yday_2010)
+summary(bb_rich_yday_2010)
+print(plot(bb_rich_yday_2010, allTerms = TRUE), pages = 1)
+
+bb_rich_yday_2011 <- gamV(bb.rich ~ te(yday, elev.mean, bs= c("tp", "tp"), k=c(10, 10), m=1),
+                    data = filter(bb_rich, year == "2011"),
+                    family = "poisson",
+                    method = "REML")
+
+check.gamViz(bb_rich_yday_2011)
+summary(bb_rich_yday_2011)
+print(plot(bb_rich_yday_2011, allTerms = TRUE), pages = 1)
+
+bb_rich_yday_2012 <- gamV(bb.rich ~ te(yday, elev.mean, bs= c("tp", "tp"), k=c(10, 10), m=1),
+                    data = filter(bb_rich, year == "2012"),
+                    family = "poisson",
+                    method = "REML")
+
+check.gamViz(bb_rich_yday_2012)
+summary(bb_rich_yday_2012)
+print(plot(bb_rich_yday_2012, allTerms = TRUE), pages = 1)
+
+```
+
+##### FL.per.BB
+```{r, eval=FALSE, include=FALSE}
+fl.per.bb_yday <- gamV(log(fl.per.bb) ~ year +
+                    te(yday, elev.mean, by=year, bs= c("tp", "tp"), k=c(10, 10), m=1),
+                    data = abund_div,
+                    method = "REML")
+
+check.gamViz(fl.per.bb_yday)
+summary(fl.per.bb_yday)
+print(plot(fl.per.bb_yday, allTerms = TRUE), pages = 1)
+
+fl.per.bb_gdd <- gamV(log(fl.per.bb) ~ year +
+                    te(gdd.cum, elev.mean, by=year, bs= c("tp", "tp"), k=c(10, 10), m=1),
+                    data = abund_div,
+                    method = "REML")
+
+check.gamViz(fl.per.bb_gdd)
+summary(fl.per.bb_gdd)
+print(plot(fl.per.bb_gdd, allTerms = TRUE), pages = 1)
+```
