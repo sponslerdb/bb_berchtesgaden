@@ -28,171 +28,135 @@ site_data <- read_csv("../processed_data/site_data.csv") %>%
 ```
 
 ### Load network and survey data
-```{r, echo=FALSE, include=FALSE}
-### BB traits
-bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
-  dplyr::select(subgenus, bb.sp, pbl.w, pbl.w.class)
-
-### FL Kugler classification
-fl_traits <- read.csv("../processed_data/floral_k_type_nom_fix.csv") %>%
-  dplyr::select(plant.sp, k.type) %>%
-  mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"),
-         k.type.ss = str_extract(k.type, "[-+]?[0-9]*"))
-
-### FL corolla depth (from Benadi)
-fl_corolla_depth <- read.csv("../processed_data/flower_morphology_GitaBenadi.csv") %>%
-  group_by(plant.sp = Species) %>%
-  summarize(corolla.depth = mean(LN))
-
-### FL higher  taxonomy
-fl_tax <- read_csv("../processed_data/floral_tax.csv") 
-
-### Colony life cycle break points
-breaks <- read_csv("./output/breaks.csv") %>%
-  mutate(year = factor(year))
-
+```{r}
 ### BB-FL visitation data
 net <- read_csv("../processed_data/network.csv") %>%
-  mutate(year = factor(year)) %>% # convert year to factor
-  full_join(bb_traits, by = c("bb.sp" = "bb.sp")) %>%
-  left_join(site_data, by = c("site")) %>%
-  left_join(gdd, by = c("site", "date", "year")) %>%
-  left_join(breaks, by = c("site", "year")) %>%
-  left_join(fl_traits) %>%
-  left_join(fl_corolla_depth) %>%
-  left_join(fl_tax, by = "plant.genus") %>%
-  #left_join(temperature, by = c("site", "date")) %>%
-  ungroup() %>%
-  mutate(phase = case_when(
-    gdd.cum < break1.gdd ~ "founding",
-    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
-    gdd.cum > break2.gdd ~ "reproductive"
-  )) %>%
-  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
-  mutate(caste = case_when(
-    caste == "worker" ~ "worker",
-    caste == "male" ~ "reproductive",
-    caste == "youngqueen" ~ "reproductive",
-    caste == "queen" ~ "foundress",
-    caste == "oldqueen" ~ "foundress"
-  )) %>%
-  rename(yday = dayofyear) %>%
-  arrange(site, date)
+  dplyr::select(site, date, bb.sp, plant.sp)
 
 ### Floral survey data
 survey <- read_csv("../processed_data/floral_survey.csv") %>%
-  mutate(year = factor(year)) %>% # convert year to factor
-  semi_join(net, by = "plant.sp") %>% # Consider only plants visited (anytime, not specifically for a given site*date)
-  left_join(gdd, by = c("site", "date", "year")) %>%
-  left_join(breaks, by = c("site", "year")) %>%
-  left_join(site_data, by = c("site")) %>%
-  left_join(fl_traits) %>%
-  left_join(fl_traits) %>%
-  left_join(fl_tax) %>%
-  #left_join(temperature, by = c("site", "date")) %>%
-  ungroup() %>%
-  mutate(phase = case_when(
-    gdd.cum < break1.gdd ~ "founding",
-    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
-    gdd.cum > break2.gdd ~ "reproductive"
-  )) %>%
-  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
-  rename(yday = dayofyear) %>%
-  arrange(site, date)
+  semi_join(net, by = "plant.sp") %>% # Consider only plants visited (anytime anywhere, not specifically for a given site*date)
+  dplyr::select(site, date, plant.sp, flower.cover)
+
+shared_transects <- inner_join(net, survey, by = c("site", "date")) %>%
+  dplyr::select(site, date) %>%
+  unique()
 ```
 
 ### FL and BB abundance / diversity
 ```{r echo=FALSE, include=FALSE}
 ### Per-transect BB abundance: species-level
 bb_abund_sp <- net %>%
-  group_by(site, date, yday, gdd.cum, year, elev.class2, 
-           elev.mean, phase, break1.gdd, break2.gdd, bb.sp) %>%
-  summarize(bb.abund = n()) %>%
-  ungroup() %>%
-  spread(bb.sp, bb.abund) %>%
-  gather(bb.sp, bb.abund, -c(site, date, year, yday, gdd.cum, elev.class2, 
-                             elev.mean, phase, break1.gdd, break2.gdd)) %>%
-  replace_na(list(bb.abund = 0)) %>%
-  mutate(bb.sp = factor(bb.sp))
-
-### Per-transect BB abundance: species-level, by caste
-bb_abund_sp_caste <- net %>%
-  group_by(site, date, yday, gdd.cum, year, elev.class2, 
-           elev.mean, phase, break1.gdd, break2.gdd, bb.sp, caste) %>%
-  summarize(bb.abund = n()) %>%
-  group_by(caste) %>%  # The next several lines of crazy nonsense are all about filling in zeros where a given caste*species was not observed.
-  spread(bb.sp, bb.abund) %>%
-  gather(bb.sp, bb.abund, -c(site, date, year, yday, gdd.cum, elev.class2, 
-                             elev.mean, phase, break1.gdd, break2.gdd, caste)) %>%
-  group_by(bb.sp) %>%
-  spread(caste, bb.abund) %>%
-  gather(caste, bb.abund, -c(site, date, year, yday, gdd.cum, elev.class2, 
-                             elev.mean, phase, break1.gdd, break2.gdd, bb.sp)) %>%
-  replace_na(list(bb.abund = 0)) %>%
-  ungroup() %>%
-  mutate(bb.sp = factor(bb.sp))
+  dplyr::select(site, date, bb.sp) %>%
+  semi_join(shared_transects) %>% # I only want BB data with corresponding floral data
+  group_by(site, date, bb.sp) %>% # group by bb.sp*transect (and other variables we want to retain)
+  summarize(bb.abund = n()) %>% # get bb.sp*transect abundance
+  ungroup %>%
+  complete(site, date, bb.sp, fill = list(bb.abund = 0)) # complete implicit absences
 
 ### Per-transect floral abund: by species
 fl_abund_sp <- survey %>%
-  group_by(site, date, year, plant.sp, yday) %>%
-  summarize(fl.abund = sum(flower.cover)) %>%
+  semi_join(shared_transects) %>%
+  group_by(site, date, plant.sp) %>% # group by plant.sp*transect
+  summarize(fl.abund = sum(flower.cover)) %>% # get plant.sp*transect total flower cover; this step really shouldn't be required, but in a few cases, there is more than one abundance entry for the same species on a given transect; not sure how that happened, but it's in the original data that Fabrice sent me; alternatively, I could drop the dups or average them. We'll see what Kalli and Fabrice have to say.
+  group_by(site, date) %>%
+  mutate(prop.fl.abund = fl.abund/sum(fl.abund)) %>% # get the proportional flower cover for each species.
   ungroup() %>%
-  spread(plant.sp, fl.abund) %>%
-  gather(plant.sp, fl.abund, -c(site, date, year, yday)) %>%
-  replace_na(list(fl.abund = 0)) %>%
-  mutate(plant.sp = factor(plant.sp)) %>%
-  dplyr::select(site, year, yday, plant.sp, fl.abund) %>%  # this is an attempt to manage the memory crashes I'm getting with a later join step
-  group_by(site, year, yday) %>%
-  mutate(prop.fl.abund = fl.abund/sum(fl.abund))
+  full_join(dplyr::select(net, site, date, plant.sp), by = c("site", "date", "plant.sp")) %>% # add the handful of species occurring in the visitation network but missing from the survey data
+  complete(site, date, plant.sp, fill = list(fl.abund = 0, prop.fl.abund = 0)) %>%
+  unique()
 ```
 
 ### Get most important plants for each BB species
 ```{r}
-# Per transect visitation rates of flower species per BB species
-visit_rates <- net %>%
-  group_by(bb.sp, plant.sp, year, site, yday) %>%
-  summarize(visits = n()) %>%
-  group_by(bb.sp) %>%
-  spread(plant.sp, visits) %>%
-  gather(plant.sp, visits, -c(bb.sp, year, site, yday)) %>%
-  group_by(plant.sp) %>%
-  spread(bb.sp, visits) %>%
-  gather(bb.sp, visits, -c(plant.sp, year, site, yday)) %>%
-  group_by(year, site, bb.sp, yday) %>%
-  replace_na(list(visits = 0)) %>%
-  group_by(site, year, yday, bb.sp) %>%
-  mutate(prop.visits = visits/sum(visits)) %>% # This will create NAs wherever a given bb=fl combo was all zeros, so we need to set the NAs to 0 
-  replace_na(list(prop.visits = 0)) %>%
-  arrange(site, year, yday, bb.sp, -prop.visits) %>%
-  ungroup() %>%
-  dplyr::select(year, site, yday, bb.sp, plant.sp, visits, prop.visits) # this is an attempt to manage the memory crashes I'm getting with the subsequent join step
+# All possible plant-bb combos
+fl_bb_pair_filler <- full_join(bb_abund_sp, fl_abund_sp) %>%
+  dplyr::select(site, date, bb.sp, plant.sp) %>%
+  complete(site, date, bb.sp, plant.sp)
 
-### Join FL abundance data to FL visitation data
-fl_abund_x_visitation <- visit_rates %>%
-  inner_join(fl_abund_sp) %>%
-  filter(fl.abund > 0 & prop.fl.abund < 1) %>% # Can't calculate preference where the plant.sp is absent or where it is the only plant present
-  inner_join(bb_abund_sp, by = c("site", "year", "yday", "bb.sp")) %>%
-  filter(bb.abund > 0) # Can't calculate preference where the bb.sp is absent
+fl_bb_pair_filter_sub <- fl_bb_pair_filler %>%
+  right_join(filter())
 
-fl_abund_x_visitation.wm <- fl_abund_x_visitation %>%
-  group_by(year, bb.sp, plant.sp) %>%
+filter(fl_bb_all, is.na(site))
+filter(fl_bb_all, is.na(date))
+filter(fl_bb_all, is.na(bb.sp))
+filter(fl_bb_all, is.na(plant.sp))
+filter(fl_bb_all, plant.sp == "Rubus idaeus")
+
+fl_abund_sp_unique <- unique(fl_abund_sp)
+
+# This creates a data set where each bumble bee species present at a given site*date is paired with each floral species present at a given site date, even if there was never a visitation between them.
+observed_visits <- net %>%
+  semi_join(shared_transects) %>% # include only site*date combos where floral surveying was done
+  group_by(site, date, bb.sp, plant.sp) %>% # group by bb*plant*transect
+  summarize(visits = n()) %>% # total visits per bb-fl pair
+  group_by(site, date, bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits))
+
+# All possible plants * site * date
+possible_plants <- bind_rows(dplyr::select(net, c(site, date, plant.sp)),
+                             dplyr::select(survey, c(site, date, plant.sp))) %>%
+  unique() %>%
+  complete(site, date, plant.sp)
+
+# All possible bumbles * site * date
+possible_bb <- net %>%
+  dplyr::select(site, date, bb.sp) %>%
+  unique() %>%
+  complete(site, date, bb.sp)
+
+# All possible bumble-plant pairings *site * date, filtered to include only those when the given bb.sp was present and the given plant.sp was *either* present *or* visited (see note below)
+visitation_by_abundance <- full_join(possible_plants, possible_bb) %>%
+  left_join(bb_abund_sp) %>%
+  left_join(fl_abund_sp) %>%
+  #filter(fl.abund > 0) %>%
+  filter(bb.abund > 0) %>%
+  left_join(observed_visits) %>%
+  filter(fl.abund > 0 | visits > 0) %>% # In about 10% of the bb.sp*plant.sp*site*year combos, the visited plant was not recorded in the floral survey data. There are a few different ways we could handle this, but I think an argument could be make that treating those plants as if they had zero abundance (even though they were evidently present gets close to the truth, since they must have been rather rare to have been missed in the surveying.)
+  replace_na(list(visits = 0, prop.visits = 0)) 
+
+write_csv(visitation_by_abundance, "../analyses/output/visitation_by_abundance.csv") 
+  
+
+ggplot(visitation_by_abundance, aes(log(prop.fl.abund + 0.01), log(prop.visits + 0.01))) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+### Get mean abundance/visitation for each plant*bb combo
+visitation_by_abundance_mean <- visitation_by_abundance %>%
+  mutate(year = factor(year(date))) %>%
+  #group_by(year, plant.sp, bb.sp) %>%
+  group_by(plant.sp, bb.sp) %>%
   summarize(prop.fl.abund.m = mean(prop.fl.abund),
-            prop.visits.wm = weighted.mean(prop.visits, bb.abund))
+            prop.visits.wm = weighted.mean(prop.visits, bb.abund)) %>%
+  mutate(selection.ratio = prop.visits.wm/prop.fl.abund.m)
+
+write_csv(visitation_by_abundance_mean, "../analyses/output/visitation_by_abundance_mean.csv")
+
+ggplot(visitation_by_abundance_mean, aes(selection.ratio)) +
+  geom_histogram()
+
+filter(visitation_by_abundance_mean, plant.sp == "Trifolium pratense")
+
+ggplot(visitation_by_abundance_mean, 
+       aes(log(prop.fl.abund.m + 0.01), log(prop.visits.wm + 0.01))) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+ggplot(filter(visitation_by_abundance_mean, prop.visits.wm > 0), 
+       aes(log(prop.fl.abund.m + 0.01), log(prop.visits.wm + 0.01))) +
+  geom_point() +
+  geom_smooth(method = "lm")
 ```
 
 ### Okay, here's what we're going to do. Preference has a strong bimodal pattern, with lots of plant species totally ignored while the ones that are foraged upon are visited in proportion to their abundance. We can't model that latter pattern well if we retain all the totally ignored plant species. So, let's model the visited plants separately from the unvisited ones. 
 ```{r}
 ### Call linear model on the subset of the floral species that were visited at least once
-pref.lm <- lm(log(prop.visits.wm) ~ log(prop.fl.abund.m), # log on log regression is common for proportional data
-              data = filter(fl_abund_x_visitation.wm, prop.visits.wm > 0))
+pref.lm <- lm(log(prop.visits.wm) ~ log(prop.fl.abund.m + 0.01), # log on log regression is common for proportional data
+              data = filter(visitation_by_abundance_mean, prop.visits.wm > 0))
 
 summary(pref.lm)
 plot(pref.lm)
-
-ggplot(filter(fl_abund_x_visitation.wm, prop.visits.wm > 0),
-       aes(log(prop.fl.abund.m), log(prop.visits.wm))) +
-  geom_point() +
-  geom_smooth(method = "lm")
 
 ### Extract residuals
 pref.lm.resid <- residuals(pref.lm) %>%
@@ -207,7 +171,7 @@ Join residuals back into data and summarize by site-date-bb.sp (this deserves it
 ### Build preference data set ###
 #################################
 # Start with the mean prop.fl.abund and weighted mean prop.visits
-pref <- fl_abund_x_visitation.wm %>%  
+preference <- visitation_by_abundance_mean %>%  
   ungroup() %>%
 
 # Remove bb*fl*year combos that had 0 visits
@@ -222,40 +186,47 @@ pref <- fl_abund_x_visitation.wm %>%
   mutate(preference = exp(preference)) %>% 
   
 # Now we need to add back all the bb*fl*year combos that had 0 visits
-# They we have NAs for preference and for floral abundance columns
-  full_join(unique(dplyr::select(visit_rates, year, bb.sp, plant.sp))) %>%
+# Then we have NAs for preference and floral abundance columns
+  full_join(unique(dplyr::select(visitation_by_abundance_mean, bb.sp, plant.sp))) %>%
   
 # Replace the NAs of the preference column with 0s; 
   replace_na(list(preference = 0)) %>%
 
 # Drop the columns used to calculate preference so that they
 # don't confuse us when we add site-date level abundance data
-  dplyr::select(year, bb.sp, plant.sp, preference)
+  dplyr::select(bb.sp, plant.sp, preference)
   
 #################################
 ### Join with FL and BB abund ###
 #################################
   
-pref_wt_abund <- fl_abund_sp %>%
-  full_join(pref, by = c("year", "plant.sp")) %>%  # This step introduces a small handful of NA because there were certain cases where a plant species was not observed at all in a given year. We will just omit those zeros from our data since they won't affect the analysis significantly
-  mutate(fl.abund.weighted = fl.abund*preference) %>%
-  group_by(site, year, yday, bb.sp) %>%
-  summarize(fl.abund.weighted = sum(fl.abund.weighted, na.rm = TRUE)) %>%
-  left_join(site_data, by = "site") %>%
-  filter(!is.na(site)) %>%
-  left_join(bb_abund_sp)
+preference_weighted_abund <- fl_abund_sp %>%
+  right_join(preference, by = c("plant.sp")) %>% 
+  mutate(fl.abund.pref_wt = fl.abund*preference) %>%
+  mutate(year = factor(year(date)),
+         yday = yday(date)) %>%
+  group_by(site, year, date, yday, bb.sp) %>%
+  summarize(net.fl.abund.pref_wt = sum(fl.abund.pref_wt, na.rm = TRUE)) %>%
+  ungroup() %>%
+  left_join(site_data, by = "site") 
+
+ggplot(preference_weighted_abund, aes(net.fl.abund.pref_wt)) +
+  geom_histogram()
+
+ggplot(preference_weighted_abund, aes(log(net.fl.abund.pref_wt + 0.01))) +
+  geom_histogram()
 ```
 
 Preference-weighted floral abundance by year
 ```{r}
-pref_sum <- pref_wt_abund %>%
+pref_sum <- preference_weighted_abund %>%
   group_by(site, year, bb.sp) %>%
-  summarize(fl.abund.weighted = mean(fl.abund.weighted))
+  summarize(mean.net.fl.abund.pref_wt = mean(net.fl.abund.pref_wt))
 
-ggplot(pref_sum, aes(year, fl.abund.weighted, color = bb.sp)) +
+ggplot(pref_sum, aes(year, mean.net.fl.abund.pref_wt, color = bb.sp)) +
   geom_point()
 
-ggplot(pref_sum, aes(year, log(fl.abund.weighted))) +
+ggplot(pref_sum, aes(year, log(mean.net.fl.abund.pref_wt + 0.01))) +
   geom_boxplot() +
   facet_wrap(~bb.sp, scales = "free")
 ```
@@ -265,15 +236,15 @@ GAM modeling of preference-weighted abundance per bb species
 ```{r}
 ### Set constants
 k <- min(
-  filter(pref_wt_abund, fl.abund.weighted > 0)$fl.abund.weighted
+  filter(preference_weighted_abund, net.fl.abund.pref_wt > 0)$net.fl.abund.pref_wt
 )
 
 ### Call models
-weighted_fl_abundance.2010 <- bam(log(fl.abund.weighted + k) ~ te(yday, elev.mean, 
-                                                  by = factor(bb.sp),
-                                                  bs= c("tp", "tp"), 
-                                                  k=c(10, 10), m=1),
-                        data = filter(pref_wt_abund, year == 2010),
+weighted_fl_abundance.2010 <- bam(net.fl.abund.pref_wt ~ te(yday, elev.mean, 
+                                                            by = factor(bb.sp),
+                                                            bs= c("tp", "tp"), 
+                                                            k=c(12, 12), m=1),
+                        data = filter(preference_weighted_abund, year == 2010),
                         discrete = TRUE,
                         method = "fREML") %>% getViz()
 
@@ -281,11 +252,11 @@ check.gamViz(weighted_fl_abundance.2010)
 summary(weighted_fl_abundance.2010)
 print(plot(weighted_fl_abundance.2010 , allTerms = TRUE), pages = 4)
 
-weighted_fl_abundance.2011 <- bam(log(fl.abund.weighted + k) ~ te(yday, elev.mean, 
+weighted_fl_abundance.2011 <- bam(log(net.fl.abund.pref_wt + k) ~ te(yday, elev.mean, 
                                                   by = factor(bb.sp),
                                                   bs= c("tp", "tp"), 
                                                   k=c(10, 10), m=1),
-                        data = filter(pref_wt_abund, year == 2011),
+                        data = filter(preference_weighted_abund, year == 2011),
                         discrete = TRUE,
                         method = "fREML") %>% getViz()
 
@@ -293,11 +264,11 @@ check.gamViz(weighted_fl_abundance.2011)
 summary(weighted_fl_abundance.2011)
 print(plot(weighted_fl_abundance.2011 , allTerms = TRUE), pages = 4)
 
-weighted_fl_abundance.2012 <- bam(log(fl.abund.weighted + k) ~ te(yday, elev.mean, 
+weighted_fl_abundance.2012 <- bam(log(net.fl.abund.pref_wt + k) ~ te(yday, elev.mean, 
                                                   by = factor(bb.sp),
                                                   bs= c("tp", "tp"), 
                                                   k=c(10, 10), m=1),
-                        data = filter(pref_wt_abund, year == 2012),
+                        data = filter(preference_weighted_abund, year == 2012),
                         discrete = TRUE,
                         method = "fREML") %>% getViz()
 

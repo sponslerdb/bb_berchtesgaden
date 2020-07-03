@@ -1,6 +1,6 @@
 ---
 title: Bumble bees and wildflowers along an elevational climate gradient exhibit niche
-  asymmetry and non-linear abundance patterns
+  asymmetry and heterogeneous abundance patterns
 author:
 - Douglas B. Sponsler
 - Fabrice Requier
@@ -33,6 +33,9 @@ Steep elevation gradients capture a broad range of climatic conditions within a 
 - GDM
 *Abundance modeling*
 - Floral preference modeling
+
+Floral preference was estimated for all pairwise combinations of bumble bee and plant species. 
+
 - Preference-weighted floral abundance
 - GAM
 *Network analysis*
