@@ -28,16 +28,16 @@ Steep elevation gradients capture a broad range of climatic conditions within a 
 **Methods**
 *Study sites*
 *Sampling*
+Because the frequency, duration, and seasonal interval of sampling varied across years, we model each year separately in all analyses. 
+
 *Growing degree day analysis*
 *Diversity modeling*
 - GDM
 *Abundance modeling*
-- Floral preference modeling
+To represent floral abundance from the perspective of foraging bumble bees, we multiplied raw floral abundance by species-specific "preference" coefficients. The latter were calculated by regressing log-transformed mean proportional visitation against log-transformed mean proportional flower cover for all possible pairs of plant and bumble bee species, then extracting and exponentiating the residuals for each bee-plant pair (Supplemental Material). Using the R package mgcv, preference-weighted floral abundance was modeled using hierarchical generalized additive models consisting of a 2D tensor-product smooth of elevation and time (day-of-year), with bumble bee species as both a "by" smoothing factor and a random intercept term (Supplemental Material). 
 
-Floral preference was estimated for all pairwise combinations of bumble bee and plant species. 
 
-- Preference-weighted floral abundance
-- GAM
+
 *Network analysis*
 - Bootstrapping
 - Network metrics
@@ -64,6 +64,12 @@ Beta diversity analysis
 
 
 **Discussion**
+
+While diversity (i.e. richness), of both bumble bees and flora, exhibits a more-or-less unimodal response to elevation, as predicted by previous studies, the abundances of bumble bees and flora are more complex. 
+
+At around 1600 m, just below the tree line where the forest starts to thin, there seems to be a uniquely important elevation band. For many bumble bee species in our system, this is where preference-weighted floral resource abundance is highest. For a few species, it is the only peak in preference-weighted floral abundance.
+
+There also seems to be a consistent peak in preference-weighted floral abundance around 1000 m. 
 
 
 
