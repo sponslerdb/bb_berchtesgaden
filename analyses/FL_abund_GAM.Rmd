@@ -219,26 +219,28 @@ k <- min(
 )
 
 ### Call models
-weighted_fl_abundance.2010.qp <- bam(fl.abund.wt ~ bb.sp + te(yday, elev.mean, 
+weighted_fl_abundance.2010.qp <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
                                                             by = bb.sp,
                                                             bs= c("tp", "tp"), 
                                                             k=c(10, 10), m=1),
                         data = filter(fl_abund_wt, year == 2010),
                         discrete = TRUE,
                         family = "quasipoisson",
+                        select = TRUE,
                         method = "fREML") %>% getViz()
 
 check.gamViz(weighted_fl_abundance.2010.qp)
 summary(weighted_fl_abundance.2010.qp)
 print(plot(weighted_fl_abundance.2010.qp , allTerms = TRUE), pages = 4)
 
-weighted_fl_abundance.2010.qp2 <- bam(sqrt(fl.abund.wt) ~ bb.sp + te(yday, elev.mean, 
+weighted_fl_abundance.2010.qp2 <- bam(sqrt(fl.abund.wt) ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
                                                             by = bb.sp,
                                                             bs= c("tp", "tp"), 
                                                             k=c(10, 10), m=1),
                         data = filter(fl_abund_wt, year == 2010),
                         discrete = TRUE,
                         family = "quasipoisson",
+                        select = TRUE,
                         method = "fREML") %>% getViz()
 
 check.gamViz(weighted_fl_abundance.2010.qp2)
@@ -246,88 +248,47 @@ summary(weighted_fl_abundance.2010.qp2)
 print(plot(weighted_fl_abundance.2010.qp2, allTerms = TRUE), pages = 3)
 
 
-weighted_fl_abundance.2011.qp <- bam(fl.abund.wt ~ bb.sp + te(yday, elev.mean, 
+weighted_fl_abundance.2011.qp <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
                                                             by = bb.sp,
                                                             bs= c("tp", "tp"), 
                                                             k=c(10, 10), m=1),
                         data = filter(fl_abund_wt, year == 2011),
                         discrete = TRUE,
                         family = "quasipoisson",
+                        select = TRUE,
                         method = "fREML") %>% getViz()
 
 check.gamViz(weighted_fl_abundance.2011.qp)
 summary(weighted_fl_abundance.2011.qp)
 print(plot(weighted_fl_abundance.2011.qp , allTerms = TRUE), pages = 4)
 
-weighted_fl_abundance.2011.qp2 <- bam(sqrt(fl.abund.wt) ~ bb.sp + te(yday, elev.mean, 
+weighted_fl_abundance.2011.qp2 <- bam(sqrt(fl.abund.wt) ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
                                                             by = bb.sp,
                                                             bs= c("tp", "tp"), 
                                                             k=c(10, 10), m=1),
                         data = filter(fl_abund_wt, year == 2011),
                         discrete = TRUE,
                         family = "quasipoisson",
+                        select = TRUE,
                         method = "fREML") %>% getViz()
 
 check.gamViz(weighted_fl_abundance.2011.qp2)
 summary(weighted_fl_abundance.2011.qp2)
 print(plot(weighted_fl_abundance.2011.qp2, allTerms = TRUE), pages = 4)
 
-weighted_fl_abundance.2012.qp <- bam(fl.abund.wt ~ bb.sp + te(yday, elev.mean, 
+weighted_fl_abundance.2012.qp <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
                                                             by = bb.sp,
                                                             bs= c("tp", "tp"), 
                                                             k=c(10, 10), m=1),
                         data = filter(fl_abund_wt, year == 2012),
                         discrete = TRUE,
                         family = "quasipoisson",
+                        select = TRUE,
                         method = "fREML") %>% getViz()
 
 check.gamViz(weighted_fl_abundance.2012.qp)
 summary(weighted_fl_abundance.2012.qp)
 print(plot(weighted_fl_abundance.2012.qp , allTerms = TRUE), pages = 4)
-
-weighted_fl_abundance.2012.qp2_re <- bam(sqrt(fl.abund.wt) ~ s(bb.sp, bs = "re") + 
-                                        management + 
-                                        te(yday, elev.mean, 
-                                           by = bb.sp,
-                                           bs= c("tp", "tp"), 
-                                           k=c(10, 10), m=1),
-                        data = filter(fl_abund_wt, year == 2012),
-                        discrete = TRUE,
-                        select = TRUE,
-                        family = "quasipoisson",
-                        method = "fREML") %>% getViz()
-
-check.gamViz(weighted_fl_abundance.2012.qp2_re)
-summary(weighted_fl_abundance.2012.qp2_re)
-print(plot(weighted_fl_abundance.2012.qp2_re, allTerms = TRUE), pages = 4)
-
-weighted_fl_abundance.2012.qp2_p <- bam(sqrt(fl.abund.wt) ~ bb.sp + management + 
-                                        te(yday, elev.mean, 
-                                           by = bb.sp,
-                                           bs= c("tp", "tp"), 
-                                           k=c(10, 10), m=1),
-                        data = filter(fl_abund_wt, year == 2012),
-                        discrete = TRUE,
-                        family = "quasipoisson",
-                        method = "fREML") %>% getViz()
-
-check.gamViz(weighted_fl_abundance.2012.qp2_p)
-summary(weighted_fl_abundance.2012.qp2_p)
-print(plot(weighted_fl_abundance.2012.qp2_p, allTerms = TRUE), pages = 4)
-
-
-weighted_fl_abundance.qp2 <- bam(sqrt(fl.abund.wt) ~ bb.sp + year + te(yday, elev.mean, 
-                                                            by = bb.sp,
-                                                            bs= c("tp", "tp"), 
-                                                            k=c(10, 10), m=1),
-                        data = fl_abund_wt,
-                        discrete = TRUE,
-                        family = "quasipoisson",
-                        method = "fREML") %>% getViz()
-
-check.gamViz(weighted_fl_abundance.qp2)
-summary(weighted_fl_abundance.qp2)
-print(plot(weighted_fl_abundance.qp2 , allTerms = TRUE), pages = 4)
 
 ```
 
@@ -339,10 +300,7 @@ mismatch <- fl_abund_wt %>%
   mutate(bb.abund.rank = rank(-bb.abund, ties.method = "average"),
             fl.abund.wt.rank = rank(-fl.abund.wt, ties.method = "average"))
 
-v <- c(10,9, 5, 8,7)
-v.rank = rank(v)
-
-ggplot(mismatch, aes(fl.abund.wt.rank, bb.abund.rank)) +
+ggplot(mismatch, aes(fl.abund.wt, bb.abund)) +
   geom_point() +
   facet_wrap(~bb.sp)
 

@@ -1,0 +1,119 @@
+---
+title: "preference"
+output: html_document
+---
+### Prepare environment
+```{r setup, include=FALSE, echo=FALSE}
+library(mgcv)
+library(mgcViz)
+library(tidyverse)
+library(lubridate)
+```
+
+
+### Climate data
+```{r, include=FALSE, echo=FALSE}
+gdd <- read_csv("../processed_data/climate.csv") %>%
+  mutate(year = factor(year)) %>%
+  dplyr::select(site, year, date, gdd.cum) %>%
+  semi_join(read_csv("../processed_data/network.csv"), by = "site")
+```
+
+### Load site data
+```{r, include=FALSE, echo=FALSE}
+site_data <- read_csv("../processed_data/site_data.csv") %>%
+  mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
+         elev.class2 = factor(elev.class2, levels = c("high", "mid", "low")))
+```
+
+### Load network data
+```{r}
+### BB-FL visitation data
+net <- read_csv("../processed_data/network.csv") %>%
+  dplyr::select(site, date, bb.sp, plant.sp)
+```
+
+### FL and BB abundance / diversity
+```{r echo=FALSE, include=FALSE}
+### Per-transect BB abundance: species-level
+bb_abund_sp <- net %>%
+  dplyr::select(site, date, bb.sp) %>%
+  group_by(site, date, bb.sp) %>% # group by bb.sp*transect (and other variables we want to retain)
+  summarize(bb.abund = n()) %>% # get bb.sp*transect abundance
+  ungroup %>%
+  complete(site, date, bb.sp, fill = list(bb.abund = 0)) %>% # complete implicit absences
+  mutate(year = factor(year(date))) %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date),
+         bb.sp = factor(bb.sp),
+         management = factor(management)) %>%
+  semi_join(net, by = c("site", "date")) %>%
+  group_by(year, bb.sp) %>%
+  mutate(bb.total.abund = sum(bb.abund))
+```
+
+
+GAM modeling of abundance per bb species
+```{r}
+### Call models
+bb_abund.2010 <- bam(bb.abund ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
+                                                            by = bb.sp,
+                                                            bs= c("tp", "tp"), 
+                                                            k=c(10, 10), m=1),
+                        data = filter(bb_abund_sp, year == 2010 & bb.total.abund >= 5),
+                        discrete = TRUE,
+                        family = "poisson",
+                        select = TRUE,
+                        method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund.2010)
+bb_abund.2010.sum <- summary(bb_abund.2010)
+print(plot(bb_abund.2010, allTerms = TRUE), pages = 4)
+
+
+
+bb_abund.2011 <- bam(bb.abund ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
+                                                            by = bb.sp,
+                                                            bs= c("tp", "tp"), 
+                                                            k=c(10, 10), m=1),
+                        data = filter(bb_abund_sp, year == 2011 & bb.total.abund >= 5),
+                        discrete = TRUE,
+                        family = "poisson",
+                        select = TRUE,
+                        method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund.2011)
+bb_abund.2011.sum <- summary(bb_abund.2011)
+print(plot(bb_abund.2011 , allTerms = TRUE), pages = 4)
+
+bb_abund.2012 <- bam(bb.abund ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
+                                                            by = bb.sp,
+                                                            bs= c("tp", "tp"), 
+                                                            k=c(10, 10), m=1),
+                        data = filter(bb_abund_sp, year == 2012 & bb.total.abund >= 5),
+                        discrete = TRUE,
+                        family = "poisson",
+                        select = TRUE,
+                        method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund.2012)
+bb_abund.2012.sum <- summary(bb_abund.2012)
+print(plot(bb_abund.2012 , allTerms = TRUE), pages = 4)
+plot(bb_abund.2012)
+
+```
+
+```{r}
+bb_abund.2012.pred <- predict(bb_abund.2012)
+
+
+ggplot(bb_abund.2012.pred, aes(yday, elev.mean, fit)) +
+  geom_raster(aes(fill = exp(fit))) +
+  #geom_contour(aes(z = fit), color = "black") +
+  geom_point(data = filter(fl_abund, year == 2012), 
+             aes(yday, elev.mean, size = fl.abund),
+             color = "white", alpha = 0.25) +
+  scale_fill_viridis_c()
+```
+
+

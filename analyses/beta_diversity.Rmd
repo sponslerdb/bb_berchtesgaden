@@ -33,86 +33,58 @@ gdd_total <- gdd %>%
 site_data <- read_csv("../processed_data/site_data.csv") %>%
   dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
   mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
-         elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) %>% # turn elav.class into an ordered factor %>%
-  semi_join(read_csv("../processed_data/network.csv"), by = "site")  %>%
-  left_join(gdd_total, by = "site")
+         elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) %>% # turn elav.class into an ordered factor
+  semi_join(read_csv("../processed_data/network.csv"), by = "site")
 
+# %>%
+#   left_join(gdd_total, by = "site")
 
-### A quick little analysis
+### Plot total GDD
 ggplot(site_data, aes(elev.mean, gdd.total, color = year)) +
   geom_point() +
   geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
   ylab("Total GDD")
-
-# intercept only model
-gdd_year.gam1 <- gam(gdd.total ~ s(elev.mean) + year,
-                    data = site_data) %>% getViz()
-summary(gdd_year.gam1)
-check.gamViz(gdd_year.gam1)
-plot(gdd_year.gam1)
-
-# factor smooth model
-gdd_year.gam2 <- gam(gdd.total ~ s(elev.mean, year, bs = "fs", k = 5),
-                    data = site_data) %>% getViz()
-summary(gdd_year.gam2)
-check.gamViz(gdd_year.gam2)
-plot(gdd_year.gam2)
-
-# AIC
-AIC(gdd_year.gam1, gdd_year.gam2)
-
-
-site_pairwise_distance_t <- site_data %>%
-  ungroup() %>%
-  dplyr::select(site, lat, lon) %>%
-  unique() %>%
-  st_as_sf(coords = c("lon", "lat")) %>%
-  st_set_crs(4326) %>%
-  st_distance() %>%
-  data.frame()
-
-colnames(site_pairwise_distance_t) <- unique(site_data$site)
-rownames(site_pairwise_distance_t) <- unique(site_data$site)
-
-site_pairwise_distance <- site_pairwise_distance_t %>%
-  rownames_to_column("site1") %>%
-  pivot_longer(names_to = "site2", values_to = "distance", -site1)
 ```
 
 
 ### Load network and survey data and generate site.year and site.month.year webs
 ```{r}
-bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
-  dplyr::select(subgenus, bb.sp, pbl.w, pbl.w.class)
+# bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
+#   dplyr::select(subgenus, bb.sp, pbl.w, pbl.w.class)
+# 
+# fl_traits <- read.csv("../processed_data/floral_k_type_nom_fix.csv") %>%
+#   dplyr::select(plant.sp, k.type) %>%
+#   mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"),
+#          k.type.ss = str_extract(k.type, "[-+]?[0-9]*"))
 
-fl_traits <- read.csv("../processed_data/floral_k_type_nom_fix.csv") %>%
-  dplyr::select(plant.sp, k.type) %>%
-  mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"),
-         k.type.ss = str_extract(k.type, "[-+]?[0-9]*"))
+# fl_tax <- read_csv("../processed_data/floral_tax.csv") 
+# 
+# breaks <- read_csv("./output/breaks.csv") %>%
+#   mutate(year = factor(year))
 
-fl_tax <- read_csv("../processed_data/floral_tax.csv") 
-
-breaks <- read_csv("./output/breaks.csv") %>%
-  mutate(year = factor(year))
 
 net <- read_csv("../processed_data/network.csv") %>%
   unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
   unite(site.date, site, date, sep = "_", remove = FALSE) %>%
   mutate(year = factor(year)) %>% # convert year to factor
-  full_join(bb_traits, by = c("bb.sp" = "bb.sp")) %>%
+  #full_join(bb_traits, by = c("bb.sp" = "bb.sp")) %>%
   left_join(site_data, by = "site") %>%
-  left_join(gdd, by = c("site", "date")) %>%
-  left_join(breaks, by = c("site", "year")) %>%
-  left_join(fl_traits) %>%
-  left_join(fl_tax, by = "plant.genus") %>%
+  #left_join(gdd, by = c("site", "date")) %>%
+  #left_join(breaks, by = c("site", "year")) %>%
+  #left_join(fl_traits) %>%
+  #left_join(fl_tax, by = "plant.genus") %>%
   ungroup() %>%
-  mutate(phase = case_when(
-    gdd.cum < break1.gdd ~ "founding",
-    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
-    gdd.cum > break2.gdd ~ "reproductive"
-  )) %>%
-  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
+  #mutate(phase = case_when(
+    # gdd.cum < break1.gdd ~ "founding",
+    # gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
+    # gdd.cum > break2.gdd ~ "reproductive"
+  #)) %>%
+  #mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
   arrange(site, date)
+
+survey <- read_csv("../processed_data/floral_survey.csv") %>%
+  semi_join(net, by = "plant.sp") %>% # Consider only plants visited (anytime anywhere, not specifically for a given site*date)
+  dplyr::select(site, date, plant.sp, flower.cover)
 
 web_site.year <- net %>%
   group_by(site.year, bb.sp, plant.sp) %>%
@@ -127,23 +99,6 @@ web_site <- net %>%
   dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
   data.frame() %>% # convert to data frame
   frame2webs() # convert to to bipartite web
-
-survey <- read_csv("../processed_data/floral_survey.csv") %>%
-  mutate(year = factor(year)) %>% # convert year to factor
-  semi_join(net, by = "plant.sp") %>% # Consider only plants visited at a given site-date
-  left_join(gdd, by = c("site", "date", "year")) %>%
-  left_join(breaks, by = c("site", "year")) %>%
-  left_join(site_data, by = "site") %>%
-  left_join(fl_traits) %>%
-  left_join(fl_tax) %>%
-  ungroup() %>%
-  mutate(phase = case_when(
-    gdd.cum < break1.gdd ~ "founding",
-    gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
-    gdd.cum > break2.gdd ~ "reproductive"
-  )) %>%
-  mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
-  arrange(site, date)
 ```
 
 ### Tabulate webs
@@ -175,13 +130,15 @@ beta_site <- betalinkr_multi(array_site, partition.st = TRUE, partition.rr = TRU
          )) %>%
   gather(metric, value, -c(site1, site2, elev1, elev2, elev.diff, 
                            man1, man2, man.diff, mean.elev, lon1, lat1, lon2, lat2)) %>%
-  left_join(site_pairwise_distance) %>%
+  #left_join(site_pairwise_distance) %>%
   mutate(metric.class = case_when(
     metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
     metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
     metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
     metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
   ))
+
+write_csv(beta_site, "../analyses/output/beta_site.csv")
 
 
 beta_site.year <- betalinkr_multi(array_site.year, partition.st = TRUE, partition.rr = TRUE) %>%
@@ -214,10 +171,10 @@ ggplot(filter(beta_site.year, year1 == year2),
   geom_boxplot() +
   facet_wrap(~metric, scales = "free")
 
-# And not much of a pattern in response to geographical distance
-ggplot(beta_site, 
-       aes(as.numeric(distance), value, color = metric)) +
-  geom_smooth()
+# # And not much of a pattern in response to geographical distance
+# ggplot(beta_site, 
+#        aes(as.numeric(distance), value, color = metric)) +
+#   geom_smooth()
 
 # Interaction beta diversity by elevation difference
 ggplot(beta_site, 
@@ -233,7 +190,7 @@ survey_bioData <- survey %>%
   filter(flower.cover > 0) %>%
   mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
   group_by(site, plant.sp) %>%
-  summarize(cover = mean(flower.cover)) %>%
+  summarize(cover = sum(flower.cover)) %>%
   spread(plant.sp, cover) %>%
   replace(is.na(.), 0)
 
@@ -262,7 +219,7 @@ BB_bioData <- net %>%
   group_by(site, date) %>%
   mutate(prop = count/sum(count)) %>%
   group_by(site, bb.sp) %>%
-  summarize(abund = mean(prop)) %>%
+  summarize(abund = sum(prop)) %>%
   spread(bb.sp, abund) %>%
   replace(is.na(.), 0)
 
