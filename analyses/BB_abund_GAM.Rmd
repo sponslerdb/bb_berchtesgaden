@@ -42,12 +42,13 @@ bb_abund_sp <- net %>%
   summarize(bb.abund = n()) %>% # get bb.sp*transect abundance
   ungroup %>%
   complete(site, date, bb.sp, fill = list(bb.abund = 0)) %>% # complete implicit absences
+  semi_join(net, by = c("site", "date")) %>%
   mutate(year = factor(year(date))) %>%
   left_join(site_data) %>%
   mutate(yday = yday(date),
          bb.sp = factor(bb.sp),
-         management = factor(management)) %>%
-  semi_join(net, by = c("site", "date")) %>%
+         management = factor(management),
+         site = factor(site)) %>%
   group_by(year, bb.sp) %>%
   mutate(bb.total.abund = sum(bb.abund))
 ```
@@ -55,65 +56,75 @@ bb_abund_sp <- net %>%
 
 GAM modeling of abundance per bb species
 ```{r}
-### Call models
-bb_abund.2010 <- bam(bb.abund ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
-                                                            by = bb.sp,
-                                                            bs= c("tp", "tp"), 
-                                                            k=c(10, 10), m=1),
+### Pooled years
+bb_abund.tw <- bam(bb.abund ~ s(bb.sp, bs = "re") + s(management, bs = "re") + year +
+                     s(site, bs = "re") +
+                     te(yday, elev.mean, 
+                        by = bb.sp,
+                        bs= c("tp", "tp"), 
+                        k=c(10, 10), m=1),
+                   data = bb_abund_sp,
+                   discrete = TRUE,
+                   family = "tw",
+                   select = TRUE,
+                   method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund.tw)
+bb_abund.tw.sum <- summary(bb_abund.tw)
+print(plot(bb_abund.tw, allTerms = TRUE), pages = 1)
+
+### 2010
+bb_abund.2010.tw <- bam(bb.abund ~ s(bb.sp, bs = "re") + s(management, bs = "re") +
+                       s(site, bs = "re") +
+                       te(yday, elev.mean, 
+                          by = bb.sp,
+                          bs= c("tp", "tp"), 
+                          k=c(10, 10), m=1),
                         data = filter(bb_abund_sp, year == 2010 & bb.total.abund >= 5),
                         discrete = TRUE,
-                        family = "poisson",
+                        family = "tw",
                         select = TRUE,
                         method = "fREML") %>% getViz()
 
-check.gamViz(bb_abund.2010)
-bb_abund.2010.sum <- summary(bb_abund.2010)
-print(plot(bb_abund.2010, allTerms = TRUE), pages = 4)
+check.gamViz(bb_abund.2010.tw)
+bb_abund.2010.sum.tw <- summary(bb_abund.2010.tw)
+print(plot(bb_abund.2010.tw, allTerms = TRUE), pages = 1)
 
 
-
-bb_abund.2011 <- bam(bb.abund ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
-                                                            by = bb.sp,
-                                                            bs= c("tp", "tp"), 
-                                                            k=c(10, 10), m=1),
+### 2011
+bb_abund.2011.tw <- bam(bb.abund ~ s(bb.sp, bs = "re") + s(management, bs = "re") +
+                       s(site, bs = "re") +
+                       te(yday, elev.mean, 
+                          by = bb.sp,
+                          bs= c("tp", "tp"), 
+                          k=c(10, 10), m=1),
                         data = filter(bb_abund_sp, year == 2011 & bb.total.abund >= 5),
                         discrete = TRUE,
-                        family = "poisson",
+                        family = "tw",
                         select = TRUE,
                         method = "fREML") %>% getViz()
 
-check.gamViz(bb_abund.2011)
-bb_abund.2011.sum <- summary(bb_abund.2011)
-print(plot(bb_abund.2011 , allTerms = TRUE), pages = 4)
+check.gamViz(bb_abund.2011.tw)
+bb_abund.2011.sum.tw <- summary(bb_abund.2011.tw)
+print(plot(bb_abund.2011.tw, allTerms = TRUE), pages = 1)
 
-bb_abund.2012 <- bam(bb.abund ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
-                                                            by = bb.sp,
-                                                            bs= c("tp", "tp"), 
-                                                            k=c(10, 10), m=1),
+### 2012
+bb_abund.2012.tw <- bam(bb.abund ~ s(bb.sp, bs = "re") + s(management, bs = "re") +
+                       s(site, bs = "re") +
+                       te(yday, elev.mean, 
+                          by = bb.sp,
+                          bs= c("tp", "tp"), 
+                          k=c(10, 10), m=1),
                         data = filter(bb_abund_sp, year == 2012 & bb.total.abund >= 5),
                         discrete = TRUE,
-                        family = "poisson",
+                        family = "tw",
                         select = TRUE,
                         method = "fREML") %>% getViz()
 
-check.gamViz(bb_abund.2012)
-bb_abund.2012.sum <- summary(bb_abund.2012)
-print(plot(bb_abund.2012 , allTerms = TRUE), pages = 4)
-plot(bb_abund.2012)
+check.gamViz(bb_abund.2012.tw)
+bb_abund.2012.sum.tw <- summary(bb_abund.2012.tw)
+print(plot(bb_abund.2012.tw, allTerms = TRUE), pages = 1)
 
-```
-
-```{r}
-bb_abund.2012.pred <- predict(bb_abund.2012)
-
-
-ggplot(bb_abund.2012.pred, aes(yday, elev.mean, fit)) +
-  geom_raster(aes(fill = exp(fit))) +
-  #geom_contour(aes(z = fit), color = "black") +
-  geom_point(data = filter(fl_abund, year == 2012), 
-             aes(yday, elev.mean, size = fl.abund),
-             color = "white", alpha = 0.25) +
-  scale_fill_viridis_c()
 ```
 
 

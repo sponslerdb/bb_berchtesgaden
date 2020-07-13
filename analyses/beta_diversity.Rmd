@@ -22,10 +22,6 @@ gdd <- read_csv("../processed_data/climate.csv") %>%
          yday = yday(date)) %>%
   dplyr::select(site, year, date, yday, gdd.cum) %>%
   semi_join(read_csv("../processed_data/network.csv"), by = "site")
-
-gdd_total <- gdd %>%
-  group_by(site, year) %>%
-  summarize(gdd.total = max(gdd.cum))
 ```
 
 ### Load site data
@@ -35,60 +31,33 @@ site_data <- read_csv("../processed_data/site_data.csv") %>%
   mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
          elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) %>% # turn elav.class into an ordered factor
   semi_join(read_csv("../processed_data/network.csv"), by = "site")
-
-# %>%
-#   left_join(gdd_total, by = "site")
-
-### Plot total GDD
-ggplot(site_data, aes(elev.mean, gdd.total, color = year)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  ylab("Total GDD")
 ```
-
 
 ### Load network and survey data and generate site.year and site.month.year webs
 ```{r}
-# bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
-#   dplyr::select(subgenus, bb.sp, pbl.w, pbl.w.class)
-# 
-# fl_traits <- read.csv("../processed_data/floral_k_type_nom_fix.csv") %>%
-#   dplyr::select(plant.sp, k.type) %>%
-#   mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"),
-#          k.type.ss = str_extract(k.type, "[-+]?[0-9]*"))
-
-# fl_tax <- read_csv("../processed_data/floral_tax.csv") 
-# 
-# breaks <- read_csv("./output/breaks.csv") %>%
-#   mutate(year = factor(year))
-
-
 net <- read_csv("../processed_data/network.csv") %>%
   unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
   unite(site.date, site, date, sep = "_", remove = FALSE) %>%
   mutate(year = factor(year)) %>% # convert year to factor
-  #full_join(bb_traits, by = c("bb.sp" = "bb.sp")) %>%
-  left_join(site_data, by = "site") %>%
-  #left_join(gdd, by = c("site", "date")) %>%
-  #left_join(breaks, by = c("site", "year")) %>%
-  #left_join(fl_traits) %>%
-  #left_join(fl_tax, by = "plant.genus") %>%
-  ungroup() %>%
-  #mutate(phase = case_when(
-    # gdd.cum < break1.gdd ~ "founding",
-    # gdd.cum >= break1.gdd & gdd.cum < break2.gdd ~ "buildup",
-    # gdd.cum > break2.gdd ~ "reproductive"
-  #)) %>%
-  #mutate(phase = factor(phase, levels = c("founding", "buildup", "reproductive"))) %>%
+  group_by(site, date) %>%
+  #mutate(network.size = n()) %>%
   arrange(site, date)
 
 survey <- read_csv("../processed_data/floral_survey.csv") %>%
   semi_join(net, by = "plant.sp") %>% # Consider only plants visited (anytime anywhere, not specifically for a given site*date)
   dplyr::select(site, date, plant.sp, flower.cover)
 
+site.year_transects <- net %>%
+  group_by(site, year) %>%
+  summarize(transects = length(unique(date)))
+
+site_transects <- net %>%
+  group_by(site) %>%
+  summarize(transects = length(unique(date)))
+
 web_site.year <- net %>%
   group_by(site.year, bb.sp, plant.sp) %>%
-  summarize(freq = n()) %>% 
+  summarize(freq = n()) %>%
   dplyr::select(higher = bb.sp, lower = plant.sp, webID = site.year, freq) %>% # rename columns to match bipartite's expectations
   data.frame() %>% # convert to data frame
   frame2webs() # convert to to bipartite web
@@ -113,7 +82,7 @@ array_site.year <- webs2array(web_site.year)
 beta_site <- betalinkr_multi(array_site, partition.st = TRUE, partition.rr = TRUE) %>%
   as_tibble() %>%
   rename(site1 = i) %>%
-  rename(site2 = j) %>%
+  rename(site2 = j)%>%
   left_join(site_data, by = c("site1" = "site")) %>%
   dplyr::select(site1, site2, S, OS, WN, ST, 
          ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
@@ -122,15 +91,24 @@ beta_site <- betalinkr_multi(array_site, partition.st = TRUE, partition.rr = TRU
   dplyr::select(site1, site2, S, OS, WN, ST, 
          ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
          elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
+  left_join(site_transects, by = c("site1" = "site")) %>%
+  dplyr::select(site1, site2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1, elev2, man1, man2, lon1, lat1, lon2, lat2, transects1 = transects) %>%
+  left_join(site_transects, by = c("site2" = "site")) %>%
+  dplyr::select(site1, site2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1, elev2, man1, man2, lon1, lat1, lon2, lat2, transects1, transects2 = transects) %>%
   mutate(elev.diff = abs(elev1 - elev2),
          mean.elev = (elev1 + elev2)/2,
+         transects.diff = abs(transects1 - transects2),
          man.diff = case_when(
            man1 == man2 ~ FALSE,
            man1 != man2 ~ TRUE
          )) %>%
   gather(metric, value, -c(site1, site2, elev1, elev2, elev.diff, 
-                           man1, man2, man.diff, mean.elev, lon1, lat1, lon2, lat2)) %>%
-  #left_join(site_pairwise_distance) %>%
+                           man1, man2, man.diff, mean.elev, lon1, 
+                           lat1, lon2, lat2, transects1, transects2, transects.diff)) %>%
   mutate(metric.class = case_when(
     metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
     metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
@@ -138,10 +116,9 @@ beta_site <- betalinkr_multi(array_site, partition.st = TRUE, partition.rr = TRU
     metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
   ))
 
-write_csv(beta_site, "../analyses/output/beta_site.csv")
+#write_csv(beta_site, "../analyses/output/beta_site.csv")
 
-
-beta_site.year <- betalinkr_multi(array_site.year, partition.st = TRUE, partition.rr = TRUE) %>%
+beta_site.year <- betalinkr_multi(array_site.year, partition.st = TRUE, partition.rr = TRUE, binary = TRUE) %>%
   as_tibble() %>%
   separate(i, into = c("site1", "year1"), sep = "_") %>%
   separate(j, into = c("site2", "year2"), sep = "_") %>%
@@ -153,39 +130,121 @@ beta_site.year <- betalinkr_multi(array_site.year, partition.st = TRUE, partitio
   dplyr::select(site1, year1, site2, year2, S, OS, WN, ST, 
          ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
          elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
+  left_join(site.year_transects, by = c("site1" = "site", "year1" = "year")) %>%
+  dplyr::select(site1, site2, year1, year2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1, elev2, man1, man2, lon1, lat1, lon2, lat2, transects1 = transects) %>%
+  left_join(site.year_transects, by = c("site2" = "site", "year2" = "year")) %>%
+  dplyr::select(site1, site2, year1, year2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1, elev2, man1, man2, lon1, lat1, lon2, lat2, transects1, transects2 = transects) %>%
   mutate(elev.diff = abs(elev1 - elev2),
          mean.elev = (elev1 + elev2)/2,
+         transects.diff = abs(transects1 - transects2),
          man.diff = case_when(
            man1 == man2 ~ FALSE,
            man1 != man2 ~ TRUE
          )) %>%
   gather(metric, value, -c(site1, year1, site2, year2, elev1, elev2, elev.diff, 
-                           man1, man2, man.diff, mean.elev, lon1, lat1, lon2, lat2))
+                           man1, man2, man.diff, mean.elev, lon1, lat1, lon2, lat2,
+                           transects1, transects2, transects.diff)) %>%
+  mutate(metric.class = case_when(
+    metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
+    metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
+    metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
+    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
+  ))
 ```
 
 # Beta diversity by elevation difference
 ```{r}
-# No apparent differences across years, so we will use the pooled data
-ggplot(filter(beta_site.year, year1 == year2), 
-       aes(metric, value, color = year1)) +
-  geom_boxplot() +
-  facet_wrap(~metric, scales = "free")
+# Interaction beta diversity by elevation difference (by year)
+## This shows that the patterns are extremely consistent across years, which is not surprising, since they are driven overwhelmingly by floral turnover, and plants tend to be in the same place from year to year.
+ggplot(filter(beta_site.year, year1 == year2 & 
+                metric != "S" & 
+                metric.class != "OS.partition"), 
+       aes(elev.diff, value, color = metric)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth() +
+  facet_grid(metric.class ~ year1)
 
-# # And not much of a pattern in response to geographical distance
-# ggplot(beta_site, 
-#        aes(as.numeric(distance), value, color = metric)) +
-#   geom_smooth()
+ggplot(filter(beta_site.year, year1 == year2 & 
+                metric != "S" & 
+                metric.class != "OS.partition"), 
+       aes(transects.diff, value, color = metric)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth() +
+  facet_grid(metric.class ~ year1, scales = "free_x")
 
-# Interaction beta diversity by elevation difference
-ggplot(beta_site, 
+# Interaction beta diversity by elevation difference, this time pooling across years
+ggplot(filter(beta_site, metric != "S" & 
+                metric.class != "OS.partition"), 
        aes(elev.diff, value, color = metric)) +
   geom_point(alpha = 0.05) +
   geom_smooth() +
   facet_wrap(~metric.class)
+
+# How important is the difference in transects? Not as important as the difference in elevation.
+ggplot(filter(beta_site, metric != "S" & 
+                metric.class != "OS.partition"), 
+       aes(transects.diff, value, color = metric)) +
+  geom_point(alpha = 0.05) +
+  geom_smooth() +
+  facet_wrap(~metric.class)
+
+ggplot(beta_site, 
+       aes(elev.diff, transects.diff)) +
+  geom_point(alpha = 0.05) +
+  geom_smooth()
+
+### Okay, we'll just do partial mantel tests to partial out the effect of transects.diff; and we'll only do that for the aggregate measures because it seems a bit silly to doi it for the partitions  
+WN_diff <- beta_site %>%
+  filter(metric == "WN") %>%
+  dplyr::select(site1, site2, value) %>%
+  spread(site2, value) %>%
+  dist()
+
+WN_diff <- beta_site %>%
+  filter(metric == "WN") %>%
+  dplyr::select(site1, site2, value) %>%
+  spread(site2, value) %>%
+  dist()
+
+ST_diff <- beta_site %>%
+  filter(metric == "ST") %>%
+  dplyr::select(site1, site2, value) %>%
+  spread(site2, value) %>%
+  dist()
+
+OS_diff <- beta_site %>%
+  filter(metric == "OS") %>%
+  dplyr::select(site1, site2, value) %>%
+  spread(site2, value) %>%
+  dist()
+
+elev_diff <- beta_site %>%
+  dplyr::select(site1, site2, elev.diff) %>%
+  unique() %>%
+  spread(site2, elev.diff) %>%
+  dist()
+
+transects_diff <- beta_site %>%
+  dplyr::select(site1, site2, transects.diff) %>%
+  unique() %>%
+  spread(site2, transects.diff) %>%
+  dist()
+
+WN_mantel <- mantel.partial(elev_diff, WN_diff, transects_diff)
+ST_mantel <- mantel.partial(elev_diff, ST_diff, transects_diff)
+OS_mantel <- mantel.partial(elev_diff, OS_diff, transects_diff)
 ```
 
 ### Let's look at floral survey diversity patterns
 ```{r}
+survey_transects <- survey %>%
+  group_by(site) %>%
+  summarize(transects = length(unique(date)))
+
 survey_bioData <- survey %>%
   filter(flower.cover > 0) %>%
   mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
@@ -198,6 +257,8 @@ predData <- site_data %>%
   ungroup() %>%
   dplyr::select(site, elev.mean, lat, lon) %>%
   unique()
+%>%
+  left_join(survey_transects)
 
 survey_sitepair <- formatsitepair(survey_bioData, bioFormat = 1, siteColumn = "site", dist = "jaccard",
                               XColumn = "lon", YColumn = "lat", predData = predData)

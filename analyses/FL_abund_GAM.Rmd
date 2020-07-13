@@ -71,7 +71,8 @@ bb_abund_sp <- net %>%
   summarize(bb.abund = n()) %>% # get bb.sp*transect abundance
   ungroup %>%
   complete(site, date, bb.sp, fill = list(bb.abund = 0)) %>% # complete implicit absences
-  mutate(year = factor(year(date)))
+  mutate(year = factor(year(date))) %>%
+  semi_join(net, by = c("site", "date")) # only include site-dates that actually occurred
 
 ### Per-transect floral abund: by species
 fl_abund_sp <- survey %>%
@@ -83,6 +84,7 @@ fl_abund_sp <- survey %>%
   ungroup() %>%
   full_join(dplyr::select(net, site, date, plant.sp), by = c("site", "date", "plant.sp")) %>% # add the handful of species occurring in the visitation network but missing from the survey data
   complete(site, date, plant.sp, fill = list(fl.abund = 0, prop.fl.abund = 0)) %>%
+  semi_join(survey, by = c("site", "date")) %>%  # only include site-dates that actually occurred
   unique() %>%
   mutate(year = factor(year(date)))
 ```
@@ -101,13 +103,15 @@ observed_visits <- net %>%
 possible_plants <- bind_rows(dplyr::select(net, c(site, date, plant.sp)),
                              dplyr::select(survey, c(site, date, plant.sp))) %>%
   unique() %>%
-  complete(site, date, plant.sp)
+  complete(site, date, plant.sp) %>%
+  semi_join(survey, by = c("site", "date"))
 
 # All possible bumbles * site * date
 possible_bb <- net %>%
   dplyr::select(site, date, bb.sp) %>%
   unique() %>%
-  complete(site, date, bb.sp)
+  complete(site, date, bb.sp) %>%
+  semi_join(net, by = c("site", "date"))
 
 # All possible bumble-plant pairings *site * date, filtered to include only those when the given bb.sp was present and the given plant.sp was *either* present *or* visited (see note below)
 visitation_by_abundance <- full_join(possible_plants, possible_bb) %>%
@@ -199,13 +203,17 @@ fl_abund_wt <- fl_abund_sp %>%
   summarize(fl.abund.wt = sum(fl.abund.wt, na.rm = TRUE)) %>%
   ungroup() %>%
   left_join(bb_abund_sp) %>%
-  left_join(bb_abund_sp_sum) %>%
-  filter(bb.total.abund >= 5) %>%
-  left_join(site_data, by = "site") %>%
+  left_join(bb_abund_sp_sum)%>%
+  filter(bb.total.abund >= 5) %>% # It's not worth trying to model really rare species
   semi_join(survey, by = c("site", "date")) %>% # This gets rid of site*date combos that don't exist
+  left_join(site_data, by = "site") %>%
   mutate(year = factor(year(date)), # add in the years missing from the bb_abund join
          bb.sp = factor(bb.sp), # convert bb.sp to a factor
-         management = factor(management)) # convert management to a factor
+         management = factor(management),
+         site = factor(site)) %>%
+  group_by(year) %>%
+  mutate(total.transects.year = n()) %>%
+  ungroup()
 
 write_csv(fl_abund_wt, "../analyses/output/fl_abund_wt.csv")
 ```
@@ -213,83 +221,75 @@ write_csv(fl_abund_wt, "../analyses/output/fl_abund_wt.csv")
 GAM modeling of preference-weighted abundance per bb species
 ## Against any potential objections to my use of an added constant to avoid the log(0) problem, I would argue that when what is being measured is a resource, the presence of a resource in vanishingly small amounts is biologically equivalent to its absence. I suppose the strength of this argument hinges on how much we trust that our samples represent our sites. But if they don't, what are we even doing here? note that this argument does not hold when one is concerned with diversity and species distributions, since then a species rarity is a very different thing that its absence.
 ```{r}
-### Set constants
-k <- min(
-  filter(fl_abund_wt, fl.abund.wt > 0)$fl.abund.wt
-)
+### Pooled years
+weighted_fl_abundance.tw <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + s(management, bs = "re") + year + 
+                                  s(site, bs = "re") +
+                                  te(yday, elev.mean, 
+                                     by = bb.sp,
+                                     bs= c("tp", "tp"), 
+                                     k=c(10, 10), m=1),
+                                data = fl_abund_wt,
+                                discrete = TRUE,
+                                family = "tw",
+                                select = TRUE,
+                                method = "fREML") %>% getViz()
 
-### Call models
-weighted_fl_abundance.2010.qp <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
-                                                            by = bb.sp,
-                                                            bs= c("tp", "tp"), 
-                                                            k=c(10, 10), m=1),
-                        data = filter(fl_abund_wt, year == 2010),
-                        discrete = TRUE,
-                        family = "quasipoisson",
-                        select = TRUE,
-                        method = "fREML") %>% getViz()
+check.gamViz(weighted_fl_abundance.tw)
+weighted_fl_abundance.tw.sum <- summary(weighted_fl_abundance.tw)
+print(plot(weighted_fl_abundance.tw, allTerms = TRUE), pages = 1)
+saveRDS(weighted_fl_abundance.tw, "../analyses/output/weighted_fl_abundance.rds")
 
-check.gamViz(weighted_fl_abundance.2010.qp)
-summary(weighted_fl_abundance.2010.qp)
-print(plot(weighted_fl_abundance.2010.qp , allTerms = TRUE), pages = 4)
+### 2010
+weighted_fl_abundance.2010.tw <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + s(management, bs = "re") + 
+                                       s(site, bs = "re") +
+                                       te(yday, elev.mean, 
+                                          by = bb.sp,
+                                          bs= c("tp", "tp"), 
+                                          k=c(10, 10), m=1),
+                                     data = filter(fl_abund_wt, year == 2010),
+                                     discrete = TRUE,
+                                     family = "tw",
+                                     select = TRUE,
+                                     method = "fREML") %>% getViz()
 
-weighted_fl_abundance.2010.qp2 <- bam(sqrt(fl.abund.wt) ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
-                                                            by = bb.sp,
-                                                            bs= c("tp", "tp"), 
-                                                            k=c(10, 10), m=1),
-                        data = filter(fl_abund_wt, year == 2010),
-                        discrete = TRUE,
-                        family = "quasipoisson",
-                        select = TRUE,
-                        method = "fREML") %>% getViz()
+check.gamViz(weighted_fl_abundance.2010.tw)
+weighted_fl_abundance.2010.tw.sum <- summary(weighted_fl_abundance.2010.tw)
+print(plot(weighted_fl_abundance.2010.tw , allTerms = TRUE), pages = 1)
 
-check.gamViz(weighted_fl_abundance.2010.qp2)
-summary(weighted_fl_abundance.2010.qp2)
-print(plot(weighted_fl_abundance.2010.qp2, allTerms = TRUE), pages = 3)
-
-
-weighted_fl_abundance.2011.qp <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
-                                                            by = bb.sp,
-                                                            bs= c("tp", "tp"), 
-                                                            k=c(10, 10), m=1),
-                        data = filter(fl_abund_wt, year == 2011),
-                        discrete = TRUE,
-                        family = "quasipoisson",
-                        select = TRUE,
-                        method = "fREML") %>% getViz()
+### 2011
+weighted_fl_abundance.2011.qp <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + s(management, bs = "re") + 
+                                       s(site, bs = "re") +
+                                       te(yday, elev.mean, 
+                                          by = bb.sp,
+                                          bs= c("tp", "tp"), 
+                                          k=c(10, 10), m=1),
+                                     data = filter(fl_abund_wt, year == 2011),
+                                     discrete = TRUE,
+                                     family = "quasipoisson",
+                                     select = TRUE,
+                                     method = "fREML") %>% getViz()
 
 check.gamViz(weighted_fl_abundance.2011.qp)
-summary(weighted_fl_abundance.2011.qp)
-print(plot(weighted_fl_abundance.2011.qp , allTerms = TRUE), pages = 4)
+weighted_fl_abundance.2011.qp.sum <- summary(weighted_fl_abundance.2011.qp)
+print(plot(weighted_fl_abundance.2011.qp , allTerms = TRUE), pages = 1)
 
-weighted_fl_abundance.2011.qp2 <- bam(sqrt(fl.abund.wt) ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
-                                                            by = bb.sp,
-                                                            bs= c("tp", "tp"), 
-                                                            k=c(10, 10), m=1),
-                        data = filter(fl_abund_wt, year == 2011),
-                        discrete = TRUE,
-                        family = "quasipoisson",
-                        select = TRUE,
-                        method = "fREML") %>% getViz()
-
-check.gamViz(weighted_fl_abundance.2011.qp2)
-summary(weighted_fl_abundance.2011.qp2)
-print(plot(weighted_fl_abundance.2011.qp2, allTerms = TRUE), pages = 4)
-
-weighted_fl_abundance.2012.qp <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + management + slope.est + te(yday, elev.mean, 
-                                                            by = bb.sp,
-                                                            bs= c("tp", "tp"), 
-                                                            k=c(10, 10), m=1),
-                        data = filter(fl_abund_wt, year == 2012),
-                        discrete = TRUE,
-                        family = "quasipoisson",
-                        select = TRUE,
-                        method = "fREML") %>% getViz()
+### 2012
+weighted_fl_abundance.2012.qp <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + s(management, bs = "re") + 
+                                       s(site, bs = "re") +
+                                       #slope.est + 
+                                       te(yday, elev.mean, 
+                                          by = bb.sp,
+                                          bs= c("tp", "tp"), 
+                                          k=c(10, 10), m=1),
+                                     data = filter(fl_abund_wt, year == 2012),
+                                     discrete = TRUE,
+                                     family = "quasipoisson",
+                                     select = TRUE,
+                                     method = "fREML") %>% getViz()
 
 check.gamViz(weighted_fl_abundance.2012.qp)
-summary(weighted_fl_abundance.2012.qp)
-print(plot(weighted_fl_abundance.2012.qp , allTerms = TRUE), pages = 4)
-
+weighted_fl_abundance.2012.qp.sum <- summary(weighted_fl_abundance.2012.qp)
+print(plot(weighted_fl_abundance.2012.qp , allTerms = TRUE), pages = 1)
 ```
 
 ### Abundance mismatch
