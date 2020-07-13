@@ -35,12 +35,11 @@ site_data <- read_csv("../processed_data/site_data.csv") %>%
 
 ### Load network and survey data and generate site.year and site.month.year webs
 ```{r}
-net <- read_csv("../processed_data/network.csv") %>%
+net <- read_csv("../processed_data/network.csv")%>%
   unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
-  unite(site.date, site, date, sep = "_", remove = FALSE) %>%
+  unite(site.year.day, site, year, dayofyear, sep = "_", remove = FALSE) %>%
   mutate(year = factor(year)) %>% # convert year to factor
   group_by(site, date) %>%
-  #mutate(network.size = n()) %>%
   arrange(site, date)
 
 survey <- read_csv("../processed_data/floral_survey.csv") %>%
@@ -68,6 +67,36 @@ web_site <- net %>%
   dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
   data.frame() %>% # convert to data frame
   frame2webs() # convert to to bipartite web
+
+web_site.date.2010 <- net %>%
+  filter(year == 2010) %>%
+  group_by(site.year.day, bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>%
+  dplyr::select(higher = bb.sp, lower = plant.sp, webID = site.year.day, freq) %>% # rename columns to match bipartite's expectations
+  data.frame() %>% # convert to data frame
+  frame2webs() # convert to to bipartite web
+
+web_site.date.2011 <- net %>%
+  filter(year == 2011) %>%
+  group_by(site.year.day, bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>%
+  dplyr::select(higher = bb.sp, lower = plant.sp, webID = site.year.day, freq) %>% # rename columns to match bipartite's expectations
+  data.frame() %>% # convert to data frame
+  frame2webs() # convert to to bipartite web
+
+web_site.date.2012 <- net %>%
+  filter(year == 2012) %>%
+  group_by(site.year.day, bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>%
+  dplyr::select(higher = bb.sp, lower = plant.sp, webID = site.year.day, freq) %>% # rename columns to match bipartite's expectations
+  data.frame() %>% # convert to data frame
+  frame2webs() # convert to to bipartite web
+
+array_site <- webs2array(web_site)
+array_site.year <- webs2array(web_site.year)
+array_site.date.2010 <- webs2array(web_site.date.2010)
+array_site.date.2011 <- webs2array(web_site.date.2011)
+array_site.date.2012 <- webs2array(web_site.date.2012)
 ```
 
 ### Tabulate webs
@@ -76,9 +105,6 @@ OS = beta_OS, the dissimilarity (component) explained by "rewiring" among shared
 WN = beta_WN, the dissimilarity between the two networks
 ST = beta_ST, the dissimilarity (component) explained by difference in species community composition 
 ```{r}
-array_site <- webs2array(web_site)
-array_site.year <- webs2array(web_site.year)
-
 beta_site <- betalinkr_multi(array_site, partition.st = TRUE, partition.rr = TRUE) %>%
   as_tibble() %>%
   rename(site1 = i) %>%
@@ -154,6 +180,46 @@ beta_site.year <- betalinkr_multi(array_site.year, partition.st = TRUE, partitio
     metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
     metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
   ))
+
+
+### By individual transect
+
+beta_site.date.2010 <- betalinkr_multi(array_site.date.2010, 
+                                       partition.st = TRUE, 
+                                       partition.rr = TRUE) %>%
+  as_tibble() %>%
+  separate(i, into = c("site1", "date1"), sep = "_") %>%
+  separate(j, into = c("site2", "date2"), sep = "_") %>%
+  left_join(site_data, by = c("site1" = "site"))%>%
+  dplyr::select(site1, date1, site2, date2, S, OS, WN, ST, 
+         ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+         elev1 = elev.mean, man1 = management, lon1 = lon, lat1 = lat) %>%
+  left_join(site_data, by = c("site2" = "site")) %>%
+  dplyr::select(site1, date1, site2, date2, S, OS, WN, ST, 
+         ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+         elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
+  mutate(elev.diff = abs(elev1 - elev2),
+         mean.elev = (elev1 + elev2)/2,
+         man.diff = case_when(
+           man1 == man2 ~ FALSE,
+           man1 != man2 ~ TRUE
+         )) %>%
+  gather(metric, value, -c(site1, date1, site2, date2, elev1, elev2, elev.diff, 
+                           man1, man2, man.diff, mean.elev, lon1, lat1, lon2, lat2)) %>%
+  mutate(metric.class = case_when(
+    metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
+    metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
+    metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
+    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
+  ))
+
+beta_site.date.2011 <- betalinkr_multi(array_site.date.2011, 
+                                       partition.st = TRUE, 
+                                       partition.rr = TRUE)
+
+beta_site.date.2012 <- betalinkr_multi(array_site.date.2012, 
+                                       partition.st = TRUE, 
+                                       partition.rr = TRUE)
 ```
 
 # Beta diversity by elevation difference

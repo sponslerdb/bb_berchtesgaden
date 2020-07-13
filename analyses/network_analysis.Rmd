@@ -61,8 +61,9 @@ boot_net_sp <- function(net, n, iter) {
     group_by(sp, site_year, metric) %>%
     summarize(value = mean(value)) %>%
     separate(site_year, c("site", "year"), sep = "_") %>%
-    left_join(site_data) %>%
-    left_join(bb_traits, by = c("sp" = "bb.sp"))
+    left_join(site_data) 
+  # %>%
+  #   left_join(bb_traits, by = c("sp" = "bb.sp"))
 }
 
 #####################################
@@ -138,6 +139,21 @@ net <- read_csv("../processed_data/network.csv") %>%
 net_2012 <- filter(net, year == "2012")
 net_2011 <- filter(net, year == "2011")
 net_2010 <- filter(net, year == "2010")
+
+### Per-transect BB abundance: species-level
+bb_abund_sp <- net %>%
+  dplyr::select(site, date, bb.sp) %>%
+  group_by(site, date, bb.sp) %>% # group by bb.sp*transect (and other variables we want to retain)
+  summarize(bb.abund = n()) %>% # get bb.sp*transect abundance
+  ungroup %>%
+  complete(site, date, bb.sp, fill = list(bb.abund = 0)) %>% # complete implicit absences
+  semi_join(net, by = c("site", "date")) %>%
+  mutate(year = factor(year(date))) %>%
+  mutate(yday = yday(date),
+         sp = factor(bb.sp),
+         site = factor(site)) %>%
+  group_by(site, year, sp) %>%
+  summarize(bb.total.abund = sum(bb.abund))
 ```
 
 ### Rarefied network analysis (not broken down by phase)
@@ -183,55 +199,55 @@ netmet <- bind_rows(netmet_boot_2012,
 ```{r, message=FALSE}
 ### Species level
 #### BBs
-spmet_2012_BB <- boot_net_sp_BB(net_2012, 9, 40) %>%
+spmet_2012 <- boot_net_sp(net_2012, 9, 40) %>%
   mutate(year = factor(rep("2012", n())))
-spmet_2011_BB <- boot_net_sp_BB(net_2011, 4, 40) %>%
+spmet_2011 <- boot_net_sp(net_2011, 4, 40) %>%
   mutate(year = factor(rep("2011", n())))  
-spmet_2010_BB <- boot_net_sp_BB(net_2010, 3, 40) %>%
+spmet_2010 <- boot_net_sp(net_2010, 3, 40) %>%
   mutate(year = factor(rep("2010", n())))
 
-spmet_BB <- boot_net_sp_BB(net, 5, 50) %>%
-  ungroup() %>%
-  mutate(year = factor(year))
+spmet <- bind_rows(spmet_2012, spmet_2011, spmet_2010) %>%
+  left_join(bb_abund_sp) %>%
+  mutate(sp = factor(sp),
+         management = factor(management),
+         site = factor(site))
 
-spmet_mean_BB <- spmet_BB %>%
+ggplot(filter(spmet, bb.total.abund >= 20 & sp %in% c("bss", "pasc", "prat", "wurf", "soro")), aes(elev.mean, value, color = year)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~sp, scales = "free")
+
+ggplot(filter(spmet, bb.total.abund >= 20), aes(elev.mean, value)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE) +
+  facet_wrap(~year)
+
+specialization_GAM.2010 <- bam(value ~ 
+                            s(elev.mean, by = sp) +
+                            #s(bb.total.abund, by = sp) +
+                            s(site, bs = "re") +
+                            s(sp, bs = "re"),
+                   data = filter(spmet, year == 2010),
+                   discrete = TRUE,
+                   select = TRUE,
+                   method = "fREML") %>% getViz()
+
+check.gamViz(specialization_GAM.2010)
+specialization_GAM.2010.sum <- summary(specialization_GAM.2010)
+print(plot(specialization_GAM.2010, allTerms = TRUE), pages = 1)
+
+
+spmet_mean <- spmet %>%
   group_by(site, year, elev.mean, metric) %>%
-  summarize(value = mean(value, na.rm = TRUE)) %>%
-  ungroup() %>%
-  mutate(year = factor(year))
+  summarize(value = weighted.mean(value, bb.total.abund)) %>%
+  ungroup() 
 
-spmet_mean_BB_2012 <- spmet_2012_BB %>%
-  group_by(site, elev.mean, metric) %>%
-  summarize(value = mean(value, na.rm = TRUE)) 
-
-ggplot(spmet_mean_BB, aes(elev.mean, value)) +
+ggplot(spmet_mean, aes(elev.mean, value)) +
   geom_point() +
-  geom_smooth() +
+  geom_smooth(method = "lm") +
   facet_wrap(~year)
 
-ggplot(spmet_2012_BB, aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth() +
-  facet_wrap(~year)
 
-ggplot(spmet_mean_BB_2012, aes(elev.mean, value)) +
-  geom_point() +
-  geom_smooth()
-
-spmet_BB_gam <- bam(log(value + 0.01) ~ year + 
-                      s(elev.mean, bs = "tp", k = 10, m = 2) +
-                      s(elev.mean, by = factor(sp), k = 20, m = 1),
-                    data = spmet_BB,
-                    method = "fREML",
-                    discrete = TRUE) %>% getViz()
-
-check.gamViz(spmet_BB_gam)
-summary(spmet_BB_gam)
-print(plot(spmet_BB_gam, allTerms = TRUE), pages = 1)
-
-
-
-spmet_BB <- bind_rows(spmet_2012_BB, spmet_2011_BB, spmet_2010_BB)
 ```
 
 
