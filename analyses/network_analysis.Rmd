@@ -8,6 +8,7 @@ output: html_document
 library(bipartite)
 library(mgcv)
 library(mgcViz)
+library(lavaan)
 library(tidyverse)
 library(lubridate)
 ```
@@ -429,6 +430,39 @@ ggplot(netmet, aes(elev.mean, d, color = year)) +
   theme_abyss()
 ```
 
+### Since we clearly have structured collinearity in our preditors, i.e. elevation shapes abundance and diversity which shape network structure, perhaps SEM could be appropriate? The main question is whether it can handle the potentially complex (nonlinear) relationships between elevation and diversity/abundance, and whether it can handle the hierarchical structure of my data.
+```{r}
+library(piecewiseSEM)
+
+netmet.scaled <- netmet %>%
+  select(site, year, niche.overlap.HL, elev.mean, fl.rich, bb.rich, log.fl.abund, log.bb.abund) %>%
+  mutate(niche.overlap.HL = scale(niche.overlap.HL),
+         elev.mean = scale(elev.mean),
+         fl.rich = scale(fl.rich),
+         log.fl.abund = scale(log.fl.abund),
+         log.bb.abund = scale(log.bb.abund)) %>%
+  as.matrix() %>%
+  as_tibble() %>%
+  mutate(niche.overlap.HL = as.numeric(niche.overlap.HL),
+         elev.mean = as.numeric(elev.mean),
+         fl.rich = as.numeric(fl.rich),
+         log.fl.abund = as.numeric(log.fl.abund),
+         log.bb.abund = as.numeric(log.bb.abund),
+         site = factor(site),
+         year = factor(year)) %>%
+  na.omit()
+  
+mod_niche.overlap <- psem(lmer(niche.overlap.HL ~ elev.mean + 
+                                fl.rich + log.bb.abund + 
+                                 (1 | year) + (1 | site), 
+                              netmet.scaled),
+                          lm(fl.rich ~ elev.mean, 
+                             netmet.scaled),
+                          lm(log.bb.abund ~ elev.mean, 
+                             netmet.scaled))
+summary(mod_niche.overlap)
+plot(mod_niche.overlap)
+```
 
 ### But let's zoom in a bit closer on d' and see if we can model it per-species
 ```{r}
@@ -650,38 +684,6 @@ summary(gam_d.sp_I.2012)
 print(plot(gam_d.sp_I.2012, allTerms = TRUE), pages = 4)
 ```
 
-### Now let's try all this with GLMMs
-```{r}
-##### niche overlap
-lmer_niche.overlap <- lmer(niche.overlap.HL ~ elev.mean + 
-                            I(elev.mean^2) +
-                            I(elev.mean^3) +
-                            bb.rich +
-                            fl.rich +
-                            log.fl.abund +
-                            bb.abund +
-                            (1 | year),
-                          data = netmet)
-
-step(lmer_niche.overlap,reduce.random=FALSE) # stepwise variable selection; commented-out variables were removed based on the results of this step
-summary(glm_niche.overlap)
-
-#####  c-score
-lmer_c.score <- lmer(C.score.HL ~ elev.mean + 
-                            I(elev.mean^2) +
-                            I(elev.mean^3) +
-                            bb.rich +
-                            fl.rich +
-                            log.fl.abund +
-                            bb.abund +
-                            (1 | year),
-                          data = netmet)
-
-step(lmer_c.score,reduce.random=FALSE) # stepwise variable selection; commented-out variables were removed based on the results of this step
-summary(lmer_c.score)
-
-```
-
 ### Does tongue-length / corolla depth matching vary with elevation?
 ```{r}
 bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
@@ -723,8 +725,4 @@ ggplot(net_traits, aes(elev.mean, tongue.mismatch)) +
   theme_abyss()
 ```
 
-### Since we clearly have structured collinearity in our preditors, i.e. elevation shapes abundance and diversity which shape network structure, perhaps SEM could be appropriate? The main question is whether it can handle the potentially complex (nonlinear) relationships between elevation and diversity/abundance, and whether it can handle the hierarchical structure of my data.
-```{r}
-library(lavaan)
 
-```
