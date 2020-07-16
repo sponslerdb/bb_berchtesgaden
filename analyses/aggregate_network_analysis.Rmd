@@ -1,0 +1,61 @@
+---
+title: "aggregate_network_analysis"
+output: html_document
+---
+
+### Prepare environment
+```{r setup, include=FALSE}
+library(bipartite)
+library(tidyverse)
+library(lubridate)
+```
+
+### Load network and survey data
+```{r, include=FALSE}
+net <- read_csv("../processed_data/network.csv") %>%
+  unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
+  mutate(year = factor(year)) %>% # convert year to factor
+  ungroup()
+
+web <- net %>%
+  group_by(bb.sp, plant.sp, year) %>%
+  summarize(freq = n()) %>%
+  select(higher = bb.sp, lower = plant.sp, freq, webID = year) %>%
+  as.data.frame() %>%
+  frame2webs()
+
+web2010 <- net %>%
+  filter(year == 2010) %>%
+  group_by(bb.sp, plant.sp, year) %>%
+  summarize(freq = n()) %>%
+  select(higher = bb.sp, lower = plant.sp, freq, webID = year) %>%
+  as.data.frame() %>%
+  frame2webs()
+
+network_metric <- web %>%
+  map(networklevel, level = "higher", weighted = TRUE) %>% 
+  data.frame() %>%
+  t() %>%
+  data.frame() %>%
+  rownames_to_column() %>%
+  dplyr::select(site_year = rowname, everything()) %>%
+  as_tibble()
+
+modules2010 <- web2010 %>%
+  map(computeModules)
+
+
+
+web2010 <- web[[1]]
+web2011 <- web[[2]]
+web2012 <- web[[3]]
+
+plotweb(web2010)
+plotweb(web2011)
+plotweb(web2012)
+
+visweb(web2010)
+visweb(web2011)
+visweb(web2012)
+```
+

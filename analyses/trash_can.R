@@ -981,3 +981,53 @@ betalinkr_boot <- function(net, n, iter) {
 ```{r}
 beta1 <- betalinkr_boot(net, 3, 10)
 ```
+
+netmet_sitedate <- site_date_net(net, min_higher = 2, min_lower = 2) %>%
+  mutate(site = factor(site),
+         date = ymd(date),
+         yday = yday(date),
+         year = factor(year(date)))
+
+ggplot(netmet_sitedate, aes(elev.mean, niche.overlap.HL)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~year)
+
+ggplot(netmet_sitedate, aes(elev.mean, niche.overlap.HL)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(netmet_sitedate, aes(yday, niche.overlap.HL, color = year)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 3), se = FALSE) +
+  facet_wrap(~site, scales = "free")
+
+bigbam_2010 <- bamV(niche.overlap.HL ~ s(site, bs = "re") +
+                      te(yday, elev.mean, 
+                         bs= c("tp", "tp"), 
+                         k=c(8, 8), m=1),
+                    data = filter(netmet_sitedate, year == 2010))
+
+check.gamViz(bigbam_2010)
+bigbam_2010.sum <- summary(bigbam_2010)
+print(plot(bigbam_2010, allTerms = TRUE), pages = 1)
+
+bigbam_2011 <- bamV(niche.overlap.HL ~ s(site, bs = "re") +
+                      te(yday, elev.mean, 
+                         bs= c("tp", "tp"), 
+                         k=c(8, 8), m=1),
+                    data = filter(netmet_sitedate, year == 2011))
+
+check.gamViz(bigbam_2011)
+bigbam_2011.sum <- summary(bigbam_2011)
+print(plot(bigbam_2011, allTerms = TRUE), pages = 1)
+
+bigbam_2012 <- bamV(niche.overlap.HL ~ s(site, bs = "re") +
+                      te(yday, elev.mean, 
+                         bs= c("tp", "tp"), 
+                         k=c(8, 8), m=1),
+                    data = filter(netmet_sitedate, year == 2012))
+
+check.gamViz(bigbam_2012)
+bigbam_2012.sum <- summary(bigbam_2012)
+print(plot(bigbam_2012, allTerms = TRUE), pages = 1)

@@ -10,7 +10,6 @@ library(tidyverse)
 library(lubridate)
 ```
 
-
 ### Climate data
 ```{r, include=FALSE, echo=FALSE}
 gdd <- read_csv("../processed_data/climate.csv") %>%
@@ -188,6 +187,7 @@ preference <- visitation_by_abundance_mean %>%
 # don't confuse us when we add site-date level abundance data
   dplyr::select(bb.sp, plant.sp, preference)
   
+write_csv(preference, "../analyses/output/preference.csv")
 #################################
 ### Join with FL and BB abund ###
 #################################
@@ -354,3 +354,94 @@ summary(weighted_fl_rich)
 print(plot(weighted_fl_rich , allTerms = TRUE), pages = 4)
 ```
 
+Does preference relate to BB-FL traits
+```{r}
+bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
+  dplyr::select(subgenus, bb.sp, pbl.w, pbl.w.class)
+
+fl_ktype <- read.csv("../processed_data/floral_k_type_nom_fix.csv") %>%
+  dplyr::select(plant.sp, k.type) %>%
+  mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"),
+         k.type.ss = str_extract(k.type, "[-+]?[0-9]*"))
+
+fl_morph <- read.csv("../processed_data/flower_morphology_GitaBenadi.csv") %>%
+  rename(plant.sp = Species) %>%
+  group_by(plant.sp) %>%
+  summarize(corolla.depth = mean(LN))
+
+fl_tax <- read_csv("../processed_data/floral_tax.csv")
+
+pref_traits <- preference %>%
+  left_join(bb_traits) %>%
+  left_join(fl_ktype) %>%
+  left_join(fl_morph) %>%
+  separate(plant.sp, c("plant.genus", "plant.species"), sep = " ", remove = FALSE) %>%
+  left_join(fl_tax) %>%
+  mutate(preference.bin = case_when(
+    preference > 0 ~ 1,
+    preference == 0 ~ 0
+  )) %>%
+  mutate(tongue.mismatch = abs(pbl.w - corolla.depth),
+         bb.sp = factor(bb.sp),
+         plant.sp = factor(plant.sp),
+         plant.genus = factor(plant.genus),
+         subgenus = factor(subgenus),
+         k.type.s = factor(k.type.s),
+         plant.family = factor(plant.family))
+
+ggplot(pref_traits, aes(k.type.s, preference)) +
+  geom_boxplot() 
+
+ggplot(filter(pref_traits, preference > 0), aes(k.type.s, log(preference))) +
+  geom_boxplot() 
+
+ggplot(pref_traits, aes(tongue.mismatch, preference)) + 
+  geom_point() +
+  geom_smooth()
+
+ggplot(pref_traits, aes(abs(pbl.w - corolla.depth), preference)) + 
+  geom_point() +
+  geom_smooth(method = "lm")
+
+### To deal with zero inflation, binarize and do binomial regression
+binomial_smooth <- function(...) {
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), ...)
+}
+
+ggplot(pref_traits, aes(tongue.mismatch, preference.bin)) + 
+  geom_point() +
+  binomial_smooth()
+
+### Then, to focus only on non-zero preference...
+ggplot(filter(pref_traits, preference > 0), aes(tongue.mismatch, log(preference))) + 
+  geom_point() +
+  geom_smooth(method = "lm")
+
+### Model
+library(DHARMa)
+lmer_nonzero <- lmer(log(preference) ~ tongue.mismatch + 
+                       k.type.s +
+                       (1 | plant.sp) +
+                       (1 | bb.sp), 
+                     data = filter(pref_traits, preference > 0 & !is.na(corolla.depth)))
+
+summary(lmer_nonzero)
+plot(lmer_nonzero)
+simulationOutput <- simulateResiduals(fittedModel = lmer_nonzero, plot = T)
+testResiduals(simulationOutput)
+plot(simulationOutput)
+
+lmer_withzeros <- glmer(preference ~ tongue.mismatch + 
+                          k.type.s +
+                          (1 | plant.sp) +
+                          (1 | bb.sp), 
+                       family = "poisson",
+                       data = filter(pref_traits, !is.na(corolla.depth)))
+
+summary(lmer_withzeros)
+plot(lmer_withzeros)
+simulationOutput_withzeros <- simulateResiduals(fittedModel = lmer_withzeros, plot = T)
+testResiduals(simulationOutput_withzeros)
+plot(simulationOutput_withzeros)
+
+```

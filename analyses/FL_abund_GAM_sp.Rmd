@@ -1,0 +1,108 @@
+---
+title: "FL_abund_GAM_sp"
+output: html_document
+---
+
+### Prepare environment
+```{r setup, include=FALSE, echo=FALSE}
+library(mgcv)
+library(mgcViz)
+library(tidyverse)
+library(lubridate)
+```
+
+### Climate data
+```{r, include=FALSE, echo=FALSE}
+gdd <- read_csv("../processed_data/climate.csv") %>%
+  mutate(year = factor(year)) %>%
+  dplyr::select(site, year, date, gdd.cum) %>%
+  semi_join(read_csv("../processed_data/network.csv"), by = "site")
+```
+
+### Load site data
+```{r, include=FALSE, echo=FALSE}
+site_data <- read_csv("../processed_data/site_data.csv") %>%
+  #dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
+  mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
+         elev.class2 = factor(elev.class2, levels = c("high", "mid", "low")))
+```
+
+### Floral survey data
+```{r}
+survey <- read_csv("../processed_data/floral_survey.csv") %>%
+  dplyr::select(site, date, plant.sp, flower.cover) %>%
+  group_by(site, date, plant.sp) %>%
+  summarize(flower.cover = sum(flower.cover)) %>%
+  mutate(yday = yday(date),
+       year = year(date)) %>%
+  left_join(site_data) %>%
+  ungroup() %>%
+  mutate(site = factor(site),
+         plant.sp = factor(plant.sp),
+         year = factor(year),
+         management = factor(management))
+
+preference <- read_csv("../analyses/output/preference.csv")
+
+top_plants <- net %>%
+  mutate(year = year(date)) %>%
+  group_by(bb.sp, year, plant.sp) %>%
+  summarize(visits = n()) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
+  group_by(bb.sp, year) %>%
+  arrange(bb.sp, year, -prop.visits) %>%
+  top_n(3)
+
+top_3 <- read_csv("../analyses/output/visitation_by_abundance_mean.csv") %>%
+  group_by(bb.sp) %>%
+  arrange(-prop.visits.wm) %>%
+  top_n(3)
+  
+```
+
+```{r}
+ggplot(filter(survey, plant.sp == "Trifolium pratense"), aes(yday, elev.mean, size = flower.cover)) +
+  geom_point(alpha = 0.25) +
+  facet_wrap(~year, scales = "free")
+
+ggplot(filter(survey, plant.sp == "Erica carnea"), aes(yday, elev.mean, size = flower.cover)) +
+  geom_point(alpha = 0.25) +
+  facet_wrap(~year, scales = "free")
+
+ggplot(filter(survey, plant.sp == "Stachys alopecuros"), aes(yday, elev.mean, size = flower.cover)) +
+  geom_point(alpha = 0.25) +
+  facet_wrap(~year, scales = "free")
+  
+       
+t.pratense_GAM <- bam(flower.cover ~ s(management, bs = "re") + year + 
+                                  s(site, bs = "re") +
+                                  te(yday, elev.mean, 
+                                     by = year,
+                                     bs= c("tp", "tp"), 
+                                     k=c(10, 10), m=1),
+                                data = filter(survey, plant.sp == "Trifolium pratense"),
+                                discrete = TRUE,
+                                family = "tw",
+                                select = TRUE,
+                                method = "fREML") %>% getViz()
+
+check.gamViz(t.pratense_GAM)
+t.pratense_GAM.sum <- summary(t.pratense_GAM)
+print(plot(t.pratense_GAM, allTerms = TRUE), pages = 1)
+
+e.carnea_GAM <- bam(flower.cover ~ s(management, bs = "re") + year + 
+                                  s(site, bs = "re") +
+                                  te(yday, elev.mean, 
+                                     by = year,
+                                     bs= c("tp", "tp"), 
+                                     k=c(3, 3), m=1),
+                                data = filter(survey, plant.sp == "Erica carnea"),
+                                discrete = TRUE,
+                                family = "tw",
+                                select = TRUE,
+                                method = "fREML") %>% getViz()
+
+check.gamViz(e.carnea_GAM)
+e.carnea_GAM.sum <- summary(e.carnea_GAM)
+print(plot(e.carnea_GAM, allTerms = TRUE), pages = 1)
+```
