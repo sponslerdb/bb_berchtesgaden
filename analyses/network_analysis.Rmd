@@ -202,6 +202,15 @@ ggplot(samples, aes(gdd.cum, elev.mean, size = obs)) +
 ggplot(filter(samples, year == 2011), aes(elev.mean, obs)) +
   geom_point() +
   geom_smooth()
+
+### How evenly is the presence of species distributed across samples
+bb_abund_sp <- net %>%
+  group_by(site, dayofyear, elev.mean, year, bb.sp) %>%
+  summarize(abund = n())
+
+ggplot(filter(bb_abund_sp, year == 2011), aes(dayofyear, elev.mean)) +
+  geom_point(aes(alpha = abund)) +
+  facet_wrap(~bb.sp)
 ```
 
 ### Rarefied network analysis (not broken down by phase)
@@ -334,7 +343,7 @@ spmet <- bind_rows(spmet_2012, spmet_2011) %>%
 spmet_mean <- spmet %>%
   group_by(site, year) %>%
   summarize(d = weighted.mean(d, bb.sp.abund, na.rm = TRUE)) %>%
-  ungroup() 
+  ungroup()
 
 ### Merge network metrics and auxiliary data
 netmet <- bind_rows(netmet_boot_2012, 
@@ -633,13 +642,13 @@ plot(ggpredict(gam_d.sp_GS))
 
 # What about I? Does it do any better than S?
 gam_d.sp_I <- gam(d ~ year + 
-                     s(site, bs = "re") +
+                     #s(site, bs = "re") +
                      management +
                      s(bb.sp, bs = "re") +
                      s(elev.mean, by = bb.sp, bs = "tp", k = 8) +
                      s(fl.rich, k = 8) +
                      s(log.fl.abund, k = 8) +
-                     s(log.bb.sp.abund, k = 5),
+                     s(bb.sp.abund, k = 5),
                    select = TRUE,
                    data = spmet,
                    method = "REML") %>% getViz()

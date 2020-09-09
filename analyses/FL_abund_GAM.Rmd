@@ -232,12 +232,28 @@ write_csv(fl_abund_wt, "../analyses/output/fl_abund_wt.csv")
 
 GAM modeling of preference-weighted abundance per bb species
 
-** One thing I need to go back and reconsider is that right now, I think forbidden links (i.e. links between species that never co-occurred) are given a zero for preference. A better approach would be to set their preference to a neutral value, which would be 1 in my case, since exp(0) = 1 and my preference values are calculated as exp(residual) of my linear model of visitation ~ abundance. **
+### Would these models be better specified using gamm4? Would that let me handle the crossed and nested random effects better?
 
 I think I need to include site as a random effect because if I don't the pseudoreplication of elevation is pretty extreme, especially in 2012 where I have lots of repeated measures. I am not, for example, measuring floral abundance at 1000 m 20 independent times; I'm measuring it 20 times at the same spot. This does, of  course, create identifiability issues insofar as site and elevation are concurved. But I think I need to accept these problems. The seriousness of the identifiability problems depends in part, I think, on how mgcv handles random effect smooths. Does it first account for all the variation it can with the main effects, then model the residuals with the random effect? In this case, it's probably not a big problem, since the "partial" influence of site would orthogonal (right?) with that of te(elev.mean, yday).
 
 ```{r}
+### A gamm4 version
+weighted_fl_abundance.gamm4 <- gamm4(log(fl.abund.wt + 0.001) ~
+                                       t2(yday, elev.mean, 
+                                          by = bb.sp,
+                                          #id = 0,
+                                          bs= c("gp", "tp"), 
+                                          k=c(8, 8), 
+                                          m=1),
+                                     random = ~(1 | site:year),
+                                     data = fl_abund_wt,
+                                     discrete = TRUE,
+                                     family = "gaussian",
+                                     select = TRUE,
+                                     method = "fREML") %>% getViz(nsim = 500)
+
 ### Global model
+#### My concern with using a global model is that, because I have so much higher sampling density in 2012, the global model will basically be just a 2012 model with 2010 and 2011 in the residuals, so to speak. I think this is at least partly mitigated by included a global by = year smooth, but I still don't quite understand how hierarchical effects relate to one another in a GAM. I'm also concerned that if I include the by = year smooth, it will be too concurve with my by = bb.sp smooths, and it will be hard to interpret the pattern of resource availability per species.
 weighted_fl_abundance.global <- bam(log(fl.abund.wt + 0.001) ~
                                       s(bb.sp, bs = "re") +
                                       #s(management, bs = "re") +
@@ -247,13 +263,13 @@ weighted_fl_abundance.global <- bam(log(fl.abund.wt + 0.001) ~
                                          by = year,
                                                 id = 0,
                                                 bs= c("gp", "tp"), 
-                                                k=c(8, 8), 
+                                                k=c(5, 5), 
                                                 m=2) +
                                       te(yday, elev.mean, 
                                                 by = bb.sp,
                                                 #id = 0,
                                                 bs= c("gp", "tp"), 
-                                                k=c(8, 8), 
+                                                k=c(10, 10), 
                                                 m=1),
                                     data = fl_abund_wt,
                                     discrete = TRUE,
@@ -278,46 +294,7 @@ weighted_fl_abundance.global2 <- bam(log(fl.abund.wt + 0.001) ~
                                     select = TRUE,
                                     method = "fREML") %>% getViz(nsim = 500)
 
-weighted_fl_abundance.global3 <- bam(log(fl.abund.wt + 0.001) ~
-                                      s(bb.sp, bs = "re") +
-                                      #s(management, bs = "re") +
-                                      s(year, bs = "re") +
-                                      s(site, bs = "re") +
-                                      te(yday, elev.mean, 
-                                              id = 0,
-                                              bs= c("gp", "tp"), 
-                                              k=c(10, 10), 
-                                              m=2) +
-                                      te(yday, elev.mean, 
-                                                by = bb.sp,
-                                                #id = 0,
-                                                bs= c("gp", "tp"), 
-                                                k=c(10, 10), 
-                                                m=1),
-                                    data = fl_abund_wt,
-                                    discrete = TRUE,
-                                    family = "gaussian",
-                                    select = TRUE,
-                                    method = "fREML") %>% getViz(nsim = 500)
-
-weighted_fl_abundance.global4 <- bam(log(fl.abund.wt + 0.001) ~
-                                      s(bb.sp, bs = "re") +
-                                      #s(management, bs = "re") +
-                                      s(year, bs = "re") +
-                                      s(site, bs = "re") +
-                                      te(yday, elev.mean, year,
-                                                by = bb.sp,
-                                                #id = 0,
-                                                bs= c("gp", "tp", "re"), 
-                                                k=c(5, 5), 
-                                                m=1),
-                                    data = fl_abund_wt,
-                                    discrete = TRUE,
-                                    family = "gaussian",
-                                    select = TRUE,
-                                    method = "fREML") %>% getViz(nsim = 500)
-
-AIC(weighted_fl_abundance.global, weighted_fl_abundance.global2, weighted_fl_abundance.global3, weighted_fl_abundance.global4)
+AIC(weighted_fl_abundance.global, weighted_fl_abundance.global2)
 
 check.gamViz(weighted_fl_abundance.global)
 check.gamViz(weighted_fl_abundance.global2)
@@ -326,85 +303,87 @@ check.gamViz(weighted_fl_abundance.global4)
 
 weighted_fl_abundance.global.sum <- summary(weighted_fl_abundance.global)
 weighted_fl_abundance.global.sum2 <- summary(weighted_fl_abundance.global2)
-weighted_fl_abundance.global.sum3 <- summary(weighted_fl_abundance.global3)
-weighted_fl_abundance.global.sum3 <- summary(weighted_fl_abundance.global4)
 
 print(plot(weighted_fl_abundance.global, allTerms = TRUE), pages = 4)
 print(plot(weighted_fl_abundance.global2, allTerms = TRUE), pages = 4)
-print(plot(weighted_fl_abundance.global3, allTerms = TRUE), pages = 4)
-print(plot(weighted_fl_abundance.global4, allTerms = TRUE), pages = 4)
-
-
 
 weighted_fl_abundance.global.ck <- check2D(weighted_fl_abundance.global, 
                                          x1 = "yday", x2 = "elev.mean")
 weighted_fl_abundance.global.ck + l_gridCheck2D(gridFun = mean)
 
+weighted_fl_abundance.global2.ck <- check2D(weighted_fl_abundance.global2, 
+                                         x1 = "yday", x2 = "elev.mean")
+weighted_fl_abundance.global2.ck + l_gridCheck2D(gridFun = mean)
+
 
 ### 2010
-weighted_fl_abundance.2010 <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + 
-                                    management + 
-                                    #slope.est +
-                                    #s(site, bs = "re") +
-                                    te(yday, elev.mean, 
-                                       by = bb.sp,
-                                       bs= c("gp", "tp"), 
-                                       k=c(10, 10), m=2),
-                                  data = filter(fl_abund_wt, year == 2010),
-                                  discrete = TRUE,
-                                  family = "tw",
-                                  select = TRUE,
-                                  method = "fREML") %>% getViz(nsim = 500)
+weighted_fl_abundance.2010 <- bam(log(fl.abund.wt + 0.001) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(10, 10), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2010),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
 
 check.gamViz(weighted_fl_abundance.2010)
 weighted_fl_abundance.2010.sum <- summary(weighted_fl_abundance.2010)
-print(plot(weighted_fl_abundance.2010, allTerms = TRUE), pages = 1)
+print(plot(weighted_fl_abundance.2010, allTerms = TRUE), pages = 4)
 weighted_fl_abundance.2010.ck <- check2D(weighted_fl_abundance.2010, 
                                          x1 = "yday", x2 = "elev.mean")
 weighted_fl_abundance.2010.ck + l_gridCheck2D(gridFun = mean)
 
 ### 2011
-weighted_fl_abundance.2011 <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + 
-                                    #s(transect, bs = "re") +
-                                    management + 
-                                    #slope.est +
-                                    #s(site, bs = "re") +
-                                    te(yday, elev.mean, 
-                                       by = bb.sp,
-                                       bs= c("gp", "tp"), 
-                                       k=c(10, 10), m=2),
-                                  data = filter(fl_abund_wt, year == 2011),
-                                  discrete = TRUE,
-                                  family = "tw",
-                                  select = TRUE,
-                                  method = "fREML") %>% getViz(nsim = 500)
+weighted_fl_abundance.2011 <- bam(log(fl.abund.wt + 0.001) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(10, 10), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2011),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
 
 check.gamViz(weighted_fl_abundance.2011)
 weighted_fl_abundance.2011.sum <- summary(weighted_fl_abundance.2011)
-print(plot(weighted_fl_abundance.2011, allTerms = TRUE), pages = 1)
+print(plot(weighted_fl_abundance.2011, allTerms = TRUE), pages = 4)
 weighted_fl_abundance.2011.ck <- check2D(weighted_fl_abundance.2011, 
                                          x1 = "yday", x2 = "elev.mean")
 weighted_fl_abundance.2011.ck + l_gridCheck2D(gridFun = mean)
 
 ### 2012
-weighted_fl_abundance.2012 <- bam(fl.abund.wt ~ s(bb.sp, bs = "re") + 
-                                    #s(transect, bs = "re") +
-                                    management + 
-                                    #slope.est +
-                                    s(site, bs = "re") +
-                                    te(yday, elev.mean, 
-                                       by = bb.sp,
-                                       bs= c("gp", "tp"), 
-                                       k=c(10, 10), m=1),
-                                  data = filter(fl_abund_wt, year == 2012),
-                                  discrete = TRUE,
-                                  family = "tw",
-                                  select = TRUE,
-                                  method = "fREML") %>% getViz(nsim = 500)
+weighted_fl_abundance.2012 <- bam(log(fl.abund.wt + 0.001) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(10, 10), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2012),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
 
 check.gamViz(weighted_fl_abundance.2012)
 weighted_fl_abundance.2012.sum <- summary(weighted_fl_abundance.2012)
-print(plot(weighted_fl_abundance.2012, allTerms = TRUE), pages = 1)
+print(plot(weighted_fl_abundance.2012, allTerms = TRUE), pages = 4)
 weighted_fl_abundance.2012.ck <- check2D(weighted_fl_abundance.2012, 
                                          x1 = "yday", x2 = "elev.mean")
 weighted_fl_abundance.2012.ck + l_gridCheck2D(gridFun = mean)

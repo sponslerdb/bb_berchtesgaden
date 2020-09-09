@@ -1031,3 +1031,173 @@ bigbam_2012 <- bamV(niche.overlap.HL ~ s(site, bs = "re") +
 check.gamViz(bigbam_2012)
 bigbam_2012.sum <- summary(bigbam_2012)
 print(plot(bigbam_2012, allTerms = TRUE), pages = 1)
+
+### Transect-level analysis
+```{r}
+beta_site.date.2010 <- betalinkr_multi(array_site.date.2010, 
+                                       partition.st = TRUE, 
+                                       partition.rr = TRUE) %>%
+  as_tibble() %>%
+  separate(i, into = c("site1", "year1", "yday1"), sep = "_") %>%
+  separate(j, into = c("site2", "year2", "yday2"), sep = "_") %>%
+  left_join(site_data, by = c("site1" = "site"))%>%
+  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1 = elev.mean, man1 = management, lon1 = lon, lat1 = lat) %>%
+  left_join(site_data, by = c("site2" = "site")) %>%
+  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
+  mutate(site1 = factor(site1),
+         site2 = factor(site2),
+         year1 = factor(year1),
+         year2 = factor(year2),
+         yday1 = as.numeric(yday1),
+         yday2 = as.numeric(yday2),
+         elev.diff = abs(elev1 - elev2),
+         mean.elev = (elev1 + elev2)/2,
+         yday.diff = abs(yday1 - yday2),
+         man.diff = case_when(
+           man1 == man2 ~ FALSE,
+           man1 != man2 ~ TRUE
+         )) %>%
+  gather(metric, value, -c(site1, year1, yday1, site2, year2, yday2,
+                           elev1, elev2, elev.diff, yday.diff, 
+                           man1, man2, man.diff, mean.elev, 
+                           lon1, lat1, lon2, lat2)) %>%
+  mutate(metric.class = case_when(
+    metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
+    metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
+    metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
+    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
+  ))
+
+beta_site.date.2011 <- betalinkr_multi(array_site.date.2011, 
+                                       partition.st = TRUE, 
+                                       partition.rr = TRUE) %>%
+  as_tibble() %>%
+  separate(i, into = c("site1", "year1", "yday1"), sep = "_") %>%
+  separate(j, into = c("site2", "year2", "yday2"), sep = "_") %>%
+  left_join(site_data, by = c("site1" = "site"))%>%
+  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1 = elev.mean, man1 = management, lon1 = lon, lat1 = lat) %>%
+  left_join(site_data, by = c("site2" = "site")) %>%
+  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
+  mutate(site1 = factor(site1),
+         site2 = factor(site2),
+         year1 = factor(year1),
+         year2 = factor(year2),
+         yday1 = as.numeric(yday1),
+         yday2 = as.numeric(yday2),
+         elev.diff = abs(elev1 - elev2),
+         mean.elev = (elev1 + elev2)/2,
+         yday.diff = abs(yday1 - yday2),
+         man.diff = case_when(
+           man1 == man2 ~ FALSE,
+           man1 != man2 ~ TRUE
+         )) %>%
+  gather(metric, value, -c(site1, year1, yday1, site2, year2, yday2,
+                           elev1, elev2, elev.diff, yday.diff, 
+                           man1, man2, man.diff, mean.elev, 
+                           lon1, lat1, lon2, lat2)) %>%
+  mutate(metric.class = case_when(
+    metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
+    metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
+    metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
+    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
+  ))
+
+beta_site.date.2012 <- betalinkr_multi(array_site.date.2012, 
+                                       partition.st = TRUE, 
+                                       partition.rr = TRUE) %>%
+  as_tibble() %>%
+  separate(i, into = c("site1", "year1", "yday1"), sep = "_") %>%
+  separate(j, into = c("site2", "year2", "yday2"), sep = "_") %>%
+  left_join(site_data, by = c("site1" = "site"))%>%
+  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1 = elev.mean, man1 = management, lon1 = lon, lat1 = lat) %>%
+  left_join(site_data, by = c("site2" = "site")) %>%
+  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
+  mutate(site1 = factor(site1),
+         site2 = factor(site2),
+         year1 = factor(year1),
+         year2 = factor(year2),
+         yday1 = as.numeric(yday1),
+         yday2 = as.numeric(yday2),
+         elev.diff = abs(elev1 - elev2),
+         mean.elev = (elev1 + elev2)/2,
+         yday.diff = abs(yday1 - yday2),
+         man.diff = case_when(
+           man1 == man2 ~ FALSE,
+           man1 != man2 ~ TRUE
+         )) %>%
+  gather(metric, value, -c(site1, year1, yday1, site2, year2, yday2,
+                           elev1, elev2, elev.diff, yday.diff, 
+                           man1, man2, man.diff, mean.elev, 
+                           lon1, lat1, lon2, lat2)) %>%
+  mutate(metric.class = case_when(
+    metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
+    metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
+    metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
+    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
+  ))
+
+beta_site.date <- bind_rows(beta_site.date.2010, beta_site.date.2011, beta_site.date.2012)
+beta_site.date_gdm.prep <- beta_site.date %>%
+  filter(metric == "WN")
+
+write_csv(beta_site.date, "../analyses/output/beta_site.date.csv")
+beta_site.date <- read_csv("../analyses/output/beta_site.date.csv")
+```
+
+
+# Beta diversity by elevation difference
+```{r}
+
+### Okay, we'll just do partial mantel tests to partial out the effect of transects.diff; and we'll only do that for the aggregate measures because it seems a bit silly to doi it for the partitions  
+WN_diff <- beta_site %>%
+  filter(metric == "WN") %>%
+  dplyr::select(site1, site2, value) %>%
+  spread(site2, value) %>%
+  dist()
+
+WN_diff <- beta_site %>%
+  filter(metric == "WN") %>%
+  dplyr::select(site1, site2, value) %>%
+  spread(site2, value) %>%
+  dist()
+
+ST_diff <- beta_site %>%
+  filter(metric == "ST") %>%
+  dplyr::select(site1, site2, value) %>%
+  spread(site2, value) %>%
+  dist()
+
+OS_diff <- beta_site %>%
+  filter(metric == "OS") %>%
+  dplyr::select(site1, site2, value) %>%
+  spread(site2, value) %>%
+  dist()
+
+elev_diff <- beta_site %>%
+  dplyr::select(site1, site2, elev.diff) %>%
+  unique() %>%
+  spread(site2, elev.diff) %>%
+  dist()
+
+transects_diff <- beta_site %>%
+  dplyr::select(site1, site2, transects.diff) %>%
+  unique() %>%
+  spread(site2, transects.diff) %>%
+  dist()
+
+WN_mantel <- mantel.partial(elev_diff, WN_diff, transects_diff)
+ST_mantel <- mantel.partial(elev_diff, ST_diff, transects_diff)
+OS_mantel <- mantel.partial(elev_diff, OS_diff, transects_diff)
+```
