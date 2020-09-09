@@ -54,237 +54,179 @@ OS = beta_OS, the dissimilarity (component) explained by "rewiring" among shared
 WN = beta_WN, the dissimilarity between the two networks
 ST = beta_ST, the dissimilarity (component) explained by difference in species community composition 
 ```{r message=FALSE}
+# Create webs
 net2010 <- filter(net, year == 2010) %>%
   unite(site.date, c(site, date), sep = "_") %>%
   group_by(site.date, bb.sp, plant.sp) %>%
-  summarize(freq = n()) %>% 
+  summarize(freq = n()) %>%
+  group_by(site.date) %>%
+  mutate(bb.sp.count = length(unique(bb.sp)),
+         plant.sp.count = length(unique(plant.sp))) %>%
+  ungroup() %>%
+  filter(bb.sp.count > 1 & plant.sp.count > 1) %>% # the betalinkr function fails if you feed it webs with only 1 species in either (or perhaps both) of the levels; this is probably for good reason.
   dplyr::select(higher = bb.sp, lower = plant.sp, webID = site.date, freq) %>% # rename columns to match bipartite's expectations
   data.frame() %>% # convert to data frame
-  frame2webs()
+  frame2webs(type.out = "array")
 
 net2011 <- filter(net, year == 2011) %>%
   unite(site.date, c(site, date), sep = "_") %>%
   group_by(site.date, bb.sp, plant.sp) %>%
-  summarize(freq = n()) %>% 
+  summarize(freq = n()) %>%
+  group_by(site.date) %>%
+  mutate(bb.sp.count = length(unique(bb.sp)),
+         plant.sp.count = length(unique(plant.sp))) %>%
+  ungroup() %>%
+  filter(bb.sp.count > 1 & plant.sp.count > 1) %>% 
   dplyr::select(higher = bb.sp, lower = plant.sp, webID = site.date, freq) %>% # rename columns to match bipartite's expectations
   data.frame() %>% # convert to data frame
-  frame2webs()
+  frame2webs(type.out = "array")
 
 net2012 <- filter(net, year == 2012) %>%
   unite(site.date, c(site, date), sep = "_") %>%
   group_by(site.date, bb.sp, plant.sp) %>%
-  summarize(freq = n()) %>% 
+  summarize(freq = n()) %>%
+  group_by(site.date) %>%
+  mutate(bb.sp.count = length(unique(bb.sp)),
+         plant.sp.count = length(unique(plant.sp))) %>%
+  ungroup() %>%
+  filter(bb.sp.count > 1 & plant.sp.count > 1) %>% 
   dplyr::select(higher = bb.sp, lower = plant.sp, webID = site.date, freq) %>% # rename columns to match bipartite's expectations
   data.frame() %>% # convert to data frame
-  frame2webs()
+  frame2webs(type.out = "array")
 
-array_site.date.2010 <- webs2array(net2010) # convert to array of webs
-array_site.date.2011 <- webs2array(net2011) # convert to array of webs
-array_site.date.2012 <- webs2array(net2012) # convert to array of webs
-
-
-beta_site.date.2010 <- betalinkr_multi(array_site.date.2010, 
+# Calculate beta-diversity
+beta_site.date.2010 <- betalinkr_multi(net2010, 
                                        partition.st = TRUE, 
-                                       partition.rr = TRUE) %>%
-  as_tibble() %>%
-  separate(i, into = c("site1", "year1", "yday1"), sep = "_") %>%
-  separate(j, into = c("site2", "year2", "yday2"), sep = "_") %>%
-  left_join(site_data, by = c("site1" = "site"))%>%
-  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
-                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
-                elev1 = elev.mean, man1 = management, lon1 = lon, lat1 = lat) %>%
-  left_join(site_data, by = c("site2" = "site")) %>%
-  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
-                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
-                elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
-  mutate(site1 = factor(site1),
-         site2 = factor(site2),
-         year1 = factor(year1),
-         year2 = factor(year2),
-         yday1 = as.numeric(yday1),
-         yday2 = as.numeric(yday2),
-         elev.diff = abs(elev1 - elev2),
-         mean.elev = (elev1 + elev2)/2,
-         yday.diff = abs(yday1 - yday2),
-         man.diff = case_when(
-           man1 == man2 ~ FALSE,
-           man1 != man2 ~ TRUE
-         )) %>%
-  gather(metric, value, -c(site1, year1, yday1, site2, year2, yday2,
-                           elev1, elev2, elev.diff, yday.diff, 
-                           man1, man2, man.diff, mean.elev, 
-                           lon1, lat1, lon2, lat2)) %>%
-  mutate(metric.class = case_when(
-    metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
-    metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
-    metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
-    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
-  ))
+                                       partition.rr = TRUE,
+                                       binary = TRUE,
+                                       index = "jaccard") %>%
+  as_tibble() 
 
-beta_site.date.2011 <- betalinkr_multi(array_site.date.2011, 
+beta_site.date.2011 <- betalinkr_multi(net2011, 
                                        partition.st = TRUE, 
-                                       partition.rr = TRUE) %>%
-  as_tibble() %>%
-  separate(i, into = c("site1", "year1", "yday1"), sep = "_") %>%
-  separate(j, into = c("site2", "year2", "yday2"), sep = "_") %>%
-  left_join(site_data, by = c("site1" = "site"))%>%
-  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
-                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
-                elev1 = elev.mean, man1 = management, lon1 = lon, lat1 = lat) %>%
-  left_join(site_data, by = c("site2" = "site")) %>%
-  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
-                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
-                elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
-  mutate(site1 = factor(site1),
-         site2 = factor(site2),
-         year1 = factor(year1),
-         year2 = factor(year2),
-         yday1 = as.numeric(yday1),
-         yday2 = as.numeric(yday2),
-         elev.diff = abs(elev1 - elev2),
-         mean.elev = (elev1 + elev2)/2,
-         yday.diff = abs(yday1 - yday2),
-         man.diff = case_when(
-           man1 == man2 ~ FALSE,
-           man1 != man2 ~ TRUE
-         )) %>%
-  gather(metric, value, -c(site1, year1, yday1, site2, year2, yday2,
-                           elev1, elev2, elev.diff, yday.diff, 
-                           man1, man2, man.diff, mean.elev, 
-                           lon1, lat1, lon2, lat2)) %>%
-  mutate(metric.class = case_when(
-    metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
-    metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
-    metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
-    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
-  ))
+                                       partition.rr = TRUE,
+                                       binary = TRUE,
+                                       index = "jaccard") %>%
+  as_tibble()
 
-beta_site.date.2012 <- betalinkr_multi(array_site.date.2012, 
+beta_site.date.2012 <- betalinkr_multi(net2012, 
                                        partition.st = TRUE, 
-                                       partition.rr = TRUE) %>%
-  as_tibble() %>%
-  separate(i, into = c("site1", "year1", "yday1"), sep = "_") %>%
-  separate(j, into = c("site2", "year2", "yday2"), sep = "_") %>%
-  left_join(site_data, by = c("site1" = "site"))%>%
-  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
-                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
-                elev1 = elev.mean, man1 = management, lon1 = lon, lat1 = lat) %>%
-  left_join(site_data, by = c("site2" = "site")) %>%
-  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
-                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
-                elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
-  mutate(site1 = factor(site1),
-         site2 = factor(site2),
-         year1 = factor(year1),
-         year2 = factor(year2),
-         yday1 = as.numeric(yday1),
-         yday2 = as.numeric(yday2),
-         elev.diff = abs(elev1 - elev2),
-         mean.elev = (elev1 + elev2)/2,
-         yday.diff = abs(yday1 - yday2),
-         man.diff = case_when(
-           man1 == man2 ~ FALSE,
-           man1 != man2 ~ TRUE
-         )) %>%
-  gather(metric, value, -c(site1, year1, yday1, site2, year2, yday2,
-                           elev1, elev2, elev.diff, yday.diff, 
-                           man1, man2, man.diff, mean.elev, 
-                           lon1, lat1, lon2, lat2)) %>%
-  mutate(metric.class = case_when(
-    metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
-    metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
-    metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
-    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
-  ))
+                                       partition.rr = TRUE,
+                                       binary = TRUE,
+                                       index = "jaccard") %>%
+  as_tibble()
 
+# Collate results into a single tibble
 beta_site.date <- bind_rows(beta_site.date.2010, beta_site.date.2011, beta_site.date.2012)
-beta_site.date_gdm.prep <- beta_site.date %>%
-  filter(metric == "WN")
 
-write_csv(beta_site.date, "../analyses/output/beta_site.date.csv")
-beta_site.date <- read_csv("../analyses/output/beta_site.date.csv") %>%
-  mutate(year1 = factor(year1),
+# Save to file to avoid redoing that long step
+write_csv(beta_site.date, "./output/beta_site.date.csv")
+#beta_site.date <- read_csv("./output/beta_site.date.csv")
+
+# Add site data
+beta_mit_data <- beta_site.date %>%
+  separate(i, into = c("site1", "date1"), sep = "_") %>%
+  separate(j, into = c("site2", "date2"), sep = "_") %>%
+  mutate(date1 = ymd(date1),
+         date2 = ymd(date2),
+         year1 = factor(year(date1)),
+         year2 = factor(year(date2)),
+         yday1 = yday(date1),
+         yday2 = yday(date2)) %>%
+  left_join(site_data, by = c("site1" = "site")) %>%
+  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1 = elev.mean, man1 = management, lon1 = lon, lat1 = lat) %>%
+  left_join(site_data, by = c("site2" = "site")) %>%
+  dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
+  mutate(site1 = factor(site1),
+         site2 = factor(site2),
+         year1 = factor(year1),
          year2 = factor(year2),
-         metric = factor(metric))
+         yday1 = as.numeric(yday1),
+         yday2 = as.numeric(yday2),
+         elev.diff = abs(elev1 - elev2),
+         mean.elev = (elev1 + elev2)/2,
+         yday.diff = abs(yday1 - yday2),
+         man.diff = case_when(
+           man1 == man2 ~ FALSE,
+           man1 != man2 ~ TRUE
+         )) %>%
+  gather(metric, value, -c(site1, year1, yday1, site2, year2, yday2,
+                           elev1, elev2, elev.diff, yday.diff, 
+                           man1, man2, man.diff, mean.elev, 
+                           lon1, lat1, lon2, lat2)) %>%
+  mutate(metric.class = case_when(
+    metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
+    metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
+    metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
+    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
+  ))
 ```
 
 ### Plot results. There's nothing a Mantel test can tell me that I don't already know from the combination of plotting and GDM analysis.
 ```{r}
 ### Elevation diff
-ggplot(filter(beta_site.date, year1 == year2,
+ggplot(filter(beta_mit_data, year1 == year2 &
+                site1 != site2 &
                 metric != "S" & 
                 metric.class != "OS.partition"), 
        aes(elev.diff, value, color = metric)) +
-  geom_point(alpha = 0.15, size = 0.5) +
+  geom_point(alpha = 0.25, pch = 16) +
   geom_smooth() +
   facet_grid(metric.class ~ year1) +
   theme_abyss()
 
 ### Time diff
-ggplot(filter(beta_site.date, year1 == year2,
+ggplot(filter(beta_mit_data, year1 == year2 &
+                site1 != site2 &
                 metric != "S" & 
                 metric.class != "OS.partition"), 
        aes(yday.diff, value, color = metric)) +
-  geom_point(alpha = 0.15, size = 0.5) +
+  geom_point(alpha = 0.25, pch = 16) +
   geom_smooth() +
   facet_grid(metric.class ~ year1) +
   theme_abyss()
 
 ### Elevation diff within 1 wk time diff
-ggplot(filter(beta_site.date, year1 == year2,
+ggplot(filter(beta_mit_data, year1 == year2 &
+                site1 != site2 &
                 metric != "S" & 
                 metric.class != "OS.partition" &
                 yday.diff <= 7), 
        aes(elev.diff, value, color = metric)) +
-  geom_point(alpha = 0.15, size = 0.5) +
+  geom_point(alpha = 0.15, pch = 16, size = 1) +
   geom_smooth() +
   facet_wrap(~metric.class) +
   theme_light()
-
-ggplot(filter(beta_site.date, year1 == year2,
-                metric != "S" & 
-                metric.class != "OS.partition" &
-                yday.diff <= 7), 
-       aes(elev.diff, value, color = metric)) +
-  geom_point(alpha = 0.15, size = 0.5) +
-  geom_smooth() +
-  facet_grid(metric.class ~ year1) +
-  theme_abyss()
 
 ### Time diff within 250 m elev diff
-ggplot(filter(beta_site.date, year1 == year2,
+ggplot(filter(beta_mit_data, year1 == year2 &
+                site1 != site2 &
                 metric != "S" & 
                 metric.class != "OS.partition" &
-                elev.diff <= 7), 
+                elev.diff <= 250), 
        aes(yday.diff, value, color = metric)) +
-  geom_point(alpha = 0.15, size = 0.5) +
+  geom_point(alpha = 0.15, pch = 16, size = 1) +
   geom_smooth() +
   facet_wrap(~metric.class) +
   theme_light()
-
-ggplot(filter(beta_site.date, year1 == year2,
-                metric != "S" & 
-                metric.class != "OS.partition" &
-                elev.diff <= 7), 
-       aes(yday.diff, value, color = metric)) +
-  geom_point(alpha = 0.15, size = 0.5) +
-  geom_smooth() +
-  facet_grid(metric.class ~ year1) +
-  theme_abyss()
 
 ### 2D ElevationDiff*TimeDiff
 gam_betadiv <- bamV(value ~ te(elev.diff, yday.diff, 
                                bs = c("te", "te"),
                                k = c(10, 10)),
                     family = "quasibinomial",
-                    data = filter(beta_site.date, year1 == year2 &
+                    data = filter(beta_mit_data, year1 == year2 &
                                     metric == "WN"),
                     method = "REML")
 
 gam_betadiv <- bam(value ~ 
                      s(year1, bs = "re") +
                      te(yday.diff, elev.diff, k = c(10, 10)),
-                   data = filter(beta_site.date, year1 == year2 &
+                   data = filter(beta_mit_data, year1 == year2 &
                                    metric == "WN.rich"),
                    family = "quasibinomial",
                    discrete = TRUE,
@@ -298,12 +240,12 @@ ggplot(filter(beta_site.date, year1 == year2 & metric == "WN"),
   geom_histogram()
 ```
 
-### GDM analysis. I don't think p-values would add anything to the interpretation I get from the plotted uncertainty, so it's okay that I can't get gdm.varImp() to work.
+### GDM analysis.
 ```{r}
 ### 2010
-sitepair_2010.WN <- beta_site.date %>%
+sitepair_2010.WN <- beta_mit_data %>%
   ungroup() %>%
-  filter(year1 == year2 & year1 == 2010) %>%
+  filter(year1 == year2 & year1 == 2010 & site1 != site2) %>% # I don't think we want to compare samples through within sites, since this introduces a new form of non-independence.
   filter(metric == "WN") %>%
   mutate(weights = rep(1, n())) %>%
   dplyr::select(distance = value, weights,
@@ -321,9 +263,9 @@ plot(gdm_WN.2010)
 plotUncertainty(sitepair_2010.WN, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 
 ### 2011
-sitepair_2011.WN <- beta_site.date %>%
+sitepair_2011.WN <- beta_mit_data %>%
   ungroup() %>%
-  filter(year1 == year2 & year1 == 2011) %>%
+  filter(year1 == year2 & year1 == 2011 & site1 != site2) %>%
   filter(metric == "WN") %>%
   mutate(weights = rep(1, n())) %>%
   dplyr::select(distance = value, weights,
@@ -341,9 +283,9 @@ plot(gdm_WN.2011)
 plotUncertainty(sitepair_2011.WN, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 
 ### 2012
-sitepair_2012.WN <- beta_site.date %>%
+sitepair_2012.WN <- beta_mit_data %>%
   ungroup() %>%
-  filter(year1 == year2 & year1 == 2012) %>%
+  filter(year1 == year2 & year1 == 2012 & site1 != site2) %>%
   filter(metric == "WN") %>%
   mutate(weights = rep(1, n())) %>%
   dplyr::select(distance = value, weights,
@@ -371,6 +313,7 @@ survey_bioData.2012 <- survey %>%
   mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
   group_by(site, yday, plant.sp) %>%
   summarize(cover = sum(flower.cover)) %>%
+  mutate(cover = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
   spread(plant.sp, cover) %>%
   replace(is.na(.), 0) %>%
   arrange(site, yday) %>%
@@ -390,7 +333,7 @@ survey_predData.2012 <- survey %>%
   dplyr::select(-site)
 
 survey_sitepair.2012 <- formatsitepair(survey_bioData.2012, bioFormat = 1, siteColumn = "site.day", dist = "jaccard",
-                              XColumn = "lon", YColumn = "lat", predData = survey_predData.2012)
+                              XColumn = "lon", YColumn = "lat", predData = survey_predData.2012, abundance = FALSE)
 
 ### Call gdm()
 gdm_survey.2012 <- gdm(survey_sitepair.2012, geo = TRUE)
@@ -408,12 +351,13 @@ survey_bioData.2011 <- survey %>%
   mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
   group_by(site, yday, plant.sp) %>%
   summarize(cover = sum(flower.cover)) %>%
+  mutate(cover = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
   spread(plant.sp, cover) %>%
   replace(is.na(.), 0) %>%
   arrange(site, yday) %>%
   unite(site.day, site, yday, sep = "_")
 
-predData.2011 <- survey %>%
+survey_predData.2011 <- survey %>%
   mutate(year = year(date),
          yday = yday(date)) %>%
   filter(flower.cover > 0 & year == "2011") %>%
@@ -427,7 +371,7 @@ predData.2011 <- survey %>%
   select(-site)
 
 survey_sitepair.2011 <- formatsitepair(survey_bioData.2011, bioFormat = 1, siteColumn = "site.day", dist = "jaccard",
-                              XColumn = "lon", YColumn = "lat", predData = predData.2011)
+                              XColumn = "lon", YColumn = "lat", predData = survey_predData.2011)
 
 ### Call gdm()
 gdm_survey.2011 <- gdm(survey_sitepair.2011, geo = TRUE)
@@ -445,6 +389,7 @@ survey_bioData.2010 <- survey %>%
   mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
   group_by(site, yday, plant.sp) %>%
   summarize(cover = sum(flower.cover)) %>%
+  mutate(cover = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
   spread(plant.sp, cover) %>%
   replace(is.na(.), 0) %>%
   arrange(site, yday) %>%
@@ -596,6 +541,8 @@ gdm.varImp(bb_sitepair.2012, geo = TRUE)
 summary(gdm_bb.2012)
 plot(gdm_bb.2012)
 plotUncertainty(bb_sitepair.2012, sampleSites = 0.7, bsIters = 50, geo  = TRUE)
+
+                                                 Drosophila?
 ```
 
 
