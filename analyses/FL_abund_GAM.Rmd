@@ -1,5 +1,5 @@
 ---
-title: "preference"
+title: "FL_abund_GAM"
 output: html_document
 ---
 ### Prepare environment
@@ -13,16 +13,15 @@ library(lubridate)
 ### Climate data
 ```{r, include=FALSE, echo=FALSE}
 gdd <- read_csv("../processed_data/climate.csv") %>%
-  mutate(year = factor(year)) %>%
-  dplyr::select(site, year, date, gdd.cum) %>%
-  semi_join(read_csv("../processed_data/network.csv"), by = "site")
+  mutate(year = factor(year)) %>% # make year a factor
+  dplyr::select(site, year, date, gdd.cum) %>% # drop unused columns
+  semi_join(read_csv("../processed_data/network.csv"), by = "site") # drop sites that were not samples
 ```
 
 ### Load site data
 ```{r, include=FALSE, echo=FALSE}
 site_data <- read_csv("../processed_data/site_data.csv") %>%
-  #dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
-  mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
+  mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")), # rename in English
          elev.class2 = factor(elev.class2, levels = c("high", "mid", "low")))
 ```
 
@@ -30,29 +29,18 @@ site_data <- read_csv("../processed_data/site_data.csv") %>%
 ```{r}
 ### BB-FL visitation data
 net <- read_csv("../processed_data/network.csv") %>%
-  dplyr::select(site, date, bb.sp, plant.sp)
+  dplyr::select(site, date, bb.sp, plant.sp) # drop unused columns
 
 ### Floral survey data
 survey <- read_csv("../processed_data/floral_survey.csv") %>%
-  semi_join(net, by = "plant.sp") %>% # Consider only plants visited (anytime anywhere, not specifically for a given site*date)
+  semi_join(net, by = "plant.sp") %>% # Consider only visited plant species (anytime anywhere, not specifically for a given site*date)
   dplyr::select(site, date, plant.sp, flower.cover)
 
+### Identify duplicate observations; these may be errors or intentionally duplicated (see correspondence with Kalli)
 survey_dups <- survey %>%
   group_by(site, date, plant.sp) %>%
   mutate(dups = n()) %>%
-  filter(dups > 1) 
-
-dup_species <- survey_dups %>%
-  group_by(plant.sp) %>%
-  mutate(dups = n()/2) %>%
-  group_by(site, date, plant.sp, dups) %>%
-  mutate(different = length(unique(flower.cover)) -1) %>%
-  group_by(site, date, plant.sp, dups) %>%
-  summarize(different = mean(different)) %>%
-  group_by(plant.sp, dups) %>%
-  summarize(different.dups = sum(different)) %>% 
-  arrange(-dups)
-
+  filter(dups > 1)
 
 ### Shared transects
 shared_transects <- inner_join(net, survey, by = c("site", "date")) %>%
@@ -71,7 +59,7 @@ bb_abund_sp <- net %>%
   ungroup %>%
   complete(site, date, bb.sp, fill = list(bb.abund = 0)) %>% # complete implicit absences
   mutate(year = factor(year(date))) %>%
-  semi_join(net, by = c("site", "date")) # only include site-dates that actually occurred
+  semi_join(shared_transects, by = c("site", "date")) # only include site-dates that actually occurred
 
 ### Per-transect floral abund: by species
 fl_abund_sp <- survey %>%
@@ -320,7 +308,7 @@ weighted_fl_abundance.global2.ck + l_gridCheck2D(gridFun = mean)
 weighted_fl_abundance.2010 <- bam(log(fl.abund.wt + 0.001) ~
                                       s(bb.sp, bs = "re") +
                                       #s(management, bs = "re") +
-                                      s(site, bs = "re") +
+                                      #s(site, bs = "re") +
                                       te(yday, elev.mean, 
                                                 by = bb.sp,
                                                 #id = 0,
@@ -333,11 +321,37 @@ weighted_fl_abundance.2010 <- bam(log(fl.abund.wt + 0.001) ~
                                     select = TRUE,
                                     method = "fREML") %>% getViz(nsim = 500)
 
+weighted_fl_abundance.2010b <- bam(fl.abund.wt + 0.001 ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(15, 15), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2010),
+                                    discrete = TRUE,
+                                    family = "tw",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
 check.gamViz(weighted_fl_abundance.2010)
+check.gamViz(weighted_fl_abundance.2010b)
+
 weighted_fl_abundance.2010.sum <- summary(weighted_fl_abundance.2010)
 print(plot(weighted_fl_abundance.2010, allTerms = TRUE), pages = 4)
+print(plot(weighted_fl_abundance.2010b, allTerms = TRUE), pages = 4)
+
+plot(sm(weighted_fl_abundance.2010, 2))
+plot(sm(weighted_fl_abundance.2010b, 2))
+
 weighted_fl_abundance.2010.ck <- check2D(weighted_fl_abundance.2010, 
                                          x1 = "yday", x2 = "elev.mean")
+weighted_fl_abundance.2010b.ck <- check2D(weighted_fl_abundance.2010b, 
+                                         x1 = "yday", x2 = "elev.mean")
+
 weighted_fl_abundance.2010.ck + l_gridCheck2D(gridFun = mean)
 
 ### 2011

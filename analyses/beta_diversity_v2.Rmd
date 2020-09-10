@@ -31,20 +31,17 @@ site_data <- read_csv("../processed_data/site_data.csv") %>%
   dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
   mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
          elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) %>% # turn elav.class into an ordered factor
-  semi_join(read_csv("../processed_data/network.csv"), by = "site")
+  semi_join(read_csv("../processed_data/network.csv"), by = "site") # drop sites that were not sampled
 ```
 
 ### Load network and survey data
 ```{r}
-net <- read_csv("../processed_data/network.csv")%>%
-  unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
-  unite(site.year.day, site, year, dayofyear, sep = "_", remove = FALSE) %>%
-  mutate(year = factor(year)) %>% # convert year to factor
-  group_by(site, date) %>%
-  arrange(site, date) 
+net <- read_csv("../processed_data/network.csv") %>%
+  unite(site.year.day, site, year, dayofyear, sep = "_", remove = FALSE) %>% # create site.date field that can be split up again later
+  mutate(year = factor(year)) # convert year to factor
 
 survey <- read_csv("../processed_data/floral_survey.csv") %>%
-  semi_join(net, by = "plant.sp") %>% # Consider only plants visited (anytime anywhere, not specifically for a given site*date)
+  semi_join(net, by = "plant.sp") %>% # Consider only visited plant spp. (anytime, anywhere, not specifically for a given site*date)
   dplyr::select(site, date, plant.sp, flower.cover)
 ```
 
@@ -54,9 +51,11 @@ OS = beta_OS, the dissimilarity (component) explained by "rewiring" among shared
 WN = beta_WN, the dissimilarity between the two networks
 ST = beta_ST, the dissimilarity (component) explained by difference in species community composition 
 ```{r message=FALSE}
-# Create webs
-net2010 <- filter(net, year == 2010) %>%
-  unite(site.date, c(site, date), sep = "_") %>%
+# Function to convert networks to webs arrays
+web_prep <- function(net, y) {
+  out <- net %>%
+    filter(year == y) %>%
+    unite(site.date, c(site, date), sep = "_") %>%
   group_by(site.date, bb.sp, plant.sp) %>%
   summarize(freq = n()) %>%
   group_by(site.date) %>%
@@ -67,54 +66,25 @@ net2010 <- filter(net, year == 2010) %>%
   dplyr::select(higher = bb.sp, lower = plant.sp, webID = site.date, freq) %>% # rename columns to match bipartite's expectations
   data.frame() %>% # convert to data frame
   frame2webs(type.out = "array")
+}
 
-net2011 <- filter(net, year == 2011) %>%
-  unite(site.date, c(site, date), sep = "_") %>%
-  group_by(site.date, bb.sp, plant.sp) %>%
-  summarize(freq = n()) %>%
-  group_by(site.date) %>%
-  mutate(bb.sp.count = length(unique(bb.sp)),
-         plant.sp.count = length(unique(plant.sp))) %>%
-  ungroup() %>%
-  filter(bb.sp.count > 1 & plant.sp.count > 1) %>% 
-  dplyr::select(higher = bb.sp, lower = plant.sp, webID = site.date, freq) %>% # rename columns to match bipartite's expectations
-  data.frame() %>% # convert to data frame
-  frame2webs(type.out = "array")
+# Create webs
+net2010 <- web_prep(net, 2010)
+net2011 <- web_prep(net, 2011)
+net2012 <- web_prep(net, 2012)
 
-net2012 <- filter(net, year == 2012) %>%
-  unite(site.date, c(site, date), sep = "_") %>%
-  group_by(site.date, bb.sp, plant.sp) %>%
-  summarize(freq = n()) %>%
-  group_by(site.date) %>%
-  mutate(bb.sp.count = length(unique(bb.sp)),
-         plant.sp.count = length(unique(plant.sp))) %>%
-  ungroup() %>%
-  filter(bb.sp.count > 1 & plant.sp.count > 1) %>% 
-  dplyr::select(higher = bb.sp, lower = plant.sp, webID = site.date, freq) %>% # rename columns to match bipartite's expectations
-  data.frame() %>% # convert to data frame
-  frame2webs(type.out = "array")
+# Function with betalinkr settings and conversion to tibble()
+betalinkr_set1 <- function(x) {
+  betalinkr_multi(x, partition.st = TRUE, partition.rr = TRUE, # partition both species turnover and richness/replacement
+                  binary = TRUE, # treating beta-diversity as binary is an appropriate complement to our abundance analysis
+                  index = "jaccard") %>% # the Jaccard index is best, I think, for binary analysis
+  as_tibble() # for convenience
+}
 
 # Calculate beta-diversity
-beta_site.date.2010 <- betalinkr_multi(net2010, 
-                                       partition.st = TRUE, 
-                                       partition.rr = TRUE,
-                                       binary = TRUE,
-                                       index = "jaccard") %>%
-  as_tibble() 
-
-beta_site.date.2011 <- betalinkr_multi(net2011, 
-                                       partition.st = TRUE, 
-                                       partition.rr = TRUE,
-                                       binary = TRUE,
-                                       index = "jaccard") %>%
-  as_tibble()
-
-beta_site.date.2012 <- betalinkr_multi(net2012, 
-                                       partition.st = TRUE, 
-                                       partition.rr = TRUE,
-                                       binary = TRUE,
-                                       index = "jaccard") %>%
-  as_tibble()
+beta_site.date.2010 <- betalinkr_set1(net2010)
+beta_site.date.2011 <- betalinkr_set1(net2011) 
+beta_site.date.2012 <- betalinkr_set1(net2012) 
 
 # Collate results into a single tibble
 beta_site.date <- bind_rows(beta_site.date.2010, beta_site.date.2011, beta_site.date.2012)
@@ -166,9 +136,14 @@ beta_mit_data <- beta_site.date %>%
   ))
 ```
 
-### Plot results. There's nothing a Mantel test can tell me that I don't already know from the combination of plotting and GDM analysis.
+### Plot interaction beta-diversity against elevation difference and time difference
 ```{r}
-### Elevation diff
+# Set palette
+p <- c("OS" = "deepskyblue", "ST" = "green3", 
+       "ST.h" = "firebrick1", "ST.l" = "darkorchid", 
+       "ST.lh" = "gold", "WN" = "black")
+
+# Elevation diff
 ggplot(filter(beta_mit_data, year1 == year2 &
                 site1 != site2 &
                 metric != "S" & 
@@ -177,10 +152,10 @@ ggplot(filter(beta_mit_data, year1 == year2 &
   geom_point(alpha = 0.25, pch = 16) +
   geom_smooth() +
   facet_grid(metric.class ~ year1) +
-  scale_color_brewer(type = "qual", palette = 6) +
+  scale_color_manual(values = p) +
   theme_abyss()
 
-### Time diff
+# Time diff
 ggplot(filter(beta_mit_data, year1 == year2 &
                 site1 != site2 &
                 metric != "S" & 
@@ -189,10 +164,10 @@ ggplot(filter(beta_mit_data, year1 == year2 &
   geom_point(alpha = 0.25, pch = 16) +
   geom_smooth() +
   facet_grid(metric.class ~ year1) +
-  scale_color_brewer(type = "qual", palette = 6) +
+  scale_color_manual(values = p) +
   theme_abyss()
 
-### Elevation diff within 1 wk time diff
+# Elevation diff within 1 wk time diff
 ggplot(filter(beta_mit_data, year1 == year2 &
                 site1 != site2 &
                 metric != "S" & 
@@ -201,12 +176,11 @@ ggplot(filter(beta_mit_data, year1 == year2 &
        aes(elev.diff, value, color = metric)) +
   geom_point(alpha = 0.1, pch = 16, size = 1) +
   geom_smooth() +
-  facet_wrap(~metric.class) +
   facet_grid(metric.class ~ year1) +
-  scale_color_brewer(type = "qual", palette = 6) +
+  scale_color_manual(values = p) +
   theme_light()
 
-### Time diff within 250 m elev diff
+# Time diff within 250 m elev diff
 ggplot(filter(beta_mit_data, year1 == year2 &
                 site1 != site2 &
                 metric != "S" & 
@@ -215,314 +189,205 @@ ggplot(filter(beta_mit_data, year1 == year2 &
        aes(yday.diff, value, color = metric)) +
   geom_point(alpha = 0.1, pch = 16, size = 1) +
   geom_smooth() +
-  facet_wrap(~metric.class) +
-  scale_color_brewer(type = "qual", palette = 6) +
+  facet_grid(metric.class ~ year1) +
+  scale_color_manual(values = p) +
   theme_light()
 ```
 
-### GDM analysis.
-```{r}
-### 2010
-sitepair_2010.WN <- beta_mit_data %>%
-  ungroup() %>%
-  filter(year1 == year2 & year1 == 2010 & site1 != site2) %>% # I don't think we want to compare samples through within sites, since this introduces a new form of non-independence.
-  filter(metric == "WN") %>%
-  mutate(weights = rep(1, n())) %>%
-  dplyr::select(distance = value, weights,
-         s1.xCoord = lon1, s1.yCoord = lat1, 
-         s2.xCoord = lon2, s2.yCoord = lat2, 
-         s1.elev = elev1, s1.yday = yday1,
-         s2.elev = elev2, s2.yday = yday2) %>%
-  data.frame()
+### GDM: Interactions
+```{r message=FALSE, warning=FALSE}
+# Site_pair prep function
+site_pair_prep_net <- function(dat, y) {
+  beta_mit_data %>%
+    ungroup() %>%
+    filter(year1 == year2 & 
+             year1 == y & 
+             site1 != site2) %>% # I don't think we want to compare samples through within sites, introduces a new form of non-independence.
+    filter(metric == "WN") %>% # we'll focus for now on WN, but this could be done for partitions, too
+    mutate(weights = rep(1, n())) %>% # right now this analysis is unweighted; could weight by abundance, etc, if we wanted to
+    dplyr::select(distance = value, weights,
+                  s1.xCoord = lon1, s1.yCoord = lat1, 
+                  s2.xCoord = lon2, s2.yCoord = lat2, 
+                  s1.elev = elev1, s1.yday = yday1,
+                  s2.elev = elev2, s2.yday = yday2) %>%
+    data.frame()
+}
 
+# Prep site-pairs for GDM analysis
+### 2010
+sitepair_2010.WN <- site_pair_prep_net(beta_mit_data, 2010)
+sitepair_2011.WN <- site_pair_prep_net(beta_mit_data, 2011)
+sitepair_2012.WN <- site_pair_prep_net(beta_mit_data, 2012)
+
+# Run GDM analysis
 gdm_WN.2010 <- gdm(sitepair_2010.WN, geo = TRUE)
-gdm_WN.2010.imp <- gdm.varImp(sitepair_2010.WN, geo = TRUE)
+gdm_WN.2011 <- gdm(sitepair_2011.WN, geo = TRUE)
+gdm_WN.2012 <- gdm(sitepair_2012.WN, geo = TRUE)
 
 summary(gdm_WN.2010)
-plot(gdm_WN.2010)
-plotUncertainty(sitepair_2010.WN, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
-
-### 2011
-sitepair_2011.WN <- beta_mit_data %>%
-  ungroup() %>%
-  filter(year1 == year2 & year1 == 2011 & site1 != site2) %>%
-  filter(metric == "WN") %>%
-  mutate(weights = rep(1, n())) %>%
-  dplyr::select(distance = value, weights,
-         s1.xCoord = lon1, s1.yCoord = lat1, 
-         s2.xCoord = lon2, s2.yCoord = lat2, 
-         s1.elev = elev1, s1.yday = yday1,
-         s2.elev = elev2, s2.yday = yday2) %>%
-  data.frame()
-
-gdm_WN.2011 <- gdm(sitepair_2011.WN, geo = TRUE)
-gdm_WN.2011.imp <- gdm.varImp(sitepair_2011.WN, geo = TRUE)
-
 summary(gdm_WN.2011)
-plot(gdm_WN.2011)
-plotUncertainty(sitepair_2011.WN, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+summary(gdm_WN.2012)
 
-### 2012
-sitepair_2012.WN <- beta_mit_data %>%
-  ungroup() %>%
-  filter(year1 == year2 & year1 == 2012 & site1 != site2) %>%
-  filter(metric == "WN") %>%
-  mutate(weights = rep(1, n())) %>%
-  dplyr::select(distance = value, weights,
-         s1.xCoord = lon1, s1.yCoord = lat1, 
-         s2.xCoord = lon2, s2.yCoord = lat2, 
-         s1.elev = elev1, s1.yday = yday1,
-         s2.elev = elev2, s2.yday = yday2) %>%
-  data.frame()
-
-gdm_WN.2012 <- gdm(sitepair_2012.WN, geo = TRUE)
+# Permutation tests (slow)
+gdm_WN.2010.imp <- gdm.varImp(sitepair_2010.WN, geo = TRUE)
+gdm_WN.2011.imp <- gdm.varImp(sitepair_2011.WN, geo = TRUE)
 gdm_WN.2012.imp <- gdm.varImp(sitepair_2012.WN, geo = TRUE)
 
-summary(gdm_WN.2012)
+# Plot
+plot(gdm_WN.2010)
+plot(gdm_WN.2011)
 plot(gdm_WN.2012)
+
+# Plot with confidence intervals (slow; also, I'm not sure about the current settings)
+plotUncertainty(sitepair_2010.WN, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+plotUncertainty(sitepair_2011.WN, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 plotUncertainty(sitepair_2012.WN, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 ```
 
-### Let's look at per-transect floral survey beta-diversity
+### GDM: Floral survey
 ```{r}
-### 2012
-survey_bioData.2012 <- survey %>%
-  mutate(year = year(date),
-         yday = yday(date)) %>%
-  filter(flower.cover > 0 & year == "2012") %>%
-  mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
-  group_by(site, yday, plant.sp) %>%
-  summarize(cover = sum(flower.cover)) %>%
-  mutate(cover = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
-  spread(plant.sp, cover) %>%
-  replace(is.na(.), 0) %>%
-  arrange(site, yday) %>%
-  unite(site.day, site, yday, sep = "_")
+# Create functions for prepping data
+biodata_prep_survey <- function(surv, y) {
+  surv %>%
+    mutate(year = year(date),
+           yday = yday(date)) %>%
+    filter(flower.cover > 0 & year == y) %>%
+    mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
+    group_by(site, yday, plant.sp) %>%
+    summarize(cover = sum(flower.cover)) %>%
+    mutate(cover = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
+    spread(plant.sp, cover) %>%
+    replace(is.na(.), 0) %>%
+    arrange(site, yday) %>%
+    unite(site.day, site, yday, sep = "_")
+}
 
-survey_predData.2012 <- survey %>%
-  mutate(year = year(date),
-         yday = yday(date)) %>%
-  filter(flower.cover > 0 & year == "2012") %>%
-  dplyr::select(site, yday) %>%
-  left_join(site_data) %>%
-  ungroup() %>%
-  dplyr::select(site, elev.mean, lat, lon, yday) %>%
-  unique() %>%
-  arrange(site, yday) %>%
-  unite(site.day, site, yday, sep = "_", remove = "FALSE") %>%
-  dplyr::select(-site)
+predData_prep_survey <- function(surv, y) {
+  surv %>%
+    mutate(year = year(date),
+           yday = yday(date)) %>%
+    filter(flower.cover > 0 & year == y) %>%
+    dplyr::select(site, yday) %>%
+    left_join(site_data) %>%
+    ungroup() %>%
+    dplyr::select(site, elev.mean, lat, lon, yday) %>%
+    unique() %>%
+    arrange(site, yday) %>%
+    unite(site.day, site, yday, sep = "_", remove = "FALSE") %>%
+    dplyr::select(-site)
+}
 
-survey_sitepair.2012 <- formatsitepair(survey_bioData.2012, bioFormat = 1, siteColumn = "site.day", dist = "jaccard",
-                              XColumn = "lon", YColumn = "lat", predData = survey_predData.2012, abundance = FALSE)
+format_set <- function(bio, pred) {
+  formatsitepair(bio, bioFormat = 1, siteColumn = "site.day", 
+                 dist = "jaccard", XColumn = "lon", YColumn = "lat", 
+                 predData = pred, abundance = FALSE)
+} 
 
-### Call gdm()
-gdm_survey.2012 <- gdm(survey_sitepair.2012, geo = TRUE)
-gdm_survey.2012.imp <- gdm.varImp(survey_sitepair.2012, geo = TRUE)
+# Prep input for GDM
+survey_bioData.2010 <- biodata_prep_survey(survey, 2010)
+survey_predData.2010 <- predData_prep_survey(survey, 2010)
+survey_sitepair.2010 <- format_set(survey_bioData.2010, survey_predData.2010)
 
-summary(gdm_survey.2012)
-plot(gdm_survey.2012)
-plotUncertainty(survey_sitepair.2012, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+survey_bioData.2011 <- biodata_prep_survey(survey, 2011)
+survey_predData.2011 <- predData_prep_survey(survey, 2011)
+survey_sitepair.2011 <- format_set(survey_bioData.2011, survey_predData.2011)
 
-### 2011
-survey_bioData.2011 <- survey %>%
-  mutate(year = year(date),
-         yday = yday(date)) %>%
-  filter(flower.cover > 0 & year == "2011") %>%
-  mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
-  group_by(site, yday, plant.sp) %>%
-  summarize(cover = sum(flower.cover)) %>%
-  mutate(cover = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
-  spread(plant.sp, cover) %>%
-  replace(is.na(.), 0) %>%
-  arrange(site, yday) %>%
-  unite(site.day, site, yday, sep = "_")
+survey_bioData.2012 <- biodata_prep_survey(survey, 2012)
+survey_predData.2012 <- predData_prep_survey(survey, 2012)
+survey_sitepair.2012 <- format_set(survey_bioData.2012, survey_predData.2012)
 
-survey_predData.2011 <- survey %>%
-  mutate(year = year(date),
-         yday = yday(date)) %>%
-  filter(flower.cover > 0 & year == "2011") %>%
-  select(site, yday) %>%
-  left_join(site_data) %>%
-  ungroup() %>%
-  dplyr::select(site, elev.mean, lat, lon, yday) %>%
-  unique() %>%
-  arrange(site, yday) %>%
-  unite(site.day, site, yday, sep = "_", remove = "FALSE") %>%
-  select(-site)
-
-survey_sitepair.2011 <- formatsitepair(survey_bioData.2011, bioFormat = 1, siteColumn = "site.day", dist = "jaccard",
-                              XColumn = "lon", YColumn = "lat", predData = survey_predData.2011)
-
-### Call gdm()
-gdm_survey.2011 <- gdm(survey_sitepair.2011, geo = TRUE)
-gdm_survey.2011.imp <- gdm.varImp(survey_sitepair.2011, geo = TRUE)
-
-summary(gdm_survey.2011)
-plot(gdm_survey.2011)
-plotUncertainty(survey_sitepair, sampleSites = 0.7, bsIters = 50, geo  = TRUE)
-
-### 2010
-survey_bioData.2010 <- survey %>%
-  mutate(year = year(date),
-         yday = yday(date)) %>%
-  filter(flower.cover > 0 & year == "2010") %>%
-  mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
-  group_by(site, yday, plant.sp) %>%
-  summarize(cover = sum(flower.cover)) %>%
-  mutate(cover = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
-  spread(plant.sp, cover) %>%
-  replace(is.na(.), 0) %>%
-  arrange(site, yday) %>%
-  unite(site.day, site, yday, sep = "_")
-
-predData.2010 <- survey %>%
-  mutate(year = year(date),
-         yday = yday(date)) %>%
-  filter(flower.cover > 0 & year == "2010") %>%
-  select(site, yday) %>%
-  left_join(site_data) %>%
-  ungroup() %>%
-  dplyr::select(site, elev.mean, lat, lon, yday) %>%
-  unique() %>%
-  arrange(site, yday) %>%
-  unite(site.day, site, yday, sep = "_", remove = "FALSE") %>%
-  select(-site)
-
-survey_sitepair.2010 <- formatsitepair(survey_bioData.2010, bioFormat = 1, siteColumn = "site.day", dist = "jaccard",
-                              XColumn = "lon", YColumn = "lat", predData = predData.2010)
-
-### Call gdm()
+# Call GDMs
 gdm_survey.2010 <- gdm(survey_sitepair.2010, geo = TRUE)
-gdm_survey.2010.imp <- gdm.varImp(survey_sitepair.2010, geo = TRUE)
+gdm_survey.2011 <- gdm(survey_sitepair.2011, geo = TRUE)
+gdm_survey.2012 <- gdm(survey_sitepair.2012, geo = TRUE)
 
 summary(gdm_survey.2010)
+summary(gdm_survey.2011)
+summary(gdm_survey.2012)
+
+# Permutations tests (slow)
+gdm_survey.2010.imp <- gdm.varImp(survey_sitepair.2010, geo = TRUE)
+gdm_survey.2011.imp <- gdm.varImp(survey_sitepair.2011, geo = TRUE)
+gdm_survey.2012.imp <- gdm.varImp(survey_sitepair.2012, geo = TRUE)
+
+# Plot
 plot(gdm_survey.2010)
-plotUncertainty(survey_sitepair, sampleSites = 0.7, bsIters = 50, geo  = TRUE)
+plot(gdm_survey.2011)
+plot(gdm_survey.2012)
+
+# Plot with confidence intervals (slow)
+plotUncertainty(survey_sitepair.2010, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+plotUncertainty(survey_sitepair.2011, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+plotUncertainty(survey_sitepair.2012, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 ```
 
-### And now Bombus diversity patterns
+### GDM: BB observations
 ```{r}
-### 2010
-BB_bioData.2010 <- net %>%
-  filter(year == 2010) %>%
-  group_by(site, date, bb.sp) %>%
-  summarize(count = n()) %>%
-  group_by(site, date) %>%
-  #mutate(prop = count/sum(count)) %>%
-  #group_by(site, bb.sp) %>%
-  # summarize(abund = sum(prop)) %>%
-  spread(bb.sp, count) %>%
-  replace(is.na(.), 0) %>%
-  mutate(yday = yday(date)) %>%
-  unite(site.day, site, yday, sep = "_", remove = "TRUE") %>%
-  ungroup() %>%
-  select(-date)
+# Create functions for prepping data
+biodata_prep_BB <- function(net, y) {
+  net %>%
+    filter(year == y) %>%
+    group_by(site, date, bb.sp) %>%
+    summarize(count = n()) %>%
+    mutate(count = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
+    spread(bb.sp, count) %>%
+    replace(is.na(.), 0) %>%
+    mutate(yday = yday(date)) %>%
+    unite(site.day, site, yday, sep = "_", remove = "TRUE") %>%
+    ungroup() %>%
+    select(-date)
+}
 
-BB_predData.2010 <- net %>%
-  filter(year == 2010) %>%
-  mutate(yday = yday(date)) %>%
-  dplyr::select(site, yday) %>%
-  left_join(site_data) %>%
-  ungroup() %>%
-  dplyr::select(site, elev.mean, lat, lon, yday) %>%
-  unique() %>%
-  arrange(site, yday) %>%
-  unite(site.day, site, yday, sep = "_", remove = "FALSE") %>%
-  dplyr::select(-site) 
+predData_prep_BB <- function(net, y) {
+  net %>%
+    filter(year == y) %>%
+    mutate(yday = yday(date)) %>%
+    dplyr::select(site, yday) %>%
+    left_join(site_data) %>%
+    ungroup() %>%
+    dplyr::select(site, elev.mean, lat, lon, yday) %>%
+    unique() %>%
+    arrange(site, yday) %>%
+    unite(site.day, site, yday, sep = "_", remove = "FALSE") %>%
+    dplyr::select(-site)
+}
 
+# Prep input for GDM
+BB_bioData.2010 <- biodata_prep_BB(net, 2010)
+BB_predData.2010 <- predData_prep_BB(net, 2010)
+BB_sitepair.2010 <- format_set(BB_bioData.2010, BB_predData.2010)
 
-bb_sitepair.2010 <- formatsitepair(BB_bioData.2010, bioFormat = 1, siteColumn = "site.day", dist = "jaccard",
-                              XColumn = "lon", YColumn = "lat", predData = BB_predData.2010)
+BB_bioData.2011 <- biodata_prep_BB(net, 2011)
+BB_predData.2011 <- predData_prep_BB(net, 2011)
+BB_sitepair.2011 <- format_set(BB_bioData.2011, BB_predData.2011)
 
-### Call gdm()
-gdm_bb.2010 <- gdm(bb_sitepair.2010, geo = TRUE)
-gdm_bb.2010.imp <- gdm.varImp(bb_sitepair.2010, geo = TRUE)
+BB_bioData.2012 <- biodata_prep_BB(net, 2012)
+BB_predData.2012 <- predData_prep_BB(net, 2012)
+BB_sitepair.2012 <- format_set(BB_bioData.2012, BB_predData.2012)
 
-summary(gdm_bb.2010)
-plot(gdm_bb.2010)
-plotUncertainty(bb_sitepair.2010, sampleSites = 0.7, bsIters = 50, geo  = TRUE)
+# Call GDMs
+gdm_BB.2010 <- gdm(BB_sitepair.2010, geo = TRUE)
+gdm_BB.2011 <- gdm(BB_sitepair.2011, geo = TRUE)
+gdm_BB.2012 <- gdm(BB_sitepair.2012, geo = TRUE)
 
-### 2011
-BB_bioData.2011 <- net %>%
-  filter(year == 2011) %>%
-  group_by(site, date, bb.sp) %>%
-  summarize(count = n()) %>%
-  group_by(site, date) %>%
-  #mutate(prop = count/sum(count)) %>%
-  #group_by(site, bb.sp) %>%
-  # summarize(abund = sum(prop)) %>%
-  spread(bb.sp, count) %>%
-  replace(is.na(.), 0) %>%
-  mutate(yday = yday(date)) %>%
-  unite(site.day, site, yday, sep = "_", remove = "TRUE") %>%
-  ungroup() %>%
-  select(-date)
+summary(gdm_BB.2010)
+summary(gdm_BB.2011)
+summary(gdm_BB.2012)
 
-BB_predData.2011 <- net %>%
-  filter(year == 2011) %>%
-  mutate(yday = yday(date)) %>%
-  dplyr::select(site, yday) %>%
-  left_join(site_data) %>%
-  ungroup() %>%
-  dplyr::select(site, elev.mean, lat, lon, yday) %>%
-  unique() %>%
-  arrange(site, yday) %>%
-  unite(site.day, site, yday, sep = "_", remove = "FALSE") %>%
-  dplyr::select(-site) 
+# Permutations tests (slow)
+gdm_BB.2010.imp <- gdm.varImp(BB_sitepair.2010, geo = TRUE)
+gdm_BB.2011.imp <- gdm.varImp(BB_sitepair.2011, geo = TRUE)
+gdm_BB.2012.imp <- gdm.varImp(BB_sitepair.2012, geo = TRUE)
 
+# Plot
+plot(gdm_BB.2010)
+plot(gdm_BB.2011)
+plot(gdm_BB.2012)
 
-bb_sitepair.2011 <- formatsitepair(BB_bioData.2011, bioFormat = 1, siteColumn = "site.day", dist = "jaccard",
-                              XColumn = "lon", YColumn = "lat", predData = BB_predData.2011)
-
-### Call gdm()
-gdm_bb.2011 <- gdm(bb_sitepair.2011, geo = TRUE)
-gdm.varImp(bb_sitepair.2011, geo = TRUE)
-
-summary(gdm_bb.2011)
-plot(gdm_bb.2011)
-plotUncertainty(bb_sitepair.2011, sampleSites = 0.7, bsIters = 50, geo  = TRUE)
-
-### 2012
-BB_bioData.2012 <- net %>%
-  filter(year == 2012) %>%
-  group_by(site, date, bb.sp) %>%
-  summarize(count = n()) %>%
-  group_by(site, date) %>%
-  #mutate(prop = count/sum(count)) %>%
-  #group_by(site, bb.sp) %>%
-  # summarize(abund = sum(prop)) %>%
-  spread(bb.sp, count) %>%
-  replace(is.na(.), 0) %>%
-  mutate(yday = yday(date)) %>%
-  unite(site.day, site, yday, sep = "_", remove = "TRUE") %>%
-  ungroup() %>%
-  select(-date)
-
-BB_predData.2012 <- net %>%
-  filter(year == 2012) %>%
-  mutate(yday = yday(date)) %>%
-  dplyr::select(site, yday) %>%
-  left_join(site_data) %>%
-  ungroup() %>%
-  dplyr::select(site, elev.mean, lat, lon, yday) %>%
-  unique() %>%
-  arrange(site, yday) %>%
-  unite(site.day, site, yday, sep = "_", remove = "FALSE") %>%
-  dplyr::select(-site) 
-
-
-bb_sitepair.2012 <- formatsitepair(BB_bioData.2012, bioFormat = 1, siteColumn = "site.day", dist = "jaccard",
-                              XColumn = "lon", YColumn = "lat", predData = BB_predData.2012)
-
-### Call gdm()
-gdm_bb.2012 <- gdm(bb_sitepair.2012, geo = TRUE)
-gdm.varImp(bb_sitepair.2012, geo = TRUE)
-
-summary(gdm_bb.2012)
-plot(gdm_bb.2012)
-plotUncertainty(bb_sitepair.2012, sampleSites = 0.7, bsIters = 50, geo  = TRUE)
-
-                                                 Drosophila?
+# Plot with confidence intervals (slow)
+plotUncertainty(BB_sitepair.2010, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+plotUncertainty(BB_sitepair.2011, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+plotUncertainty(BB_sitepair.2012, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 ```
 
 

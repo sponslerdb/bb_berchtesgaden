@@ -1,5 +1,5 @@
 ---
-title: "preference"
+title: "BB_abund_GAM"
 output: html_document
 ---
 ### Prepare environment
@@ -10,40 +10,18 @@ library(tidyverse)
 library(lubridate)
 ```
 
-### Reprex for Strenge Jacke
-```{r}
-library(reprex)
-
-library(mgcv)
-library(dplyr)
-library(ggeffects)
-
-data(iris)
-
-data <- iris %>%
-  data.frame()
-
-mod <- gam(Petal.Width ~ Species +
-             te(Sepal.Length, Sepal.Width, by = Species),
-           data = data)
-
-effects <- ggeffect(mod)
-means <- ggemmeans(mod)
-pred <- ggpredict(mod)
-```
-
 ### Climate data
 ```{r, include=FALSE, echo=FALSE}
 gdd <- read_csv("../processed_data/climate.csv") %>%
-  mutate(year = factor(year)) %>%
-  dplyr::select(site, year, date, gdd.cum) %>%
-  semi_join(read_csv("../processed_data/network.csv"), by = "site")
+  mutate(year = factor(year)) %>% # make year a factor
+  dplyr::select(site, year, date, gdd.cum) %>% # drop unused columns
+  semi_join(read_csv("../processed_data/network.csv"), by = "site") # drop sites that were not samples
 ```
 
 ### Load site data
 ```{r, include=FALSE, echo=FALSE}
 site_data <- read_csv("../processed_data/site_data.csv") %>%
-  mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
+  mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")), # rename in English
          elev.class2 = factor(elev.class2, levels = c("high", "mid", "low")))
 ```
 
@@ -51,7 +29,7 @@ site_data <- read_csv("../processed_data/site_data.csv") %>%
 ```{r}
 ### BB-FL visitation data
 net <- read_csv("../processed_data/network.csv") %>%
-  dplyr::select(site, date, bb.sp, plant.sp)
+  dplyr::select(site, date, bb.sp, plant.sp) # drop unused columns
 ```
 
 ### BB abundance / diversity
@@ -59,14 +37,14 @@ net <- read_csv("../processed_data/network.csv") %>%
 ### Per-transect BB abundance: species-level
 bb_abund_sp <- net %>%
   dplyr::select(site, date, bb.sp) %>%
-  group_by(site, date, bb.sp) %>% # group by bb.sp*transect (and other variables we want to retain)
-  summarize(bb.abund = n()) %>% # get bb.sp*transect abundance
-  ungroup %>%
+  group_by(site, date, bb.sp) %>% # 
+  summarize(bb.abund = n()) %>% # get per transect bb abundance
+  ungroup() %>%
   complete(site, date, bb.sp, fill = list(bb.abund = 0)) %>% # complete implicit absences
-  semi_join(net, by = c("site", "date")) %>%
-  mutate(year = factor(year(date))) %>%
-  left_join(site_data) %>%
-  mutate(yday = yday(date),
+  semi_join(net, by = c("site", "date")) %>% # drop site-dates that did not exist in the data set
+  left_join(site_data) %>% # add site data
+  mutate(year = factor(year(date)),
+         yday = yday(date),
          bb.sp = factor(bb.sp),
          management = factor(management),
          site = factor(site),
@@ -75,34 +53,29 @@ bb_abund_sp <- net %>%
   mutate(bb.total.abund = sum(bb.abund))
 ```
 
-
-GAM modeling of abundance per bb species
-
-I think I need to include site as a random effect because if I don't the pseudoreplication of elevation is pretty extreme, especially in 2012 where I have lots of repeated measures. I am not, for example, measuring floral abundance at 1000 m 20 independent times; I'm measuring it 20 times at the same spot. This does, of  course, create identifiability issues insofar as site and elevation are concurved. But I think I need to accept these problems.
-
+## Global GAM: this is more elegant than breaking it down by year, but my concern is that the model will be totally dominated by the 2012 data, since I have so many more samples that year.
 ```{r}
-### Global model
 bb_abund.global <- bam(bb.abund ~
-                s(bb.sp, bs = "re") +
-                s(year, bs = "re") +
-                s(site, bs = "re") +
-                te(yday, elev.mean, 
-                          by = bb.sp,
-                          #id = 0,
-                          bs= c("gp", "tp"), 
-                          k=c(8, 8), 
-                          m=1) +
-                te(yday, elev.mean, 
-                          by = year,
-                          #id = 0,
-                          bs= c("gp", "tp"), 
-                          k=c(4, 4), 
-                          m=2),
-              data = filter(bb_abund_sp, bb.total.abund >= 5),
-              discrete = TRUE,
-              family = "tw",
-              select = TRUE,
-              method = "fREML") %>% getViz(nsim = 500)
+                         s(bb.sp, bs = "re") +
+                         s(year, bs = "re") +
+                         s(site, bs = "re") + ### I think I need to include site as a random effect because if I don't the pseudoreplication of elevation is pretty extreme, especially in 2012 where I have lots of repeated measures. I am not, for example, measuring floral abundance at 1000 m 20 independent times; I'm measuring it 20 times at the same spot. This does, of  course, create identifiability issues insofar as site and elevation are concurved. But I think I need to accept these problems.
+                         te(yday, elev.mean, 
+                                   by = bb.sp,
+                                   #id = 0,
+                                   bs= c("gp", "tp"), 
+                                   k=c(8, 8), 
+                                   m=1) +
+                         te(yday, elev.mean, 
+                                   by = year,
+                                   #id = 0,
+                                   bs= c("gp", "tp"), 
+                                   k=c(4, 4), 
+                                   m=2),
+                       data = filter(bb_abund_sp, bb.total.abund >= 5),
+                       discrete = TRUE,
+                       family = "tw",
+                       select = TRUE,
+                       method = "fREML") %>% getViz(nsim = 500)
 
 bb_abund.global2 <- gam(bb.abund ~
                 s(bb.sp, bs = "re") +
@@ -154,23 +127,18 @@ print(plot(bb_abund.global2, allTerms = TRUE), pages = 3)
 
 bb_abund.global.ck <- check2D(bb_abund.global, x1 = "yday", x2 = "elev.mean")
 bb_abund.global.ck + l_gridCheck2D(gridFun = mean)
+```
 
+## Annual GAMs
+### My argument for not including site as a random effect is that it would create identifiability issues with the elevation variable that I am actally interested in. This will probably cause the p-values to be underestimated, maybe to the point of being uninformative. But I don't think I care. My goal is not to establish inferentially that time and elevation affect BB abundance; I want to say how they do. And I don't want to obscure the "how" for the sake of inferential scruples.  
+```{r}
 ### 2010
 bb_abund.2010 <- bam(bb.abund ~ 
                        s(bb.sp, bs = "re") + 
-                       #bb.sp +
-                       #s(transect, bs = "re") +
-                       management + 
-                       s(site, bs = "re") +
-                       # te(yday, elev.mean,
-                       #    bs= c("gp", "cr"),
-                       #    k=c(10, 10),
-                       #    m=2) +
                        te(yday, elev.mean, 
                           by = bb.sp,
-                          #id = 0,
                           bs= c("gp", "cr"), 
-                          k=c(5, 5), 
+                          k=c(8, 8), 
                           m=2),
                      data = filter(bb_abund_sp, year == 2010 & bb.total.abund >= 5),
                      discrete = TRUE,
@@ -178,81 +146,39 @@ bb_abund.2010 <- bam(bb.abund ~
                      select = TRUE,
                      method = "fREML") %>% getViz(nsim = 500)
 
-bb_abund.2010.2 <- gam(bb.abund ~ 
-                       s(bb.sp, bs = "re") + 
-                       #bb.sp +
-                       #s(transect, bs = "re") +
-                       management + 
-                       s(site, bs = "re") +
-                       # te(yday, elev.mean,
-                       #    bs= c("gp", "cr"),
-                       #    k=c(10, 10),
-                       #    m=2) +
-                       te(yday, elev.mean, 
-                          by = bb.sp,
-                          #id = 0,
-                          bs= c("gp", "cr"), 
-                          k=c(5, 5), 
-                          m=2),
-                     data = filter(bb_abund_sp, year == 2010 & bb.total.abund >= 5),
-                     #discrete = TRUE,
-                     family = ziP(),
-                     select = TRUE,
-                     method = "REML") %>% getViz(nsim = 500)
 
 check.gamViz(bb_abund.2010)
-check.gamViz(bb_abund.2010.2)
 bb_abund.2010.sum <- summary(bb_abund.2010)
 print(plot(bb_abund.2010, allTerms = TRUE), pages = 1)
-bb_abund.2010.ck <- check2D(bb_abund.2010, x1 = "yday", x2 = "elev.mean")
-bb_abund.2010.ck + l_gridCheck2D(gridFun = mean)
+bb_abund.2010.ck <- check2D(bb_abund.2010, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
 
 ### 2011
 bb_abund.2011 <- bam(bb.abund ~ 
                        s(bb.sp, bs = "re") + 
-                       #bb.sp +
-                       #s(transect, bs = "re") +
-                       #management + 
-                       s(site, bs = "re") +
-                       # te(yday, elev.mean,
-                       #    bs= c("gp", "cr"),
-                       #    k=c(10, 10),
-                       #    m=2) +
                        te(yday, elev.mean, 
                           by = bb.sp,
-                          #id = 0,
                           bs= c("gp", "cr"), 
-                          k=c(10, 10), 
-                          m=1),
+                          k=c(8, 8), 
+                          m=2),
                      data = filter(bb_abund_sp, year == 2011 & bb.total.abund >= 5),
                      discrete = TRUE,
                      family = "tw",
                      select = TRUE,
                      method = "fREML") %>% getViz(nsim = 500)
 
-  check.gamViz(bb_abund.2011)
-concurvity(bb_abund.2011)
+
+check.gamViz(bb_abund.2011)
 bb_abund.2011.sum <- summary(bb_abund.2011)
 print(plot(bb_abund.2011, allTerms = TRUE), pages = 1)
-bb_abund.2011.ck <- check2D(bb_abund.2011, x1 = "yday", x2 = "elev.mean")
-bb_abund.2011.ck + l_gridCheck2D(gridFun = mean)
+bb_abund.2011.ck <- check2D(bb_abund.2011, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
 
 ### 2012
 bb_abund.2012 <- bam(bb.abund ~ 
                        s(bb.sp, bs = "re") + 
-                       #bb.sp +
-                       #s(transect, bs = "re") +
-                       management + 
-                       s(site, bs = "re") +
-                       # te(yday, elev.mean,
-                       #    bs= c("gp", "cr"),
-                       #    k=c(10, 10),
-                       #    m=2) +
                        te(yday, elev.mean, 
                           by = bb.sp,
-                          #id = 0,
                           bs= c("gp", "cr"), 
-                          k=c(10, 10), 
+                          k=c(8, 8), 
                           m=2),
                      data = filter(bb_abund_sp, year == 2012 & bb.total.abund >= 5),
                      discrete = TRUE,
@@ -260,287 +186,283 @@ bb_abund.2012 <- bam(bb.abund ~
                      select = TRUE,
                      method = "fREML") %>% getViz(nsim = 500)
 
+
 check.gamViz(bb_abund.2012)
 bb_abund.2012.sum <- summary(bb_abund.2012)
 print(plot(bb_abund.2012, allTerms = TRUE), pages = 1)
-bb_abund.2012.ck <- check2D(bb_abund.2012, x1 = "yday", x2 = "elev.mean")
-bb_abund.2012.ck + l_gridCheck2D(gridFun = mean)
+bb_abund.2012.ck <- check2D(bb_abund.2012, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
 ```
 
 
 ### Tabulate plots
 ```{r}
-t1 <- ggpredict(bb_abund.2010, terms = c("elev.mean"))
-plot(t1)
-
-bss2010 <- plot(sm(bb_abund.2010, 4)) +
+bss2010 <- plot(sm(bb_abund.2010, 2)) +
+  l_fitRaster() +
+  l_fitContour(size = 0.1) +
+  guides(fill = FALSE) +
+  l_points() +
+  labs(title = expression(italic("B. terrestris/lucorum")), x = NULL, y = NULL)
+bss2011 <- plot(sm(bb_abund.2011, 2)) +
+  l_fitRaster() +
+  l_fitContour(size = 0.1) +
+  guides(fill = FALSE) +
+  l_points() +
+  labs(title = expression(italic("B. terrestris/lucorum")), x = NULL, y = NULL)
+bss2012 <- plot(sm(bb_abund.2012, 2)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
   l_points() +
   labs(title = expression(italic("B. terrestris/lucorum")), x = NULL, y = NULL)
 
-bss2011 <- plot(sm(bb_abund.2011, 4)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. terrestris/lucorum")), x = NULL, y = NULL)
-bss2012 <- plot(sm(bb_abund.2012, 4)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. terrestris/lucorum")), x = NULL, y = NULL)
-
-gers2010 <- plot(sm(bb_abund.2010, 5)) +
+gers2010 <- plot(sm(bb_abund.2010, 3)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
   l_points() +
   labs(title = expression(italic("B. gerstaeckeri")), x = NULL, y = NULL)
 gers2011 <- ggplot() #too rare
-gers2012 <- plot(sm(bb_abund.2012, 5)) +
+gers2012 <- plot(sm(bb_abund.2012, 3)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. gerstaeckeri")), x = NULL, y = NULL)
 
-hort2010 <- plot(sm(bb_abund.2010, 6)) +
+hort2010 <- plot(sm(bb_abund.2010, 4)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. hortorum")), x = NULL, y = NULL)
-hort2011 <- plot(sm(bb_abund.2011, 5)) +
+hort2011 <- plot(sm(bb_abund.2011, 3)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. hortorum")), x = NULL, y = NULL)
-hort2012 <- plot(sm(bb_abund.2012, 6)) +
+hort2012 <- plot(sm(bb_abund.2012, 4)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. hortorum")), x = NULL, y = NULL)
 
-hypn2010 <- plot(sm(bb_abund.2010, 7)) +
+hypn2010 <- plot(sm(bb_abund.2010, 5)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. hypnorum")), x = NULL, y = NULL)
-hypn2011 <- plot(sm(bb_abund.2011, 6)) +
+hypn2011 <- plot(sm(bb_abund.2011, 4)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. hypnorum")), x = NULL, y = NULL)
 hypn2012 <- ggplot()  #too rare
 
-jone2010 <- plot(sm(bb_abund.2010, 8)) +
+jone2010 <- plot(sm(bb_abund.2010, 6)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. jonellus")), x = NULL, y = NULL)
-jone2011 <- plot(sm(bb_abund.2011, 7)) +
+jone2011 <- plot(sm(bb_abund.2011, 5)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. jonellus")), x = NULL, y = NULL)
-jone2012 <- plot(sm(bb_abund.2012, 7)) +
+jone2012 <- plot(sm(bb_abund.2012, 5)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. jonellus")), x = NULL, y = NULL)
 
 lapi2010 <- ggplot() # too rare 
-lapi2011 <- plot(sm(bb_abund.2011, 8)) +
+lapi2011 <- plot(sm(bb_abund.2011, 6)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. lapidarius")), x = NULL, y = NULL)
-lapi2012 <- plot(sm(bb_abund.2012, 8)) +
+lapi2012 <- plot(sm(bb_abund.2012, 6)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. lapidarius")), x = NULL, y = NULL)
 
-mend2010 <- plot(sm(bb_abund.2010, 9)) +
+mend2010 <- plot(sm(bb_abund.2010, 7)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. mendax")), x = NULL, y = NULL)
-mend2011 <- plot(sm(bb_abund.2011, 9)) +
+mend2011 <- plot(sm(bb_abund.2011, 7)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. mendax")), x = NULL, y = NULL)
-mend2012 <- plot(sm(bb_abund.2012, 9)) +
+mend2012 <- plot(sm(bb_abund.2012, 7)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. mendax")), x = NULL, y = NULL)
 
-mont2010 <- plot(sm(bb_abund.2010, 10)) +
+mont2010 <- plot(sm(bb_abund.2010, 8)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. monticola")), x = NULL, y = NULL)
-mont2011 <- plot(sm(bb_abund.2011, 10)) +
+mont2011 <- plot(sm(bb_abund.2011, 8)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
+  guides(fill = FALSE)+
+  l_points() +
   labs(title = expression(italic("B. monticola")), x = NULL, y = NULL)
-mont2012 <- plot(sm(bb_abund.2012, 10)) +
+mont2012 <- plot(sm(bb_abund.2012, 8)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. monticola")), x = NULL, y = NULL)
 
-muci2010 <- plot(sm(bb_abund.2010, 11)) +
+muci2010 <- plot(sm(bb_abund.2010, 9)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. mucidis")), x = NULL, y = NULL)
-muci2011 <- plot(sm(bb_abund.2011, 11)) +
+muci2011 <- plot(sm(bb_abund.2011, 9)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. mucidis")), x = NULL, y = NULL)
-muci2012 <- plot(sm(bb_abund.2012, 11)) +
+muci2012 <- plot(sm(bb_abund.2012, 9)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. mucidis")), x = NULL, y = NULL)
 
-pasc2010 <- plot(sm(bb_abund.2010, 12)) +
+pasc2010 <- plot(sm(bb_abund.2010, 10)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. pascuorum")), x = NULL, y = NULL)
-pasc2011 <- plot(sm(bb_abund.2011, 12)) +
+pasc2011 <- plot(sm(bb_abund.2011, 10)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. pascuorum")), x = NULL, y = NULL)
-pasc2012 <- plot(sm(bb_abund.2012, 12)) +
+pasc2012 <- plot(sm(bb_abund.2012, 10)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. pascuorum")), x = NULL, y = NULL)
 
-prat2010 <- plot(sm(bb_abund.2010, 13)) +
+prat2010 <- plot(sm(bb_abund.2010, 11)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. pratorum")), x = NULL, y = NULL)
-prat2011 <- plot(sm(bb_abund.2011, 13)) +
+prat2011 <- plot(sm(bb_abund.2011, 11)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. pratorum")), x = NULL, y = NULL)
-prat2012 <- plot(sm(bb_abund.2012, 13)) +
+prat2012 <- plot(sm(bb_abund.2012, 11)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. pratorum")), x = NULL, y = NULL)
 
-psit2010 <- plot(sm(bb_abund.2010, 14)) +
+psit2010 <- plot(sm(bb_abund.2010, 12)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. psithyrus")), x = NULL, y = NULL)
-psit2011 <- plot(sm(bb_abund.2011, 14)) +
+psit2011 <- plot(sm(bb_abund.2011, 12)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. psithyrus")), x = NULL, y = NULL)
-psit2012 <- plot(sm(bb_abund.2012, 14)) +
+psit2012 <- plot(sm(bb_abund.2012, 12)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. psithyrus")), x = NULL, y = NULL)
 
-pyre2010 <- plot(sm(bb_abund.2010, 15)) +
+pyre2010 <- plot(sm(bb_abund.2010, 13)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. pyrenaeus")), x = NULL, y = NULL)
-pyre2011 <- plot(sm(bb_abund.2011, 15)) +
+pyre2011 <- plot(sm(bb_abund.2011, 13)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. pyrenaeus")), x = NULL, y = NULL)
-pyre2012 <- plot(sm(bb_abund.2012, 15)) +
+pyre2012 <- plot(sm(bb_abund.2012, 13)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. pyrenaeus")), x = NULL, y = NULL)
 
-soro2010 <- plot(sm(bb_abund.2010, 16)) +
+soro2010 <- plot(sm(bb_abund.2010, 14)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. soroensis")), x = NULL, y = NULL)
-soro2011 <- plot(sm(bb_abund.2011, 16)) +
+soro2011 <- plot(sm(bb_abund.2011, 14)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. soroensis")), x = NULL, y = NULL)
-soro2012 <- plot(sm(bb_abund.2012, 16)) +
+soro2012 <- plot(sm(bb_abund.2012, 14)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. soroensis")), x = NULL, y = NULL)
 
-wurf2010 <- plot(sm(bb_abund.2010, 17)) +
+wurf2010 <- plot(sm(bb_abund.2010, 15)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. wurflenii")), x = NULL, y = NULL)
-wurf2011 <- plot(sm(bb_abund.2011, 17)) +
+wurf2011 <- plot(sm(bb_abund.2011, 15)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
   guides(fill = FALSE) +
-  #l_points() +
+  l_points() +
   labs(title = expression(italic("B. wurflenii")), x = NULL, y = NULL)
-wurf2012 <- plot(sm(bb_abund.2012, 17)) +
+wurf2012 <- plot(sm(bb_abund.2012, 15)) +
   l_fitRaster() +
   l_fitContour(size = 0.1) +
-  #l_points() +
+  l_points() +
   guides(fill = FALSE) +
   labs(title = expression(italic("B. wurflenii")), x = NULL, y = NULL)
 
@@ -567,18 +489,34 @@ minor_sp <- gridPrint(gers2010, gers2011, gers2012,
                       lapi2010, lapi2011, lapi2012,
                       muci2010, muci2011, muci2012, ncol = 3)
 dev.off()
-
-plot(major_sp)
-ggsave(major_sp, "./output/BB_abund_major.pdf")
-plot(high_elev_sp)
-plot(minor_sp)
 ```
 
-### Bumble bee diversity
+## Bumble bee species richness
 ```{r}
 bb_rich <- bb_abund_sp %>%
+  filter(bb.abund > 0) %>%
   group_by(site, date, yday, year, elev.mean, management) %>%
   summarize(bb.rich = length(unique(bb.sp)))
 ```
 
+## Global species richness GAM (no need to separate the years, meiner Meinung nach)
+```{r}
+### 2010
+bb_rich.global <- bam(bb.rich ~ 
+                        te(yday, elev.mean, 
+                           by = year,
+                           bs= c("gp", "cr"), 
+                           k=c(6, 6), 
+                           m=2),
+                      data = filter(bb_rich),
+                      discrete = TRUE,
+                      family = "gaussian",
+                      select = TRUE,
+                      method = "fREML") %>% getViz(nsim = 500)
 
+
+check.gamViz(bb_rich.global)
+bb_rich.global.sum <- summary(bb_rich.global)
+print(plot(bb_rich.global, allTerms = TRUE), pages = 1)
+bb_rich.global.ck <- check2D(bb_rich.global, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
+```
