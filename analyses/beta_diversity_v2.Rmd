@@ -41,7 +41,7 @@ net <- read_csv("../processed_data/network.csv")%>%
   unite(site.year.day, site, year, dayofyear, sep = "_", remove = FALSE) %>%
   mutate(year = factor(year)) %>% # convert year to factor
   group_by(site, date) %>%
-  arrange(site, date)
+  arrange(site, date) 
 
 survey <- read_csv("../processed_data/floral_survey.csv") %>%
   semi_join(net, by = "plant.sp") %>% # Consider only plants visited (anytime anywhere, not specifically for a given site*date)
@@ -172,72 +172,52 @@ beta_mit_data <- beta_site.date %>%
 ggplot(filter(beta_mit_data, year1 == year2 &
                 site1 != site2 &
                 metric != "S" & 
-                metric.class != "OS.partition"), 
+                !metric.class %in% c("OS.partition", "WN.partition")), 
        aes(elev.diff, value, color = metric)) +
   geom_point(alpha = 0.25, pch = 16) +
   geom_smooth() +
   facet_grid(metric.class ~ year1) +
+  scale_color_brewer(type = "qual", palette = 6) +
   theme_abyss()
 
 ### Time diff
 ggplot(filter(beta_mit_data, year1 == year2 &
                 site1 != site2 &
                 metric != "S" & 
-                metric.class != "OS.partition"), 
+                !metric.class %in% c("OS.partition", "WN.partition")), 
        aes(yday.diff, value, color = metric)) +
   geom_point(alpha = 0.25, pch = 16) +
   geom_smooth() +
   facet_grid(metric.class ~ year1) +
+  scale_color_brewer(type = "qual", palette = 6) +
   theme_abyss()
 
 ### Elevation diff within 1 wk time diff
 ggplot(filter(beta_mit_data, year1 == year2 &
                 site1 != site2 &
                 metric != "S" & 
-                metric.class != "OS.partition" &
+                !metric.class %in% c("OS.partition", "WN.partition") &
                 yday.diff <= 7), 
        aes(elev.diff, value, color = metric)) +
-  geom_point(alpha = 0.15, pch = 16, size = 1) +
+  geom_point(alpha = 0.1, pch = 16, size = 1) +
   geom_smooth() +
   facet_wrap(~metric.class) +
+  facet_grid(metric.class ~ year1) +
+  scale_color_brewer(type = "qual", palette = 6) +
   theme_light()
 
 ### Time diff within 250 m elev diff
 ggplot(filter(beta_mit_data, year1 == year2 &
                 site1 != site2 &
                 metric != "S" & 
-                metric.class != "OS.partition" &
+                !metric.class %in% c("OS.partition", "WN.partition") &
                 elev.diff <= 250), 
        aes(yday.diff, value, color = metric)) +
-  geom_point(alpha = 0.15, pch = 16, size = 1) +
+  geom_point(alpha = 0.1, pch = 16, size = 1) +
   geom_smooth() +
   facet_wrap(~metric.class) +
+  scale_color_brewer(type = "qual", palette = 6) +
   theme_light()
-
-### 2D ElevationDiff*TimeDiff
-gam_betadiv <- bamV(value ~ te(elev.diff, yday.diff, 
-                               bs = c("te", "te"),
-                               k = c(10, 10)),
-                    family = "quasibinomial",
-                    data = filter(beta_mit_data, year1 == year2 &
-                                    metric == "WN"),
-                    method = "REML")
-
-gam_betadiv <- bam(value ~ 
-                     s(year1, bs = "re") +
-                     te(yday.diff, elev.diff, k = c(10, 10)),
-                   data = filter(beta_mit_data, year1 == year2 &
-                                   metric == "WN.rich"),
-                   family = "quasibinomial",
-                   discrete = TRUE,
-                   method = "fREML") %>% getViz()
-
-check.gamViz(gam_betadiv)
-plot(gam_betadiv)
-
-ggplot(filter(beta_site.date, year1 == year2 & metric == "WN"),
-       aes(value)) +
-  geom_histogram()
 ```
 
 ### GDM analysis.
