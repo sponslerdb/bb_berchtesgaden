@@ -193,302 +193,78 @@ print(plot(bb_abund.2012, allTerms = TRUE), pages = 1)
 bb_abund.2012.ck <- check2D(bb_abund.2012, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
 ```
 
-
-### Tabulate plots
+# Extract predictions
 ```{r}
-bss2010 <- plot(sm(bb_abund.2010, 2)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. terrestris/lucorum")), x = NULL, y = NULL)
-bss2011 <- plot(sm(bb_abund.2011, 2)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. terrestris/lucorum")), x = NULL, y = NULL)
-bss2012 <- plot(sm(bb_abund.2012, 2)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. terrestris/lucorum")), x = NULL, y = NULL)
+# Function to build data set over which to generate predictions
+newdata_build <- function(dat, y) {
+  
+  ## yday min/max
+  min_yday <- min(filter(dat, year == y)$yday)
+  max_yday <- max(filter(dat, year == y)$yday)
+  
+  ## elev min.max
+  min_elev <- min(filter(dat, year == y)$elev.mean)
+  max_elev <- max(filter(dat, year == y)$elev.mean)
+  
+  ## species list
+  spp <- dat %>%
+    filter(year == y & bb.total.abund >= 5) %>%
+    select(bb.sp) %>%
+    unique() %>%
+    na.omit() ##### NEED TO FIGURE OUT WHERE THE NA COMES FROM!
+  
+  # sequence of 50 points along the yday and elev ranges, respectively
+  seq_yday <- seq(min_yday, max_yday, length.out = 50)
+  seq_elev <- seq(min_elev, max_elev, length.out = 50)
+  
+  newdata <- tibble(seq_yday, seq_elev) %>% # combine seqs into data frame
+    complete(seq_yday, seq_elev) %>% # get all possible values
+    crossing(spp) %>% # get all possible combos with species
+    select(yday = seq_yday, elev.mean = seq_elev, bb.sp) # rename columns to match the original model inputs
+}
 
-gers2010 <- plot(sm(bb_abund.2010, 3)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. gerstaeckeri")), x = NULL, y = NULL)
-gers2011 <- ggplot() #too rare
-gers2012 <- plot(sm(bb_abund.2012, 3)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. gerstaeckeri")), x = NULL, y = NULL)
+newdata2010 <- newdata_build(bb_abund_sp, 2010)
+newdata2011 <- newdata_build(bb_abund_sp, 2011)
+newdata2012 <- newdata_build(bb_abund_sp, 2012)
 
-hort2010 <- plot(sm(bb_abund.2010, 4)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. hortorum")), x = NULL, y = NULL)
-hort2011 <- plot(sm(bb_abund.2011, 3)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. hortorum")), x = NULL, y = NULL)
-hort2012 <- plot(sm(bb_abund.2012, 4)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. hortorum")), x = NULL, y = NULL)
+# A little wrapper to make predictions and return a tibble with desired columns 
+predict_func <- function(mod, new, y) {
+  predict.bam(mod, newdata = new, type = "response") %>%
+    data.frame() %>%
+    tibble() %>%
+    bind_cols(new) %>%
+    select(yday, elev.mean, bb.sp, pred = 1) %>%
+    mutate(year = rep(y, n()))
+}
 
-hypn2010 <- plot(sm(bb_abund.2010, 5)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. hypnorum")), x = NULL, y = NULL)
-hypn2011 <- plot(sm(bb_abund.2011, 4)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. hypnorum")), x = NULL, y = NULL)
-hypn2012 <- ggplot()  #too rare
+# Generate predictions
+predict2010 <- predict_func(bb_abund.2010, newdata2010, 2010)
+predict2011 <- predict_func(bb_abund.2011, newdata2011, 2011)
+predict2012 <- predict_func(bb_abund.2012, newdata2012, 2012)
+predict_pool <- bind_rows(predict2010, predict2011, predict2012)
 
-jone2010 <- plot(sm(bb_abund.2010, 6)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. jonellus")), x = NULL, y = NULL)
-jone2011 <- plot(sm(bb_abund.2011, 5)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. jonellus")), x = NULL, y = NULL)
-jone2012 <- plot(sm(bb_abund.2012, 5)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. jonellus")), x = NULL, y = NULL)
+# Subset predictions
+predict_major <- filter(predict_pool, bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf"))
+predict_highelev <- filter(predict_pool, bb.sp %in% c("pyre", "mend", "mont"))
+predict_minor <- filter(predict_pool, bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci"))
 
-lapi2010 <- ggplot() # too rare 
-lapi2011 <- plot(sm(bb_abund.2011, 6)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. lapidarius")), x = NULL, y = NULL)
-lapi2012 <- plot(sm(bb_abund.2012, 6)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. lapidarius")), x = NULL, y = NULL)
+ggplot(predict_major, aes(yday, elev.mean, fill = log(pred))) +
+  geom_raster() +
+  geom_contour(aes(z = log(pred)), color = "black", size = 0.25) +
+  scale_fill_viridis_c() +
+  facet_grid(year~bb.sp)
 
-mend2010 <- plot(sm(bb_abund.2010, 7)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. mendax")), x = NULL, y = NULL)
-mend2011 <- plot(sm(bb_abund.2011, 7)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. mendax")), x = NULL, y = NULL)
-mend2012 <- plot(sm(bb_abund.2012, 7)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. mendax")), x = NULL, y = NULL)
+ggplot(predict_highelev, aes(yday, elev.mean, fill = log(pred))) +
+  geom_raster() +
+  geom_contour(aes(z = log(pred)), color = "black", size = 0.25) +
+  scale_fill_viridis_c() +
+  facet_grid(year~bb.sp)
 
-mont2010 <- plot(sm(bb_abund.2010, 8)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. monticola")), x = NULL, y = NULL)
-mont2011 <- plot(sm(bb_abund.2011, 8)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE)+
-  l_points() +
-  labs(title = expression(italic("B. monticola")), x = NULL, y = NULL)
-mont2012 <- plot(sm(bb_abund.2012, 8)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. monticola")), x = NULL, y = NULL)
-
-muci2010 <- plot(sm(bb_abund.2010, 9)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. mucidis")), x = NULL, y = NULL)
-muci2011 <- plot(sm(bb_abund.2011, 9)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. mucidis")), x = NULL, y = NULL)
-muci2012 <- plot(sm(bb_abund.2012, 9)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. mucidis")), x = NULL, y = NULL)
-
-pasc2010 <- plot(sm(bb_abund.2010, 10)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. pascuorum")), x = NULL, y = NULL)
-pasc2011 <- plot(sm(bb_abund.2011, 10)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. pascuorum")), x = NULL, y = NULL)
-pasc2012 <- plot(sm(bb_abund.2012, 10)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. pascuorum")), x = NULL, y = NULL)
-
-prat2010 <- plot(sm(bb_abund.2010, 11)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. pratorum")), x = NULL, y = NULL)
-prat2011 <- plot(sm(bb_abund.2011, 11)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. pratorum")), x = NULL, y = NULL)
-prat2012 <- plot(sm(bb_abund.2012, 11)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. pratorum")), x = NULL, y = NULL)
-
-psit2010 <- plot(sm(bb_abund.2010, 12)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. psithyrus")), x = NULL, y = NULL)
-psit2011 <- plot(sm(bb_abund.2011, 12)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. psithyrus")), x = NULL, y = NULL)
-psit2012 <- plot(sm(bb_abund.2012, 12)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. psithyrus")), x = NULL, y = NULL)
-
-pyre2010 <- plot(sm(bb_abund.2010, 13)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. pyrenaeus")), x = NULL, y = NULL)
-pyre2011 <- plot(sm(bb_abund.2011, 13)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. pyrenaeus")), x = NULL, y = NULL)
-pyre2012 <- plot(sm(bb_abund.2012, 13)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. pyrenaeus")), x = NULL, y = NULL)
-
-soro2010 <- plot(sm(bb_abund.2010, 14)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. soroensis")), x = NULL, y = NULL)
-soro2011 <- plot(sm(bb_abund.2011, 14)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. soroensis")), x = NULL, y = NULL)
-soro2012 <- plot(sm(bb_abund.2012, 14)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. soroensis")), x = NULL, y = NULL)
-
-wurf2010 <- plot(sm(bb_abund.2010, 15)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. wurflenii")), x = NULL, y = NULL)
-wurf2011 <- plot(sm(bb_abund.2011, 15)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  l_points() +
-  labs(title = expression(italic("B. wurflenii")), x = NULL, y = NULL)
-wurf2012 <- plot(sm(bb_abund.2012, 15)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  l_points() +
-  guides(fill = FALSE) +
-  labs(title = expression(italic("B. wurflenii")), x = NULL, y = NULL)
-
-pdf("./output/BB_abund_major.pdf", height = 11, width = 8.5)
-major_sp <- gridPrint(bss2010, bss2011, bss2012, 
-                      pasc2010, pasc2011, pasc2012,
-                      prat2010, prat2011, prat2012,
-                      psit2010, psit2011, psit2012,
-                      soro2010, soro2011, soro2012,
-                      wurf2010, wurf2011, wurf2012, ncol = 3)
-dev.off()
-
-pdf("./output/BB_abund_highelev.pdf", height = 5.5, width = 8.5)
-high_elev_sp <- gridPrint(pyre2010, pyre2011, pyre2012, 
-                          mend2010, mend2011, mend2012,
-                          mont2010, mont2011, mont2012, ncol = 3)
-dev.off()
-
-pdf("./output/BB_abund_minor.pdf", height = 11, width = 8.5)
-minor_sp <- gridPrint(gers2010, gers2011, gers2012,
-                      hort2010, hort2011, hort2012,
-                      hypn2010, hypn2011, hypn2012,
-                      jone2010, jone2011, jone2012,
-                      lapi2010, lapi2011, lapi2012,
-                      muci2010, muci2011, muci2012, ncol = 3)
-dev.off()
+ggplot(predict_minor, aes(yday, elev.mean, fill = log(pred))) +
+  geom_raster() +
+  geom_contour(aes(z = log(pred)), color = "black", size = 0.25) +
+  scale_fill_viridis_c() +
+  facet_grid(year~bb.sp)
 ```
 
 ## Bumble bee species richness

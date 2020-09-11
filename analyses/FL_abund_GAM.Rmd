@@ -10,14 +10,6 @@ library(tidyverse)
 library(lubridate)
 ```
 
-### Climate data
-```{r, include=FALSE, echo=FALSE}
-gdd <- read_csv("../processed_data/climate.csv") %>%
-  mutate(year = factor(year)) %>% # make year a factor
-  dplyr::select(site, year, date, gdd.cum) %>% # drop unused columns
-  semi_join(read_csv("../processed_data/network.csv"), by = "site") # drop sites that were not samples
-```
-
 ### Load site data
 ```{r, include=FALSE, echo=FALSE}
 site_data <- read_csv("../processed_data/site_data.csv") %>%
@@ -50,7 +42,7 @@ shared_transects <- inner_join(net, survey, by = c("site", "date")) %>%
 
 ### FL and BB abundance / diversity
 ```{r echo=FALSE, include=FALSE}
-### Per-transect BB abundance: species-level
+### Per-transect BB abundance, filtered to include only samples with corresponding floral survey data
 bb_abund_sp <- net %>%
   dplyr::select(site, date, bb.sp) %>%
   semi_join(shared_transects) %>% # I only want BB data with corresponding floral data
@@ -185,7 +177,8 @@ pref_forbidden_link_fill <- inner_join(fl_abund_sp, bb_abund_sp) %>%
   filter(co.max == 0) %>%
   mutate(preference.update = rep(1, n())) %>%
   dplyr::select(-co.max) %>%
-  inner_join(fl_abund_sp) 
+  inner_join(fl_abund_sp) %>%
+  select(-year)
 
 fl_abund_wt <- fl_abund_sp %>%
   select(-year) %>%
@@ -198,7 +191,6 @@ fl_abund_wt <- fl_abund_sp %>%
     !is.na(preference) ~ preference)
     ) %>%
   dplyr::select(-preference.update) %>%
-  
   mutate(fl.abund.wt = fl.abund*preference) %>%
   mutate(yday = yday(date)) %>%
   group_by(site, date, yday, bb.sp) %>%
@@ -218,35 +210,15 @@ fl_abund_wt <- fl_abund_sp %>%
 write_csv(fl_abund_wt, "../analyses/output/fl_abund_wt.csv")
 ```
 
-GAM modeling of preference-weighted abundance per bb species
-
-### Would these models be better specified using gamm4? Would that let me handle the crossed and nested random effects better?
-
-I think I need to include site as a random effect because if I don't the pseudoreplication of elevation is pretty extreme, especially in 2012 where I have lots of repeated measures. I am not, for example, measuring floral abundance at 1000 m 20 independent times; I'm measuring it 20 times at the same spot. This does, of  course, create identifiability issues insofar as site and elevation are concurved. But I think I need to accept these problems. The seriousness of the identifiability problems depends in part, I think, on how mgcv handles random effect smooths. Does it first account for all the variation it can with the main effects, then model the residuals with the random effect? In this case, it's probably not a big problem, since the "partial" influence of site would orthogonal (right?) with that of te(elev.mean, yday).
-
+# GAM modeling of preference-weighted abundance per bb species
+## Global model
 ```{r}
-### A gamm4 version
-weighted_fl_abundance.gamm4 <- gamm4(log(fl.abund.wt + 0.001) ~
-                                       t2(yday, elev.mean, 
-                                          by = bb.sp,
-                                          #id = 0,
-                                          bs= c("gp", "tp"), 
-                                          k=c(8, 8), 
-                                          m=1),
-                                     random = ~(1 | site:year),
-                                     data = fl_abund_wt,
-                                     discrete = TRUE,
-                                     family = "gaussian",
-                                     select = TRUE,
-                                     method = "fREML") %>% getViz(nsim = 500)
-
-### Global model
 #### My concern with using a global model is that, because I have so much higher sampling density in 2012, the global model will basically be just a 2012 model with 2010 and 2011 in the residuals, so to speak. I think this is at least partly mitigated by included a global by = year smooth, but I still don't quite understand how hierarchical effects relate to one another in a GAM. I'm also concerned that if I include the by = year smooth, it will be too concurve with my by = bb.sp smooths, and it will be hard to interpret the pattern of resource availability per species.
 weighted_fl_abundance.global <- bam(log(fl.abund.wt + 0.001) ~
                                       s(bb.sp, bs = "re") +
                                       #s(management, bs = "re") +
                                       s(year, bs = "re") +
-                                      s(site, bs = "re") +
+                                      #s(site, bs = "re") +
                                         te(yday, elev.mean, 
                                          by = year,
                                                 id = 0,
@@ -302,8 +274,10 @@ weighted_fl_abundance.global.ck + l_gridCheck2D(gridFun = mean)
 weighted_fl_abundance.global2.ck <- check2D(weighted_fl_abundance.global2, 
                                          x1 = "yday", x2 = "elev.mean")
 weighted_fl_abundance.global2.ck + l_gridCheck2D(gridFun = mean)
+```
 
-
+## Annual models
+```{r}
 ### 2010
 weighted_fl_abundance.2010 <- bam(log(fl.abund.wt + 0.001) ~
                                       s(bb.sp, bs = "re") +
@@ -313,7 +287,7 @@ weighted_fl_abundance.2010 <- bam(log(fl.abund.wt + 0.001) ~
                                                 by = bb.sp,
                                                 #id = 0,
                                                 bs= c("gp", "tp"), 
-                                                k=c(10, 10), 
+                                                k=c(8, 8), 
                                                 m=2),
                                     data = filter(fl_abund_wt, year == 2010),
                                     discrete = TRUE,
@@ -321,7 +295,14 @@ weighted_fl_abundance.2010 <- bam(log(fl.abund.wt + 0.001) ~
                                     select = TRUE,
                                     method = "fREML") %>% getViz(nsim = 500)
 
-weighted_fl_abundance.2010b <- bam(fl.abund.wt + 0.001 ~
+check.gamViz(weighted_fl_abundance.2010)
+weighted_fl_abundance.2010.sum <- summary(weighted_fl_abundance.2010)
+print(plot(weighted_fl_abundance.2010, allTerms = TRUE), pages = 4)
+weighted_fl_abundance.2010.ck <- check2D(weighted_fl_abundance.2010, 
+                                         x1 = "yday", x2 = "elev.mean")
+
+### 2011
+weighted_fl_abundance.2011 <- bam(log(fl.abund.wt + 0.001) ~
                                       s(bb.sp, bs = "re") +
                                       #s(management, bs = "re") +
                                       #s(site, bs = "re") +
@@ -329,41 +310,7 @@ weighted_fl_abundance.2010b <- bam(fl.abund.wt + 0.001 ~
                                                 by = bb.sp,
                                                 #id = 0,
                                                 bs= c("gp", "tp"), 
-                                                k=c(15, 15), 
-                                                m=2),
-                                    data = filter(fl_abund_wt, year == 2010),
-                                    discrete = TRUE,
-                                    family = "tw",
-                                    select = TRUE,
-                                    method = "fREML") %>% getViz(nsim = 500)
-
-check.gamViz(weighted_fl_abundance.2010)
-check.gamViz(weighted_fl_abundance.2010b)
-
-weighted_fl_abundance.2010.sum <- summary(weighted_fl_abundance.2010)
-print(plot(weighted_fl_abundance.2010, allTerms = TRUE), pages = 4)
-print(plot(weighted_fl_abundance.2010b, allTerms = TRUE), pages = 4)
-
-plot(sm(weighted_fl_abundance.2010, 2))
-plot(sm(weighted_fl_abundance.2010b, 2))
-
-weighted_fl_abundance.2010.ck <- check2D(weighted_fl_abundance.2010, 
-                                         x1 = "yday", x2 = "elev.mean")
-weighted_fl_abundance.2010b.ck <- check2D(weighted_fl_abundance.2010b, 
-                                         x1 = "yday", x2 = "elev.mean")
-
-weighted_fl_abundance.2010.ck + l_gridCheck2D(gridFun = mean)
-
-### 2011
-weighted_fl_abundance.2011 <- bam(log(fl.abund.wt + 0.001) ~
-                                      s(bb.sp, bs = "re") +
-                                      #s(management, bs = "re") +
-                                      s(site, bs = "re") +
-                                      te(yday, elev.mean, 
-                                                by = bb.sp,
-                                                #id = 0,
-                                                bs= c("gp", "tp"), 
-                                                k=c(10, 10), 
+                                                k=c(8, 8), 
                                                 m=2),
                                     data = filter(fl_abund_wt, year == 2011),
                                     discrete = TRUE,
@@ -376,18 +323,17 @@ weighted_fl_abundance.2011.sum <- summary(weighted_fl_abundance.2011)
 print(plot(weighted_fl_abundance.2011, allTerms = TRUE), pages = 4)
 weighted_fl_abundance.2011.ck <- check2D(weighted_fl_abundance.2011, 
                                          x1 = "yday", x2 = "elev.mean")
-weighted_fl_abundance.2011.ck + l_gridCheck2D(gridFun = mean)
 
 ### 2012
 weighted_fl_abundance.2012 <- bam(log(fl.abund.wt + 0.001) ~
                                       s(bb.sp, bs = "re") +
                                       #s(management, bs = "re") +
-                                      s(site, bs = "re") +
+                                      #s(site, bs = "re") +
                                       te(yday, elev.mean, 
                                                 by = bb.sp,
                                                 #id = 0,
                                                 bs= c("gp", "tp"), 
-                                                k=c(10, 10), 
+                                                k=c(8, 8), 
                                                 m=2),
                                     data = filter(fl_abund_wt, year == 2012),
                                     discrete = TRUE,
@@ -400,338 +346,83 @@ weighted_fl_abundance.2012.sum <- summary(weighted_fl_abundance.2012)
 print(plot(weighted_fl_abundance.2012, allTerms = TRUE), pages = 4)
 weighted_fl_abundance.2012.ck <- check2D(weighted_fl_abundance.2012, 
                                          x1 = "yday", x2 = "elev.mean")
-weighted_fl_abundance.2012.ck + l_gridCheck2D(gridFun = mean)
 ```
 
-### Tabulate plots
+# Extract predictions
 ```{r}
-bssFL_2010 <- plot(sm(weighted_fl_abundance.2010, 4)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. terrestris/lucorum")), x = NULL, y = NULL)
-bssFL_2011 <- plot(sm(weighted_fl_abundance.2011, 4)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. terrestris/lucorum")), x = NULL, y = NULL)
-bssFL_2012 <- plot(sm(weighted_fl_abundance.2012, 4)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. terrestris/lucorum")), x = NULL, y = NULL)
+# Function to build data set over which to generate predictions
+newdata_build <- function(dat, y) {
+  
+  ## yday min/max
+  min_yday <- min(filter(dat, year == y)$yday)
+  max_yday <- max(filter(dat, year == y)$yday)
+  
+  ## elev min.max
+  min_elev <- min(filter(dat, year == y)$elev.mean)
+  max_elev <- max(filter(dat, year == y)$elev.mean)
+  
+  ## species list
+  spp <- dat %>%
+    filter(year == y) %>%
+    select(bb.sp) %>%
+    unique() %>%
+    na.omit() ##### NEED TO FIGURE OUT WHERE THE NA COMES FROM!
+  
+  # sequence of 50 points along the yday and elev ranges, respectively
+  seq_yday <- seq(min_yday, max_yday, length.out = 50)
+  seq_elev <- seq(min_elev, max_elev, length.out = 50)
+  
+  newdata <- tibble(seq_yday, seq_elev) %>% # combine seqs into data frame
+    complete(seq_yday, seq_elev) %>% # get all possible values
+    crossing(spp) %>% # get all possible combos with species
+    select(yday = seq_yday, elev.mean = seq_elev, bb.sp) # rename columns to match the original model inputs
+}
 
-gersFL_2010 <- plot(sm(weighted_fl_abundance.2010, 5)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. gerstaeckeri")), x = NULL, y = NULL)
-gersFL_2011 <- plot(sm(weighted_fl_abundance.2011, 5)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. gerstaeckeri")), x = NULL, y = NULL) 
-gersFL_2012 <- plot(sm(weighted_fl_abundance.2012, 5)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. gerstaeckeri")), x = NULL, y = NULL)
+newdata2010 <- newdata_build(fl_abund_wt, 2010)
+newdata2011 <- newdata_build(fl_abund_wt, 2011)
+newdata2012 <- newdata_build(fl_abund_wt, 2012)
 
-hortFL_2010 <- plot(sm(weighted_fl_abundance.2010, 6)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. hortorum")), x = NULL, y = NULL)
-hortFL_2011 <- plot(sm(weighted_fl_abundance.2011, 6)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. hortorum")), x = NULL, y = NULL)
-hortFL_2012 <- plot(sm(weighted_fl_abundance.2012, 6)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. hortorum")), x = NULL, y = NULL)
+# A little wrapper to make predictions and return a tibble with desired columns 
+predict_func <- function(mod, new, y) {
+  predict.bam(mod, newdata = new, type = "response") %>%
+    data.frame() %>%
+    tibble() %>%
+    bind_cols(new) %>%
+    select(yday, elev.mean, bb.sp, pred = 1) %>%
+    mutate(pred.backtrans = exp(pred),
+           year = rep(y, n()))
+}
 
-humiFL_2010 <- plot(sm(weighted_fl_abundance.2010, 7)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. humilis")), x = NULL, y = NULL)
-humiFL_2011 <- plot(sm(weighted_fl_abundance.2011, 7)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. humilis")), x = NULL, y = NULL)
-humiFL_2012 <- plot(sm(weighted_fl_abundance.2012, 7)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. humilis")), x = NULL, y = NULL)
+# Generate predictions
+predict2010 <- predict_func(weighted_fl_abundance.2010, newdata2010, 2010)
+predict2011 <- predict_func(weighted_fl_abundance.2011, newdata2011, 2011)
+predict2012 <- predict_func(weighted_fl_abundance.2012, newdata2012, 2012)
+predict_pool <- bind_rows(predict2010, predict2011, predict2012)
 
-hypnFL_2010 <- plot(sm(weighted_fl_abundance.2010, 8)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. hypnorum")), x = NULL, y = NULL)
-hypnFL_2011 <- plot(sm(weighted_fl_abundance.2011, 8)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. hypnorum")), x = NULL, y = NULL)
-hypnFL_2012 <- plot(sm(weighted_fl_abundance.2012, 8)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. hypnorum")), x = NULL, y = NULL)
+# Subset predictions
+predict_major <- filter(predict_pool, bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf"))
+predict_highelev <- filter(predict_pool, bb.sp %in% c("pyre", "mend", "mont"))
+predict_minor <- filter(predict_pool, bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci"))
 
-joneFL_2010 <- plot(sm(weighted_fl_abundance.2010, 9)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. jonellus")), x = NULL, y = NULL)
-joneFL_2011 <- plot(sm(weighted_fl_abundance.2011, 9)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. jonellus")), x = NULL, y = NULL)
-joneFL_2012 <- plot(sm(weighted_fl_abundance.2012, 9)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. jonellus")), x = NULL, y = NULL)
+ggplot(predict_major, aes(yday, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = pred), color = "black", size = 0.25, binwidth = 1) +
+  scale_fill_viridis_c() +
+  facet_grid(year~bb.sp)
 
-lapiFL_2010 <- plot(sm(weighted_fl_abundance.2010, 10)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. lapidarius")), x = NULL, y = NULL)
-lapiFL_2011 <- plot(sm(weighted_fl_abundance.2011, 10)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. lapidarius")), x = NULL, y = NULL)
-lapiFL_2012 <- plot(sm(weighted_fl_abundance.2012, 10)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. lapidarius")), x = NULL, y = NULL)
+ggplot(predict_highelev, aes(yday, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = pred), color = "black", size = 0.25, binwidth = 1) +
+  scale_fill_viridis_c() +
+  facet_grid(year~bb.sp)
 
-mendFL_2010 <- plot(sm(weighted_fl_abundance.2010, 11)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. mendax")), x = NULL, y = NULL)
-mendFL_2011 <- plot(sm(weighted_fl_abundance.2011, 11)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. mendax")), x = NULL, y = NULL)
-mendFL_2012 <- plot(sm(weighted_fl_abundance.2012, 11)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. mendax")), x = NULL, y = NULL)
-
-montFL_2010 <- plot(sm(weighted_fl_abundance.2010, 12)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. monticola")), x = NULL, y = NULL)
-montFL_2011 <- plot(sm(weighted_fl_abundance.2011, 12)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. monticola")), x = NULL, y = NULL)
-montFL_2012 <- plot(sm(weighted_fl_abundance.2012, 12)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. monticola")), x = NULL, y = NULL)
-
-muciFL_2010 <- plot(sm(weighted_fl_abundance.2010, 13)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. mucidis")), x = NULL, y = NULL)
-muciFL_2011 <- plot(sm(weighted_fl_abundance.2011, 13)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. mucidis")), x = NULL, y = NULL)
-muciFL_2012 <- plot(sm(weighted_fl_abundance.2012, 13)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. mucidis")), x = NULL, y = NULL)
-
-pascFL_2010 <- plot(sm(weighted_fl_abundance.2010, 14)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. pascuorum")), x = NULL, y = NULL)
-pascFL_2011 <- plot(sm(weighted_fl_abundance.2011, 14)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. pascuorum")), x = NULL, y = NULL)
-pascFL_2012 <- plot(sm(weighted_fl_abundance.2012, 14)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. pascuorum")), x = NULL, y = NULL)
-
-pratFL_2010 <- plot(sm(weighted_fl_abundance.2010, 15)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. pratorum")), x = NULL, y = NULL)
-pratFL_2011 <- plot(sm(weighted_fl_abundance.2011, 15)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. pratorum")), x = NULL, y = NULL)
-pratFL_2012 <- plot(sm(weighted_fl_abundance.2012, 15)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. pratorum")), x = NULL, y = NULL)
-
-psitFL_2010 <- plot(sm(weighted_fl_abundance.2010, 16)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. psithyrus")), x = NULL, y = NULL)
-psitFL_2011 <- plot(sm(weighted_fl_abundance.2011, 16)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. psithyrus")), x = NULL, y = NULL)
-psitFL_2012 <- plot(sm(weighted_fl_abundance.2012, 16)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. psithyrus")), x = NULL, y = NULL)
-
-pyreFL_2010 <- plot(sm(weighted_fl_abundance.2010, 17)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. pyrenaeus")), x = NULL, y = NULL)
-pyreFL_2011 <- plot(sm(weighted_fl_abundance.2011, 17)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. pyrenaeus")), x = NULL, y = NULL)
-pyreFL_2012 <- plot(sm(weighted_fl_abundance.2012, 17)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. pyrenaeus")), x = NULL, y = NULL)
-
-soroFL_2010 <- plot(sm(weighted_fl_abundance.2010, 18)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. soroensis")), x = NULL, y = NULL)
-soroFL_2011 <- plot(sm(weighted_fl_abundance.2011, 18)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. soroensis")), x = NULL, y = NULL)
-soroFL_2012 <- plot(sm(weighted_fl_abundance.2012, 18)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. soroensis")), x = NULL, y = NULL)
-
-wurfFL_2010 <- plot(sm(weighted_fl_abundance.2010, 19)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. wurflenii")), x = NULL, y = NULL)
-wurfFL_2011 <- plot(sm(weighted_fl_abundance.2011, 19)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. wurflenii")), x = NULL, y = NULL)
-wurfFL_2012 <- plot(sm(weighted_fl_abundance.2012, 19)) +
-  l_fitRaster() +
-  l_fitContour(size = 0.1) +
-  guides(fill = FALSE) +
-  #l_points() +
-  labs(title = expression(italic("B. wurflenii")), x = NULL, y = NULL)
-
-major_sp <- gridPrint(bssFL_2010, bssFL_2011, bssFL_2012, 
-                      pascFL_2010, pascFL_2011, pascFL_2012,
-                      pratFL_2010, pratFL_2011, pratFL_2012,
-                      soroFL_2010, soroFL_2011, soroFL_2012,
-                      wurfFL_2010, wurfFL_2011, wurfFL_2012, ncol = 3)
-
-high_elev_sp <- gridPrint(pyreFL_2010, pyreFL_2011, pyreFL_2012, 
-                          mendFL_2010, mendFL_2011, mendFL_2012,
-                          montFL_2010, montFL_2011, montFL_2012, ncol = 3)
-
-minor_sp <- gridPrint(gersFL_2010, gersFL_2011, gersFL_2012,
-                      hortFL_2010, hortFL_2011, hortFL_2012,
-                      #humiFL_2010, humiFL_2011, humiFL_2012, # too rarely seen, I think only 3 times
-                      hypnFL_2010, hypnFL_2011, hypnFL_2012,
-                      joneFL_2010, joneFL_2011, joneFL_2012,
-                      lapiFL_2010, lapiFL_2011, lapiFL_2012,
-                      #psitFL_2010, psitFL_2011, psitFL_2012, # Let's ignore 
-                      muciFL_2010, muciFL_2011, muciFL_2012, ncol = 3)
-plot(major_sp)
-plot(high_elev_sp)
-plot(minor_sp)
-
+ggplot(predict_minor, aes(yday, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = pred), color = "black", size = 0.25, binwidth = 1) +
+  scale_fill_viridis_c() +
+  facet_grid(year~bb.sp)
 ```
+
 
 ### Abundance mismatch
 ```{r}
