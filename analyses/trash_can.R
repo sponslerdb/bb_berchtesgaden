@@ -1200,4 +1200,146 @@ transects_diff <- beta_site %>%
 WN_mantel <- mantel.partial(elev_diff, WN_diff, transects_diff)
 ST_mantel <- mantel.partial(elev_diff, ST_diff, transects_diff)
 OS_mantel <- mantel.partial(elev_diff, OS_diff, transects_diff)
+
+### 2011
+#### Let's explore whether the different transformation options I'm weighing have any effect on the overall pattern that we end up visualizing
+
+#### Option A: log(n + 0.001) with gaussian
+weighted_fl_abundance.2011.1 <- bam(log(fl.abund.wt + 0.01) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                         by = bb.sp,
+                                         #id = 0,
+                                         bs= c("gp", "tp"), 
+                                         k=c(8, 8), 
+                                         m=2),
+                                    data = filter(fl_abund_wt, year == 2011),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2011.1)
+#weighted_fl_abundance.2011.sum.1 <- summary(weighted_fl_abundance.2011.1)
+#print(plot(weighted_fl_abundance.2011.1, allTerms = TRUE), pages = 4)
+weighted_fl_abundance.2011.ck.1 <- check2D(weighted_fl_abundance.2011.1, 
+                                           x1 = "yday", x2 = "elev.mean")
+
+#### Option B: sqrt(n) with tweedie
+weighted_fl_abundance.2011.2 <- bam(sqrt(fl.abund.wt) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                         by = bb.sp,
+                                         #id = 0,
+                                         bs= c("gp", "tp"), 
+                                         k=c(8, 8), 
+                                         m=2),
+                                    data = filter(fl_abund_wt, year == 2011),
+                                    discrete = TRUE,
+                                    family = "tw",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2011.2)
+#weighted_fl_abundance.2011.sum.2 <- summary(weighted_fl_abundance.2011.2)
+#print(plot(weighted_fl_abundance.2011.2, allTerms = TRUE), pages = 4)
+weighted_fl_abundance.2011.ck.2 <- check2D(weighted_fl_abundance.2011.2, 
+                                           x1 = "yday", x2 = "elev.mean")
+
+
+#### Option C: sqrt(sqrt.n) with tweedie
+weighted_fl_abundance.2011.3 <- bam(sqrt(fl.abund.wt.sqrt) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                         by = bb.sp,
+                                         #id = 0,
+                                         bs= c("gp", "tp"), 
+                                         k=c(8, 8), 
+                                         m=2),
+                                    data = filter(fl_abund_wt, year == 2011),
+                                    discrete = TRUE,
+                                    family = "tw",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2011.3)
+#weighted_fl_abundance.2011.sum.3 <- summary(weighted_fl_abundance.2011.3)
+#print(plot(weighted_fl_abundance.2011, allTerms = TRUE), pages = 4)
+weighted_fl_abundance.2011.ck.3 <- check2D(weighted_fl_abundance.2011.3, 
+                                           x1 = "yday", x2 = "elev.mean")
+
+#### Option D: sqrt(bin.n) with tweedie
+weighted_fl_abundance.2011.4 <- bam(sqrt(fl.abund.wt.bin) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                         by = bb.sp,
+                                         #id = 0,
+                                         bs= c("gp", "tp"), 
+                                         k=c(8, 8), 
+                                         m=2),
+                                    data = filter(fl_abund_wt, year == 2011),
+                                    discrete = TRUE,
+                                    family = "tw",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2011.4)
+#weighted_fl_abundance.2011.sum.4 <- summary(weighted_fl_abundance.2011.4)
+#print(plot(weighted_fl_abundance.2011, allTerms = TRUE), pages = 4)
+weighted_fl_abundance.2011.ck.4 <- check2D(weighted_fl_abundance.2011.4, 
+                                           x1 = "yday", x2 = "elev.mean")
+
+#### Option E: log(sqrt.n + 0.001) with gaussian
+weighted_fl_abundance.2011.5 <- bam(log(fl.abund.wt.sqrt + 0.001) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                         by = bb.sp,
+                                         #id = 0,
+                                         bs= c("gp", "tp"), 
+                                         k=c(8, 8), 
+                                         m=2),
+                                    data = filter(fl_abund_wt, year == 2011),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2011.5)
+#weighted_fl_abundance.2011.sum.5 <- summary(weighted_fl_abundance.2011.5)
+#print(plot(weighted_fl_abundance.2011, allTerms = TRUE), pages = 4)
+weighted_fl_abundance.2011.ck.5 <- check2D(weighted_fl_abundance.2011.5, 
+                                           x1 = "yday", x2 = "elev.mean")
+
+#### Option F: log(bin.n + 0.01) with gaussian
+weighted_fl_abundance.2011.6 <- bam(log(fl.abund.wt.bin + 0.01) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                         by = bb.sp,
+                                         #id = 0,
+                                         bs= c("gp", "tp"), 
+                                         k=c(8, 8), 
+                                         m=2),
+                                    data = filter(fl_abund_wt, year == 2011),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2011.6)
+#weighted_fl_abundance.2011.sum.6 <- summary(weighted_fl_abundance.2011.6)
+#print(plot(weighted_fl_abundance.2011.6, allTerms = TRUE), pages = 4)
+weighted_fl_abundance.2011.ck.6 <- check2D(weighted_fl_abundance.2011.6, 
+                                           x1 = "yday", x2 = "elev.mean")
 ```

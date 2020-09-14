@@ -19,7 +19,7 @@ site_data <- read_csv("../processed_data/site_data.csv") %>%
 ```
 
 ### Load network and survey data
-```{r}
+```{r message=FALSE}
 ### BB-FL visitation data
 net <- read_csv("../processed_data/network.csv") %>%
   dplyr::select(site, date, bb.sp, plant.sp) # drop unused columns
@@ -27,7 +27,13 @@ net <- read_csv("../processed_data/network.csv") %>%
 ### Floral survey data
 survey <- read_csv("../processed_data/floral_survey.csv") %>%
   semi_join(net, by = "plant.sp") %>% # Consider only visited plant species (anytime anywhere, not specifically for a given site*date)
-  dplyr::select(site, date, plant.sp, flower.cover)
+  dplyr::select(site, date, plant.sp, flower.cover) %>%
+  group_by(plant.sp) %>%
+  mutate(present = case_when(
+    max(flower.cover) > 0 ~ TRUE,
+    max(flower.cover) == 0 ~ FALSE
+  )) %>%
+  filter(present == TRUE) # Ignore plants that never had any flower cover
 
 ### Identify duplicate observations; these may be errors or intentionally duplicated (see correspondence with Kalli)
 survey_dups <- survey %>%
@@ -42,7 +48,7 @@ shared_transects <- inner_join(net, survey, by = c("site", "date")) %>%
 ```
 
 ### FL and BB abundance / diversity
-```{r echo=FALSE, include=TRUE}
+```{r echo=FALSE, include=TRUE, message=FALSE}
 # Per-transect BB abundance
 ## full dataset
 bb_abund_sp <- net %>%
@@ -60,11 +66,13 @@ bb_abund_sp <- net %>%
          site = factor(site),
          transect = factor(transect)) %>%
   group_by(year, bb.sp) %>%
-  mutate(bb.total.abund = sum(bb.abund))
+  mutate(bb.annual.abund = sum(bb.abund))
 
 ## filtered to include only samples with corresponding floral survey data
 bb_abund_sp.sub <- bb_abund_sp %>%
-  semi_join(shared_transects)
+  ungroup() %>%
+  semi_join(shared_transects) %>%
+  select(site, date, yday, bb.sp, bb.abund, bb.annual.abund, elev.mean)
 
 ### Per-transect floral abund: by species
 fl_abund_sp <- survey %>%
@@ -73,7 +81,7 @@ fl_abund_sp <- survey %>%
   group_by(site, date) %>%
   mutate(prop.fl.abund = fl.abund/sum(fl.abund)) %>% # get the proportional flower cover for each species.
   ungroup() %>%
-  full_join(dplyr::select(net, site, date, plant.sp), by = c("site", "date", "plant.sp")) %>% # add the handful of species occurring in the visitation network but missing from the survey data
+  #full_join(dplyr::select(net, site, date, plant.sp), by = c("site", "date", "plant.sp")) %>% # add the handful of species occurring in the visitation network but missing from the survey data
   complete(site, date, plant.sp, fill = list(fl.abund = 0, prop.fl.abund = 0)) %>%
   semi_join(survey, by = c("site", "date")) %>%  # only include site-dates that actually occurred
   unique() %>%
@@ -81,7 +89,7 @@ fl_abund_sp <- survey %>%
 ```
 
 ### Preference analysis
-```{r}
+```{r message=FALSE}
 observed_visits <- net %>%
   semi_join(shared_transects) %>% # include only site*date combos where floral surveying was done
   group_by(site, date, bb.sp, plant.sp) %>% # group by bb*plant*transect
@@ -89,18 +97,15 @@ observed_visits <- net %>%
   group_by(site, date, bb.sp) %>%
   mutate(prop.visits = visits/sum(visits))
 
-# All possible bumble-plant pairings *site * date, filtered to include only those when the given bb.sp was present and the given plant.sp was *either* present *or* visited (see note below)
+# All possible bumble-plant pairings *site * date, filtered to include only those when the given bb.sp was present and the given plant.sp. Note that in about 10% of the bb.sp*plant.sp*site*year combos, the visited plant was not recorded in the floral survey data. There are a few different ways we could handle this, but for now I am simply ignoring plant spp. for which we have no abundance data.
 visitation_by_abundance <- fl_abund_sp %>%
   inner_join(bb_abund_sp.sub) %>%
-  filter(bb.abund > 0) %>%
-  filter(fl.abund > 0) %>% 
+  filter(bb.abund > 0 & fl.abund > 0) %>%
   left_join(observed_visits) %>%
-  #filter(fl.abund > 0 | visits > 0) %>% # In about 10% of the bb.sp*plant.sp*site*year combos, the visited plant was not recorded in the floral survey data. There are a few different ways we could handle this, but I think an argument could be make that treating those plants as if they had zero abundance (even though they were evidently present gets close to the truth, since they must have been rather rare to have been missed in the surveying.)
   replace_na(list(visits = 0, prop.visits = 0))
 
 ### Get mean abundance/visitation for each plant*bb combo
 visitation_by_abundance_mean <- visitation_by_abundance %>%
-  mutate(year = factor(year(date))) %>%
   group_by(plant.sp, bb.sp) %>%
   summarize(prop.fl.abund.m = mean(prop.fl.abund),
             prop.visits.wm = weighted.mean(prop.visits, bb.abund))
@@ -139,7 +144,7 @@ pref.lm.resid <- residuals(pref.lm) %>%
 preference <- visitation_by_abundance_mean %>%  
   ungroup() %>%
 
-# Remove bb*fl*year combos that had 0 visits
+# Remove bb*fl combos that had 0 visits
   filter(prop.visits.wm > 0) %>% 
   
 # With the zeroes removed, what's left can be joined 1:1 with the 
@@ -158,43 +163,62 @@ preference <- visitation_by_abundance_mean %>%
   replace_na(list(preference = 0)) %>%
 
 # Drop the columns used to calculate preference so that they don't confuse us when we add site-date level abundance data
-  dplyr::select(bb.sp, plant.sp, preference)
+  dplyr::select(bb.sp, plant.sp, preference) %>%
+  mutate(sqrt.preference = sqrt(preference),
+         bin.preference = case_when(
+           preference > 0 ~ 1,
+           preference == 0 ~ 0
+         )) 
   
 write_csv(preference, "../analyses/output/preference.csv")
+
+ggplot(preference, aes(preference)) +
+  geom_histogram() +
+  facet_wrap(~bb.sp)
+
+ggplot(preference, aes(sqrt.preference)) +
+  geom_histogram() +
+  facet_wrap(~bb.sp)
 
 #################################
 ### Join with FL and BB abund ###
 #################################
 
-# For bb-fl combos that never co-occurred, set preference = 1
-pref_forbidden_link_fill <- inner_join(fl_abund_sp, bb_abund_sp.sub) %>%
-  mutate(co = case_when(
-    fl.abund == 0 | bb.abund == 0 ~ 0,
-    fl.abund != 0 & bb.abund != 0 ~ 1)
-  ) %>%
-  group_by(plant.sp, bb.sp) %>%
-  summarize(co.max = max(co)) %>%
-  filter(co.max == 0) %>%
-  mutate(preference.update = rep(1, n())) %>%
-  dplyr::select(-co.max) %>%
-  inner_join(fl_abund_sp) %>%
-  select(-year)
+#After reconsidering this approach, I think it is better to assume preference = 0  for non-co-occuring spp. 
+
+# # For bb-fl combos that never co-occurred, set preference = 0
+# pref_forbidden_link_fill <- inner_join(fl_abund_sp, bb_abund_sp.sub) %>%
+#   mutate(co = case_when(
+#     fl.abund == 0 | bb.abund == 0 ~ 0, # bb.sp and fl.sp that did not co-occur on given site date
+#     fl.abund != 0 & bb.abund != 0 ~ 1) # bb.sp and fl.sp that did co-occur on a given site date
+#   ) %>%
+#   group_by(plant.sp, bb.sp) %>%
+#   summarize(co.max = max(co)) %>% # if max(co) = 0, a given bb.sp*fl.sp combo *never* co-occurred, and therefore will be assigned aneutral preference
+#   filter(co.max == 0) %>%
+#   mutate(preference.update = rep(1, n())) %>%
+#   dplyr::select(-co.max) %>%
+#   inner_join(fl_abund_sp) %>%
+#   select(-year)
 
 fl_abund_wt <- fl_abund_sp %>%
   select(-year) %>%
   left_join(preference) %>% 
   
-# Add the forbidden links with preference set to 1 (neutral)
-  full_join(pref_forbidden_link_fill) %>%
-  mutate(preference = case_when(
-    is.na(preference) ~ preference.update,
-    !is.na(preference) ~ preference)
-    ) %>%
-  dplyr::select(-preference.update) %>%
-  mutate(fl.abund.wt = fl.abund*preference) %>%
+# Add the forbidden links with preference set to 1 (neutral) (not doing this anymore)
+  # full_join(pref_forbidden_link_fill) %>%
+  # mutate(preference = case_when(
+  #   is.na(preference) ~ preference.update,
+  #   !is.na(preference) ~ preference)
+  #   ) %>%
+  # dplyr::select(-preference.update) %>%
+  mutate(fl.abund.wt.bin = fl.abund*bin.preference,
+         fl.abund.wt.sqrt = fl.abund*sqrt.preference,
+         fl.abund.wt = fl.abund*preference) %>% # using sqrt-transformed preference allows me to avoid log-transforming when trying to fit GAMs
   mutate(yday = yday(date)) %>%
   group_by(site, date, yday, bb.sp) %>%
-  summarize(fl.abund.wt = sum(fl.abund.wt, na.rm = TRUE)) %>%
+  summarize(fl.abund.wt.bin = sum(fl.abund.wt.bin, na.rm = TRUE),
+            fl.abund.wt.sqrt = sum(fl.abund.wt.sqrt, na.rm = TRUE),
+            fl.abund.wt = sum(fl.abund.wt, na.rm = TRUE)) %>%
   ungroup() %>%
   semi_join(survey, by = c("site", "date")) %>% # This gets rid of site*date combos that don't exist
   left_join(site_data, by = "site") %>%
@@ -213,9 +237,21 @@ write_csv(fl_abund_wt, "../analyses/output/fl_abund_wt.csv")
 ### Call GAMs
 ##### My argument for not including site as a random effect is that it would create identifiability issues with the elevation variable that I am actally interested in. This will probably cause the p-values to be underestimated, maybe to the point of being uninformative. But I don't think I care. My goal is not to establish inferentially that time and elevation affect BB abundance; I want to say how they do. And I don't want to obscure the "how" for the sake of inferential scruples.
 #### Floral resources
-```{r}
+##### After trying a lot of things, I'm pretty sure the only option I have for fitting a good GAM is using log-transformation. The question that remains is how to treat the concept of preference. My "raw" preference-weighted abundance gives our measure of preference a lot of influence. If we trust it, this may be most informative, and it allows the greatest variation in floral resources between BB species. But if there is anything misleading in our preference estimates, using the "raw" measures will do nothing to mitigate this. An approach that gives us a "softer" notion of preference is to take the sqrt of the raw prference before multiplying floral abundance by it. An argument for this approach is that it retains most of the meaning of the raw preference data while dampening its effect, which may help avoid spurious hotspots based on overestimated preference. Finally, an approach that says "we don't really trust our data very much" is to treat preference as binary: visited species get a 1, non-visited species get a 0, and all the "weighting" of floral resource abundance means is dropping floral species that a given BB species did not visit. In all these cases, though, the distribution of weighted floral abundance is strongly logarithmic (or exponential or something), so a log transformation is necessary. I tried softer methods, e.g. sqrt-transformation, Tweedie family, etc., but the problem with all these is that the variance fans out like crazy as you move up to the higher end of the distribution. Happily, it makes little difference which of these options we choose, as the resulting plots lead to the same interpretation.
+```{r message=FALSE}
+# These are the distributions of my response variable options 
+ggplot(fl_abund_wt, aes(fl.abund.wt.bin)) +
+  geom_histogram()
+
+ggplot(fl_abund_wt, aes(fl.abund.wt.sqrt)) +
+  geom_histogram()
+
+ggplot(fl_abund_wt, aes(fl.abund.wt)) +
+  geom_histogram()
+
+
 ### 2010
-weighted_fl_abundance.2010 <- bam(log(fl.abund.wt + 0.001) ~
+weighted_fl_abundance.2010 <- bam(log(fl.abund.wt + 0.01) ~
                                       s(bb.sp, bs = "re") +
                                       #s(management, bs = "re") +
                                       #s(site, bs = "re") +
@@ -234,11 +270,52 @@ weighted_fl_abundance.2010 <- bam(log(fl.abund.wt + 0.001) ~
 check.gamViz(weighted_fl_abundance.2010)
 #weighted_fl_abundance.2010.sum <- summary(weighted_fl_abundance.2010)
 #print(plot(weighted_fl_abundance.2010, allTerms = TRUE), pages = 4)
-weighted_fl_abundance.2010.ck <- check2D(weighted_fl_abundance.2010, 
-                                         x1 = "yday", x2 = "elev.mean")
+#weighted_fl_abundance.2010.ck <- check2D(weighted_fl_abundance.2010, x1 = "yday", x2 = "elev.mean")
+
+weighted_fl_abundance.2010.sqrt <- bam(log(fl.abund.wt.sqrt + 0.01) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(8, 8), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2010),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2010.sqrt)
+#weighted_fl_abundance.2010.sum.sqrt <- summary(weighted_fl_abundance.2010.sqrt)
+#print(plot(weighted_fl_abundance.2010.sqrt, allTerms = TRUE), pages = 4)
+#weighted_fl_abundance.2010.ck.sqrt <- check2D(weighted_fl_abundance.2010.sqrt, x1 = "yday", x2 = "elev.mean")
+
+weighted_fl_abundance.2010.bin <- bam(log(fl.abund.wt.bin + 0.01) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(8, 8), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2010),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2010.bin)
+#weighted_fl_abundance.2010.sum.bin <- summary(weighted_fl_abundance.2010.bin)
+#print(plot(weighted_fl_abundance.2010.bin, allTerms = TRUE), pages = 4)
+#weighted_fl_abundance.2010.ck.bin <- check2D(weighted_fl_abundance.2010.bin, x1 = "yday", x2 = "elev.mean")
 
 ### 2011
-weighted_fl_abundance.2011 <- bam(log(fl.abund.wt + 0.001) ~
+weighted_fl_abundance.2011 <- bam(log(fl.abund.wt + 0.01) ~
                                       s(bb.sp, bs = "re") +
                                       #s(management, bs = "re") +
                                       #s(site, bs = "re") +
@@ -257,11 +334,52 @@ weighted_fl_abundance.2011 <- bam(log(fl.abund.wt + 0.001) ~
 check.gamViz(weighted_fl_abundance.2011)
 #weighted_fl_abundance.2011.sum <- summary(weighted_fl_abundance.2011)
 #print(plot(weighted_fl_abundance.2011, allTerms = TRUE), pages = 4)
-weighted_fl_abundance.2011.ck <- check2D(weighted_fl_abundance.2011, 
-                                         x1 = "yday", x2 = "elev.mean")
+#weighted_fl_abundance.2011.ck <- check2D(weighted_fl_abundance.2011, x1 = "yday", x2 = "elev.mean")
+
+weighted_fl_abundance.2011.sqrt <- bam(log(fl.abund.wt.sqrt + 0.01) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(8, 8), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2011),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2011.sqrt)
+#weighted_fl_abundance.2011.sum.sqrt <- summary(weighted_fl_abundance.2011.sqrt)
+#print(plot(weighted_fl_abundance.2011.sqrt, allTerms = TRUE), pages = 4)
+#weighted_fl_abundance.2011.ck.sqrt <- check2D(weighted_fl_abundance.2011.sqrt, x1 = "yday", x2 = "elev.mean")
+
+weighted_fl_abundance.2011.bin <- bam(log(fl.abund.wt.bin + 0.01) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(8, 8), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2011),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2011.bin)
+#weighted_fl_abundance.2011.sum.bin <- summary(weighted_fl_abundance.2011.bin)
+#print(plot(weighted_fl_abundance.2011.bin, allTerms = TRUE), pages = 4)
+#weighted_fl_abundance.2011.ck.bin <- check2D(weighted_fl_abundance.2011.bin, x1 = "yday", x2 = "elev.mean")
 
 ### 2012
-weighted_fl_abundance.2012 <- bam(log(fl.abund.wt + 0.001) ~
+weighted_fl_abundance.2012 <- bam(log(fl.abund.wt + 0.01) ~
                                       s(bb.sp, bs = "re") +
                                       #s(management, bs = "re") +
                                       #s(site, bs = "re") +
@@ -280,12 +398,53 @@ weighted_fl_abundance.2012 <- bam(log(fl.abund.wt + 0.001) ~
 check.gamViz(weighted_fl_abundance.2012)
 #weighted_fl_abundance.2012.sum <- summary(weighted_fl_abundance.2012)
 #print(plot(weighted_fl_abundance.2012, allTerms = TRUE), pages = 4)
-weighted_fl_abundance.2012.ck <- check2D(weighted_fl_abundance.2012, 
-                                         x1 = "yday", x2 = "elev.mean")
+#weighted_fl_abundance.2012.ck <- check2D(weighted_fl_abundance.2012, x1 = "yday", x2 = "elev.mean")
+
+weighted_fl_abundance.2012.sqrt <- bam(log(fl.abund.wt.sqrt + 0.01) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(8, 8), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2012),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2012.sqrt)
+#weighted_fl_abundance.2012.sum.sqrt <- summary(weighted_fl_abundance.2012.sqrt)
+#print(plot(weighted_fl_abundance.2012.sqrt, allTerms = TRUE), pages = 4)
+#weighted_fl_abundance.2012.ck.sqrt <- check2D(weighted_fl_abundance.2012.sqrt, x1 = "yday", x2 = "elev.mean")
+
+weighted_fl_abundance.2012.bin <- bam(log(fl.abund.wt.bin + 0.01) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(8, 8), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2012),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2012.bin)
+#weighted_fl_abundance.2012.sum.bin <- summary(weighted_fl_abundance.2012.bin)
+#print(plot(weighted_fl_abundance.2012.bin, allTerms = TRUE), pages = 4)
+#weighted_fl_abundance.2012.ck.bin <- check2D(weighted_fl_abundance.2012.bin, x1 = "yday", x2 = "elev.mean")
 ```
 
 #### Bumbles
-```{r}
+```{r message=FALSE}
 ### 2010
 bb_abund.2010 <- bam(bb.abund ~ 
                        s(bb.sp, bs = "re") + 
@@ -294,7 +453,7 @@ bb_abund.2010 <- bam(bb.abund ~
                           bs= c("gp", "cr"), 
                           k=c(8, 8), 
                           m=2),
-                     data = filter(bb_abund_sp, year == 2010 & bb.total.abund >= 5),
+                     data = filter(bb_abund_sp, year == 2010 & bb.annual.abund >= 5),
                      discrete = TRUE,
                      family = "tw",
                      select = TRUE,
@@ -304,7 +463,7 @@ bb_abund.2010 <- bam(bb.abund ~
 check.gamViz(bb_abund.2010)
 #bb_abund.2010.sum <- summary(bb_abund.2010)
 #print(plot(bb_abund.2010, allTerms = TRUE), pages = 1)
-bb_abund.2010.ck <- check2D(bb_abund.2010, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
+#bb_abund.2010.ck <- check2D(bb_abund.2010, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
 
 ### 2011
 bb_abund.2011 <- bam(bb.abund ~ 
@@ -314,7 +473,7 @@ bb_abund.2011 <- bam(bb.abund ~
                           bs= c("gp", "cr"), 
                           k=c(8, 8), 
                           m=2),
-                     data = filter(bb_abund_sp, year == 2011 & bb.total.abund >= 5),
+                     data = filter(bb_abund_sp, year == 2011 & bb.annual.abund >= 5),
                      discrete = TRUE,
                      family = "tw",
                      select = TRUE,
@@ -324,7 +483,7 @@ bb_abund.2011 <- bam(bb.abund ~
 check.gamViz(bb_abund.2011)
 #bb_abund.2011.sum <- summary(bb_abund.2011)
 #print(plot(bb_abund.2011, allTerms = TRUE), pages = 1)
-bb_abund.2011.ck <- check2D(bb_abund.2011, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
+#bb_abund.2011.ck <- check2D(bb_abund.2011, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
 
 ### 2012
 bb_abund.2012 <- bam(bb.abund ~ 
@@ -334,7 +493,7 @@ bb_abund.2012 <- bam(bb.abund ~
                           bs= c("gp", "cr"), 
                           k=c(8, 8), 
                           m=2),
-                     data = filter(bb_abund_sp, year == 2012 & bb.total.abund >= 5),
+                     data = filter(bb_abund_sp, year == 2012 & bb.annual.abund >= 5),
                      discrete = TRUE,
                      family = "tw",
                      select = TRUE,
@@ -344,11 +503,11 @@ bb_abund.2012 <- bam(bb.abund ~
 check.gamViz(bb_abund.2012)
 #bb_abund.2012.sum <- summary(bb_abund.2012)
 #print(plot(bb_abund.2012, allTerms = TRUE), pages = 1)
-bb_abund.2012.ck <- check2D(bb_abund.2012, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
+#bb_abund.2012.ck <- check2D(bb_abund.2012, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
 ```
 
 ### Extract predictions
-```{r}
+```{r message=FALSE}
 # Function to build data set over which to generate predictions
 newdata_build <- function(dat, y) {
   
@@ -364,8 +523,7 @@ newdata_build <- function(dat, y) {
   spp <- dat %>%
     filter(year == y) %>%
     select(bb.sp) %>%
-    unique() %>%
-    na.omit() ##### NEED TO FIGURE OUT WHERE THE NA COMES FROM!
+    unique()
   
   # sequence of 50 points along the yday and elev ranges, respectively
   seq_yday <- seq(min_yday, max_yday, length.out = 50)
@@ -381,9 +539,9 @@ newdata2010.FL <- newdata_build(fl_abund_wt, 2010)
 newdata2011.FL <- newdata_build(fl_abund_wt, 2011)
 newdata2012.FL <- newdata_build(fl_abund_wt, 2012)
 
-newdata2010.BB <- newdata_build(filter(bb_abund_sp, bb.total.abund >= 5), 2010)
-newdata2011.BB <- newdata_build(filter(bb_abund_sp, bb.total.abund >= 5), 2011)
-newdata2012.BB <- newdata_build(filter(bb_abund_sp, bb.total.abund >= 5), 2012)
+newdata2010.BB <- newdata_build(filter(bb_abund_sp, bb.annual.abund >= 5), 2010)
+newdata2011.BB <- newdata_build(filter(bb_abund_sp, bb.annual.abund >= 5), 2011)
+newdata2012.BB <- newdata_build(filter(bb_abund_sp, bb.annual.abund >= 5), 2012)
 
 # A little wrapper to make predictions and return a tibble with desired columns 
 predict_func <- function(mod, new, y) {
@@ -397,61 +555,275 @@ predict_func <- function(mod, new, y) {
 
 # Generate predictions
 predict2010.FL <- predict_func(weighted_fl_abundance.2010, newdata2010.FL, 2010)
+predict2010.FL.sqrt <- predict_func(weighted_fl_abundance.2010.sqrt, newdata2010.FL, 2010)
+predict2010.FL.bin <- predict_func(weighted_fl_abundance.2010.bin, newdata2010.FL, 2010)
+
 predict2011.FL <- predict_func(weighted_fl_abundance.2011, newdata2011.FL, 2011)
+predict2011.FL.sqrt <- predict_func(weighted_fl_abundance.2011.sqrt, newdata2011.FL, 2011)
+predict2011.FL.bin <- predict_func(weighted_fl_abundance.2011.bin, newdata2011.FL, 2011)
+
 predict2012.FL <- predict_func(weighted_fl_abundance.2012, newdata2012.FL, 2012)
-predict_pool.FL <- bind_rows(predict2010.FL, predict2011.FL, predict2012.FL)
+predict2012.FL.sqrt <- predict_func(weighted_fl_abundance.2012.sqrt, newdata2012.FL, 2012)
+predict2012.FL.bin <- predict_func(weighted_fl_abundance.2012.bin, newdata2012.FL, 2012)
+
+predict_pool.FL <- bind_rows(predict2010.FL, predict2011.FL, predict2012.FL) %>%
+  mutate(date = as_date(yday))
+predict_pool.FL.sqrt <- bind_rows(predict2010.FL.sqrt, predict2011.FL.sqrt, predict2012.FL.sqrt) %>%
+  mutate(date = as_date(yday))
+predict_pool.FL.bin <- bind_rows(predict2010.FL.bin, predict2011.FL.bin, predict2012.FL.bin) %>%
+  mutate(date = as_date(yday))
 
 predict2010.BB <- predict_func(bb_abund.2010, newdata2010.BB, 2010)
 predict2011.BB <- predict_func(bb_abund.2011, newdata2011.BB, 2011)
 predict2012.BB <- predict_func(bb_abund.2012, newdata2012.BB, 2012)
-predict_pool.BB <- bind_rows(predict2010.BB, predict2011.BB, predict2012.BB)
+predict_pool.BB <- bind_rows(predict2010.BB, predict2011.BB, predict2012.BB) %>%
+  mutate(date = as_date(yday))
 
 # Subset predictions
-predict_major.FL <- filter(predict_pool.FL, bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf"))
-predict_highelev.FL <- filter(predict_pool.FL, bb.sp %in% c("pyre", "mend", "mont"))
-predict_minor.FL <- filter(predict_pool.FL, bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci"))
+predict_major.FL <- filter(predict_pool.FL, 
+                           bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf")) %>%
+  mutate(bb.sp = case_when(
+    bb.sp == "bss" ~ "B. sensu-strictu",
+    bb.sp == "pasc" ~ "B. pascuorum",
+    bb.sp == "prat" ~ "B. pratorum",
+    bb.sp == "soro" ~ "B. soroensis",
+    bb.sp == "wurf" ~ "B. wurflenii"
+  ))
+predict_major.FL.sqrt <- filter(predict_pool.FL.sqrt, 
+                                bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf")) %>%
+  mutate(bb.sp = case_when(
+    bb.sp == "bss" ~ "B. sensu-strictu",
+    bb.sp == "pasc" ~ "B. pascuorum",
+    bb.sp == "prat" ~ "B. pratorum",
+    bb.sp == "soro" ~ "B. soroensis",
+    bb.sp == "wurf" ~ "B. wurflenii"
+  ))
+predict_major.FL.bin <- filter(predict_pool.FL.bin, 
+                               bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf")) %>%
+  mutate(bb.sp = case_when(
+    bb.sp == "bss" ~ "B. sensu-strictu",
+    bb.sp == "pasc" ~ "B. pascuorum",
+    bb.sp == "prat" ~ "B. pratorum",
+    bb.sp == "soro" ~ "B. soroensis",
+    bb.sp == "wurf" ~ "B. wurflenii"
+  ))
 
-predict_major.BB <- filter(predict_pool.BB, bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf"))
-predict_highelev.BB <- filter(predict_pool.BB, bb.sp %in% c("pyre", "mend", "mont"))
-predict_minor.BB <- filter(predict_pool.BB, bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci"))
+predict_highelev.FL <- filter(predict_pool.FL, 
+                              bb.sp %in% c("pyre", "mend", "mont")) %>%
+  mutate(bb.sp = case_when(
+    bb.sp == "pyre" ~ "B. pyrenaeus",
+    bb.sp == "mend" ~ "B. mendax",
+    bb.sp == "mont" ~ "B. monticola"
+  ))
+predict_highelev.FL.sqrt <- filter(predict_pool.FL.sqrt, 
+                                   bb.sp %in% c("pyre", "mend", "mont")) %>%
+  mutate(bb.sp = case_when(
+    bb.sp == "pyre" ~ "B. pyrenaeus",
+    bb.sp == "mend" ~ "B. mendax",
+    bb.sp == "mont" ~ "B. monticola"
+  ))
+predict_highelev.FL.bin <- filter(predict_pool.FL.bin, 
+                                  bb.sp %in% c("pyre", "mend", "mont")) %>%
+  mutate(bb.sp = case_when(
+    bb.sp == "pyre" ~ "B. pyrenaeus",
+    bb.sp == "mend" ~ "B. mendax",
+    bb.sp == "mont" ~ "B. monticola"
+  ))
+
+predict_minor.FL <- filter(predict_pool.FL, 
+                           bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci")) %>%
+  mutate(bb.sp = case_when(
+    bb.sp == "gers" ~ "B. gerstaeckeri",
+    bb.sp == "hort" ~ "B. hortorum",
+    bb.sp == "hypn" ~ "B. hypnorum",
+    bb.sp == "jone" ~ "B. jonellus",
+    bb.sp == "lapi" ~ "B. lapidarius",
+    bb.sp == "muci" ~ "B. mucidus"
+  ))
+predict_minor.FL.sqrt <- filter(predict_pool.FL.sqrt, 
+                                bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci")) %>% 
+  mutate(bb.sp = case_when(
+    bb.sp == "gers" ~ "B. gerstaeckeri",
+    bb.sp == "hort" ~ "B. hortorum",
+    bb.sp == "hypn" ~ "B. hypnorum",
+    bb.sp == "jone" ~ "B. jonellus",
+    bb.sp == "lapi" ~ "B. lapidarius",
+    bb.sp == "muci" ~ "B. mucidus"
+  ))
+predict_minor.FL.bin <- filter(predict_pool.FL.bin, 
+                               bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci")) %>% 
+  mutate(bb.sp = case_when(
+    bb.sp == "gers" ~ "B. gerstaeckeri",
+    bb.sp == "hort" ~ "B. hortorum",
+    bb.sp == "hypn" ~ "B. hypnorum",
+    bb.sp == "jone" ~ "B. jonellus",
+    bb.sp == "lapi" ~ "B. lapidarius",
+    bb.sp == "muci" ~ "B. mucidus"
+  ))
+
+predict_major.BB <- filter(predict_pool.BB, 
+                           bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf")) %>%
+  mutate(bb.sp = case_when(
+    bb.sp == "bss" ~ "B. sensu-strictu",
+    bb.sp == "pasc" ~ "B. pascuorum",
+    bb.sp == "prat" ~ "B. pratorum",
+    bb.sp == "soro" ~ "B. soroensis",
+    bb.sp == "wurf" ~ "B. wurflenii"
+  ))
+predict_highelev.BB <- filter(predict_pool.BB, 
+                              bb.sp %in% c("pyre", "mend", "mont")) %>%
+  mutate(bb.sp = case_when(
+    bb.sp == "pyre" ~ "B. pyrenaeus",
+    bb.sp == "mend" ~ "B. mendax",
+    bb.sp == "mont" ~ "B. monticola"
+  ))
+predict_minor.BB <- filter(predict_pool.BB, 
+                           bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci")) %>%
+  mutate(bb.sp = case_when(
+    bb.sp == "gers" ~ "B. gerstaeckeri",
+    bb.sp == "hort" ~ "B. hortorum",
+    bb.sp == "hypn" ~ "B. hypnorum",
+    bb.sp == "jone" ~ "B. jonellus",
+    bb.sp == "lapi" ~ "B. lapidarius",
+    bb.sp == "muci" ~ "B. mucidus"
+  ))
 ```
 
 ### Visualize
 ```{r}
-ggplot(predict_major.FL, aes(yday, elev.mean, fill = pred)) +
+### FL GAMS
+#### Major
+ggplot(predict_major.FL, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25, binwidth = 1) +
-  scale_fill_viridis_c() +
-  facet_grid(year~bb.sp)
+  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+  scale_fill_viridis_c(name = "log(wt. abund.)") +
+  facet_grid(year~bb.sp, ) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(strip.text.x = element_text(face = "italic"),
+        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_major_FL.png")
 
-ggplot(predict_highelev.FL, aes(yday, elev.mean, fill = pred)) +
+ggplot(predict_major.FL.sqrt, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25, binwidth = 1) +
-  scale_fill_viridis_c() +
-  facet_grid(year~bb.sp)
+  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+  scale_fill_viridis_c(name = "log(wt. abund.)") +
+  facet_grid(year~bb.sp) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(strip.text.x = element_text(face = "italic"),
+        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_major_FL_sqrt.png") 
 
-ggplot(predict_minor.FL, aes(yday, elev.mean, fill = pred)) +
+ggplot(predict_major.FL.bin, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25, binwidth = 1) +
-  scale_fill_viridis_c() +
-  facet_grid(year~bb.sp)
+  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+  scale_fill_viridis_c(name = "log(wt. abund.)") +
+  facet_grid(year~bb.sp) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(strip.text.x = element_text(face = "italic"),
+        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_major_FL_bin.png") 
 
-# Plot
-ggplot(predict_major.BB, aes(yday, elev.mean, fill = log(pred))) +
+#### High Elev
+ggplot(predict_highelev.FL, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
-  geom_contour(aes(z = log(pred)), color = "black", size = 0.25, binwidth = 1) +
-  scale_fill_viridis_c() +
-  facet_grid(year~bb.sp)
+  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+  scale_fill_viridis_c(name = "log(wt. abund.)") +
+  facet_grid(year~bb.sp) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(strip.text.x = element_text(face = "italic"),
+        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_highelev_FL.png") 
 
-ggplot(predict_highelev.BB, aes(yday, elev.mean, fill = log(pred))) +
+ggplot(predict_highelev.FL.sqrt, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
-  geom_contour(aes(z = log(pred)), color = "black", size = 0.25, binwidth = 1) +
-  scale_fill_viridis_c() +
-  facet_grid(year~bb.sp)
+  scale_fill_viridis_c(name = "log(wt. abund.)") +
+  facet_grid(year~bb.sp) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(strip.text.x = element_text(face = "italic"),
+        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_highelev_FL_sqrt.png") 
 
-ggplot(predict_minor.BB, aes(yday, elev.mean, fill = log(pred))) +
+ggplot(predict_highelev.FL.bin, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
-  geom_contour(aes(z = log(pred)), color = "black", size = 0.25, binwidth = 1) +
-  scale_fill_viridis_c() +
-  facet_grid(year~bb.sp)
+  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+  scale_fill_viridis_c(name = "log(wt. abund.)") +
+  facet_grid(year~bb.sp) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(strip.text.x = element_text(face = "italic"),
+        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_highelev_FL_bin.png") 
+
+#### Minor
+ggplot(predict_minor.FL, aes(date, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+  scale_fill_viridis_c(name = "log(wt. abund.)") +
+  facet_grid(year~bb.sp) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(strip.text.x = element_text(face = "italic"),
+        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_minor_FL.png") 
+
+ggplot(predict_minor.FL.sqrt, aes(date, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+  scale_fill_viridis_c(name = "log(wt. abund.)") +
+  facet_grid(year~bb.sp) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(strip.text.x = element_text(face = "italic"),
+        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_minor_FL_sqrt.png") 
+
+ggplot(predict_minor.FL.bin, aes(date, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+  scale_fill_viridis_c(name = "log(wt. abund.)") +
+  facet_grid(year~bb.sp) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(strip.text.x = element_text(face = "italic"),
+        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_minor_FL_bin.png") 
+
+### BB GAMs
+ggplot(predict_major.BB, aes(date, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = log(pred)), color = "black", size = 0.25) +
+  scale_fill_viridis_c(name = "wt. abund.") +
+  facet_grid(year~bb.sp) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(strip.text.x = element_text(face = "italic"),
+        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_major_BB.png")  
+
+ggplot(predict_highelev.BB, aes(date, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = log(pred)), color = "black", size = 0.25) +
+  scale_fill_viridis_c(name = "wt. abund.") +
+  facet_grid(year~bb.sp) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(strip.text.x = element_text(face = "italic"),
+        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_highelev_BB.png") 
+
+ggplot(predict_minor.BB, aes(date, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = log(pred)), color = "black", size = 0.25) +
+  scale_fill_viridis_c(name = "wt. abund") +
+  facet_grid(year~bb.sp) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(strip.text.x = element_text(face = "italic"),
+        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_minor_BB.png") 
 ```
