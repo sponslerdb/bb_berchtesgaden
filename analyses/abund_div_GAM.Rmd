@@ -238,7 +238,7 @@ write_csv(fl_abund_wt, "../analyses/output/fl_abund_wt.csv")
 ##### My argument for not including site as a random effect is that it would create identifiability issues with the elevation variable that I am actally interested in. This will probably cause the p-values to be underestimated, maybe to the point of being uninformative. But I don't think I care. My goal is not to establish inferentially that time and elevation affect BB abundance; I want to say how they do. And I don't want to obscure the "how" for the sake of inferential scruples.
 #### Floral resources
 ##### After trying a lot of things, I'm pretty sure the only option I have for fitting a good GAM is using log-transformation. The question that remains is how to treat the concept of preference. My "raw" preference-weighted abundance gives our measure of preference a lot of influence. If we trust it, this may be most informative, and it allows the greatest variation in floral resources between BB species. But if there is anything misleading in our preference estimates, using the "raw" measures will do nothing to mitigate this. An approach that gives us a "softer" notion of preference is to take the sqrt of the raw prference before multiplying floral abundance by it. An argument for this approach is that it retains most of the meaning of the raw preference data while dampening its effect, which may help avoid spurious hotspots based on overestimated preference. Finally, an approach that says "we don't really trust our data very much" is to treat preference as binary: visited species get a 1, non-visited species get a 0, and all the "weighting" of floral resource abundance means is dropping floral species that a given BB species did not visit. In all these cases, though, the distribution of weighted floral abundance is strongly logarithmic (or exponential or something), so a log transformation is necessary. I tried softer methods, e.g. sqrt-transformation, Tweedie family, etc., but the problem with all these is that the variance fans out like crazy as you move up to the higher end of the distribution. Happily, it makes little difference which of these options we choose, as the resulting plots lead to the same interpretation.
-```{r message=FALSE}
+```{r message=FALSE, warning=FALSE}
 # These are the distributions of my response variable options 
 ggplot(fl_abund_wt, aes(fl.abund.wt.bin)) +
   geom_histogram()
@@ -267,7 +267,7 @@ weighted_fl_abundance.2010 <- bam(log(fl.abund.wt + 0.01) ~
                                     select = TRUE,
                                     method = "fREML") %>% getViz(nsim = 500)
 
-check.gamViz(weighted_fl_abundance.2010)
+#check.gamViz(weighted_fl_abundance.2010)
 #weighted_fl_abundance.2010.sum <- summary(weighted_fl_abundance.2010)
 #print(plot(weighted_fl_abundance.2010, allTerms = TRUE), pages = 4)
 #weighted_fl_abundance.2010.ck <- check2D(weighted_fl_abundance.2010, x1 = "yday", x2 = "elev.mean")
@@ -288,7 +288,7 @@ weighted_fl_abundance.2010.sqrt <- bam(log(fl.abund.wt.sqrt + 0.01) ~
                                     select = TRUE,
                                     method = "fREML") %>% getViz(nsim = 500)
 
-check.gamViz(weighted_fl_abundance.2010.sqrt)
+#check.gamViz(weighted_fl_abundance.2010.sqrt)
 #weighted_fl_abundance.2010.sum.sqrt <- summary(weighted_fl_abundance.2010.sqrt)
 #print(plot(weighted_fl_abundance.2010.sqrt, allTerms = TRUE), pages = 4)
 #weighted_fl_abundance.2010.ck.sqrt <- check2D(weighted_fl_abundance.2010.sqrt, x1 = "yday", x2 = "elev.mean")
@@ -309,7 +309,7 @@ weighted_fl_abundance.2010.bin <- bam(log(fl.abund.wt.bin + 0.01) ~
                                     select = TRUE,
                                     method = "fREML") %>% getViz(nsim = 500)
 
-check.gamViz(weighted_fl_abundance.2010.bin)
+#check.gamViz(weighted_fl_abundance.2010.bin)
 #weighted_fl_abundance.2010.sum.bin <- summary(weighted_fl_abundance.2010.bin)
 #print(plot(weighted_fl_abundance.2010.bin, allTerms = TRUE), pages = 4)
 #weighted_fl_abundance.2010.ck.bin <- check2D(weighted_fl_abundance.2010.bin, x1 = "yday", x2 = "elev.mean")
@@ -331,7 +331,7 @@ weighted_fl_abundance.2011 <- bam(log(fl.abund.wt + 0.01) ~
                                     select = TRUE,
                                     method = "fREML") %>% getViz(nsim = 500)
 
-check.gamViz(weighted_fl_abundance.2011)
+#check.gamViz(weighted_fl_abundance.2011)
 #weighted_fl_abundance.2011.sum <- summary(weighted_fl_abundance.2011)
 #print(plot(weighted_fl_abundance.2011, allTerms = TRUE), pages = 4)
 #weighted_fl_abundance.2011.ck <- check2D(weighted_fl_abundance.2011, x1 = "yday", x2 = "elev.mean")
@@ -352,7 +352,7 @@ weighted_fl_abundance.2011.sqrt <- bam(log(fl.abund.wt.sqrt + 0.01) ~
                                     select = TRUE,
                                     method = "fREML") %>% getViz(nsim = 500)
 
-check.gamViz(weighted_fl_abundance.2011.sqrt)
+#check.gamViz(weighted_fl_abundance.2011.sqrt)
 #weighted_fl_abundance.2011.sum.sqrt <- summary(weighted_fl_abundance.2011.sqrt)
 #print(plot(weighted_fl_abundance.2011.sqrt, allTerms = TRUE), pages = 4)
 #weighted_fl_abundance.2011.ck.sqrt <- check2D(weighted_fl_abundance.2011.sqrt, x1 = "yday", x2 = "elev.mean")
@@ -373,7 +373,7 @@ weighted_fl_abundance.2011.bin <- bam(log(fl.abund.wt.bin + 0.01) ~
                                     select = TRUE,
                                     method = "fREML") %>% getViz(nsim = 500)
 
-check.gamViz(weighted_fl_abundance.2011.bin)
+#check.gamViz(weighted_fl_abundance.2011.bin)
 #weighted_fl_abundance.2011.sum.bin <- summary(weighted_fl_abundance.2011.bin)
 #print(plot(weighted_fl_abundance.2011.bin, allTerms = TRUE), pages = 4)
 #weighted_fl_abundance.2011.ck.bin <- check2D(weighted_fl_abundance.2011.bin, x1 = "yday", x2 = "elev.mean")
@@ -395,7 +395,7 @@ weighted_fl_abundance.2012 <- bam(log(fl.abund.wt + 0.01) ~
                                     select = TRUE,
                                     method = "fREML") %>% getViz(nsim = 500)
 
-check.gamViz(weighted_fl_abundance.2012)
+#check.gamViz(weighted_fl_abundance.2012)
 #weighted_fl_abundance.2012.sum <- summary(weighted_fl_abundance.2012)
 #print(plot(weighted_fl_abundance.2012, allTerms = TRUE), pages = 4)
 #weighted_fl_abundance.2012.ck <- check2D(weighted_fl_abundance.2012, x1 = "yday", x2 = "elev.mean")
@@ -416,7 +416,7 @@ weighted_fl_abundance.2012.sqrt <- bam(log(fl.abund.wt.sqrt + 0.01) ~
                                     select = TRUE,
                                     method = "fREML") %>% getViz(nsim = 500)
 
-check.gamViz(weighted_fl_abundance.2012.sqrt)
+#check.gamViz(weighted_fl_abundance.2012.sqrt)
 #weighted_fl_abundance.2012.sum.sqrt <- summary(weighted_fl_abundance.2012.sqrt)
 #print(plot(weighted_fl_abundance.2012.sqrt, allTerms = TRUE), pages = 4)
 #weighted_fl_abundance.2012.ck.sqrt <- check2D(weighted_fl_abundance.2012.sqrt, x1 = "yday", x2 = "elev.mean")
@@ -437,7 +437,7 @@ weighted_fl_abundance.2012.bin <- bam(log(fl.abund.wt.bin + 0.01) ~
                                     select = TRUE,
                                     method = "fREML") %>% getViz(nsim = 500)
 
-check.gamViz(weighted_fl_abundance.2012.bin)
+#check.gamViz(weighted_fl_abundance.2012.bin)
 #weighted_fl_abundance.2012.sum.bin <- summary(weighted_fl_abundance.2012.bin)
 #print(plot(weighted_fl_abundance.2012.bin, allTerms = TRUE), pages = 4)
 #weighted_fl_abundance.2012.ck.bin <- check2D(weighted_fl_abundance.2012.bin, x1 = "yday", x2 = "elev.mean")
@@ -460,7 +460,7 @@ bb_abund.2010 <- bam(bb.abund ~
                      method = "fREML") %>% getViz(nsim = 500)
 
 
-check.gamViz(bb_abund.2010)
+#check.gamViz(bb_abund.2010)
 #bb_abund.2010.sum <- summary(bb_abund.2010)
 #print(plot(bb_abund.2010, allTerms = TRUE), pages = 1)
 #bb_abund.2010.ck <- check2D(bb_abund.2010, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
@@ -480,7 +480,7 @@ bb_abund.2011 <- bam(bb.abund ~
                      method = "fREML") %>% getViz(nsim = 500)
 
 
-check.gamViz(bb_abund.2011)
+#check.gamViz(bb_abund.2011)
 #bb_abund.2011.sum <- summary(bb_abund.2011)
 #print(plot(bb_abund.2011, allTerms = TRUE), pages = 1)
 #bb_abund.2011.ck <- check2D(bb_abund.2011, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
@@ -500,7 +500,7 @@ bb_abund.2012 <- bam(bb.abund ~
                      method = "fREML") %>% getViz(nsim = 500)
 
 
-check.gamViz(bb_abund.2012)
+#check.gamViz(bb_abund.2012)
 #bb_abund.2012.sum <- summary(bb_abund.2012)
 #print(plot(bb_abund.2012, allTerms = TRUE), pages = 1)
 #bb_abund.2012.ck <- check2D(bb_abund.2012, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
@@ -567,263 +567,218 @@ predict2012.FL.sqrt <- predict_func(weighted_fl_abundance.2012.sqrt, newdata2012
 predict2012.FL.bin <- predict_func(weighted_fl_abundance.2012.bin, newdata2012.FL, 2012)
 
 predict_pool.FL <- bind_rows(predict2010.FL, predict2011.FL, predict2012.FL) %>%
-  mutate(date = as_date(yday))
+  mutate(date = as_date(yday),
+         subject = factor(rep("FL", n())))
 predict_pool.FL.sqrt <- bind_rows(predict2010.FL.sqrt, predict2011.FL.sqrt, predict2012.FL.sqrt) %>%
-  mutate(date = as_date(yday))
+  mutate(date = as_date(yday),
+         subject = factor(rep("FL", n())))
 predict_pool.FL.bin <- bind_rows(predict2010.FL.bin, predict2011.FL.bin, predict2012.FL.bin) %>%
-  mutate(date = as_date(yday))
+  mutate(date = as_date(yday),
+         subject = factor(rep("FL", n())))
 
 predict2010.BB <- predict_func(bb_abund.2010, newdata2010.BB, 2010)
 predict2011.BB <- predict_func(bb_abund.2011, newdata2011.BB, 2011)
 predict2012.BB <- predict_func(bb_abund.2012, newdata2012.BB, 2012)
 predict_pool.BB <- bind_rows(predict2010.BB, predict2011.BB, predict2012.BB) %>%
-  mutate(date = as_date(yday))
+  mutate(date = as_date(yday),
+         subject = factor(rep("BB", n())),
+         pred = log(pred))
+
+predict_pool <- bind_rows(predict_pool.FL, predict_pool.BB)
+predict_pool.sqrt <- bind_rows(predict_pool.FL.sqrt, predict_pool.BB)
+predict_pool.bin <- bind_rows(predict_pool.FL.bin, predict_pool.BB)
+
 
 # Subset predictions
-predict_major.FL <- filter(predict_pool.FL, 
+predict_major <- filter(predict_pool, 
                            bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf")) %>%
   mutate(bb.sp = case_when(
-    bb.sp == "bss" ~ "B. sensu-strictu",
-    bb.sp == "pasc" ~ "B. pascuorum",
-    bb.sp == "prat" ~ "B. pratorum",
-    bb.sp == "soro" ~ "B. soroensis",
-    bb.sp == "wurf" ~ "B. wurflenii"
-  ))
-predict_major.FL.sqrt <- filter(predict_pool.FL.sqrt, 
-                                bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf")) %>%
-  mutate(bb.sp = case_when(
-    bb.sp == "bss" ~ "B. sensu-strictu",
-    bb.sp == "pasc" ~ "B. pascuorum",
-    bb.sp == "prat" ~ "B. pratorum",
-    bb.sp == "soro" ~ "B. soroensis",
-    bb.sp == "wurf" ~ "B. wurflenii"
-  ))
-predict_major.FL.bin <- filter(predict_pool.FL.bin, 
-                               bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf")) %>%
-  mutate(bb.sp = case_when(
-    bb.sp == "bss" ~ "B. sensu-strictu",
-    bb.sp == "pasc" ~ "B. pascuorum",
-    bb.sp == "prat" ~ "B. pratorum",
-    bb.sp == "soro" ~ "B. soroensis",
-    bb.sp == "wurf" ~ "B. wurflenii"
+    bb.sp == "bss" ~ "B. ss.",
+    bb.sp == "pasc" ~ "B. pasc",
+    bb.sp == "prat" ~ "B. prat",
+    bb.sp == "soro" ~ "B. soro",
+    bb.sp == "wurf" ~ "B. wurf"
   ))
 
-predict_highelev.FL <- filter(predict_pool.FL, 
+predict_major.sqrt <- filter(predict_pool.sqrt, 
+                           bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf")) %>%
+  mutate(bb.sp = case_when(
+    bb.sp == "bss" ~ "B. ss.",
+    bb.sp == "pasc" ~ "B. pasc",
+    bb.sp == "prat" ~ "B. prat",
+    bb.sp == "soro" ~ "B. soro",
+    bb.sp == "wurf" ~ "B. wurf"
+  ))
+
+predict_major.bin <- filter(predict_pool.bin, 
+                           bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf")) %>%
+  mutate(bb.sp = case_when(
+    bb.sp == "bss" ~ "B. ss.",
+    bb.sp == "pasc" ~ "B. pasc",
+    bb.sp == "prat" ~ "B. prat",
+    bb.sp == "soro" ~ "B. soro",
+    bb.sp == "wurf" ~ "B. wurf"
+  ))
+
+predict_highelev <- filter(predict_pool, 
                               bb.sp %in% c("pyre", "mend", "mont")) %>%
   mutate(bb.sp = case_when(
-    bb.sp == "pyre" ~ "B. pyrenaeus",
-    bb.sp == "mend" ~ "B. mendax",
-    bb.sp == "mont" ~ "B. monticola"
+    bb.sp == "pyre" ~ "B. pyre",
+    bb.sp == "mend" ~ "B. mend",
+    bb.sp == "mont" ~ "B. mont"
   ))
-predict_highelev.FL.sqrt <- filter(predict_pool.FL.sqrt, 
+
+predict_highelev.sqrt <- filter(predict_pool.sqrt, 
                                    bb.sp %in% c("pyre", "mend", "mont")) %>%
   mutate(bb.sp = case_when(
-    bb.sp == "pyre" ~ "B. pyrenaeus",
-    bb.sp == "mend" ~ "B. mendax",
-    bb.sp == "mont" ~ "B. monticola"
+    bb.sp == "pyre" ~ "B. pyre",
+    bb.sp == "mend" ~ "B. mend",
+    bb.sp == "mont" ~ "B. mont"
   ))
-predict_highelev.FL.bin <- filter(predict_pool.FL.bin, 
+
+predict_highelev.bin <- filter(predict_pool.bin, 
                                   bb.sp %in% c("pyre", "mend", "mont")) %>%
   mutate(bb.sp = case_when(
-    bb.sp == "pyre" ~ "B. pyrenaeus",
-    bb.sp == "mend" ~ "B. mendax",
-    bb.sp == "mont" ~ "B. monticola"
+    bb.sp == "pyre" ~ "B. pyre",
+    bb.sp == "mend" ~ "B. mend",
+    bb.sp == "mont" ~ "B. mont"
   ))
 
-predict_minor.FL <- filter(predict_pool.FL, 
+predict_minor <- filter(predict_pool, 
                            bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci")) %>%
   mutate(bb.sp = case_when(
-    bb.sp == "gers" ~ "B. gerstaeckeri",
-    bb.sp == "hort" ~ "B. hortorum",
-    bb.sp == "hypn" ~ "B. hypnorum",
-    bb.sp == "jone" ~ "B. jonellus",
-    bb.sp == "lapi" ~ "B. lapidarius",
-    bb.sp == "muci" ~ "B. mucidus"
+    bb.sp == "gers" ~ "B. gers",
+    bb.sp == "hort" ~ "B. hort",
+    bb.sp == "hypn" ~ "B. hypn",
+    bb.sp == "jone" ~ "B. jone",
+    bb.sp == "lapi" ~ "B. lapi",
+    bb.sp == "muci" ~ "B. muci"
   ))
-predict_minor.FL.sqrt <- filter(predict_pool.FL.sqrt, 
+
+predict_minor.sqrt <- filter(predict_pool.sqrt, 
                                 bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci")) %>% 
   mutate(bb.sp = case_when(
-    bb.sp == "gers" ~ "B. gerstaeckeri",
-    bb.sp == "hort" ~ "B. hortorum",
-    bb.sp == "hypn" ~ "B. hypnorum",
-    bb.sp == "jone" ~ "B. jonellus",
-    bb.sp == "lapi" ~ "B. lapidarius",
-    bb.sp == "muci" ~ "B. mucidus"
-  ))
-predict_minor.FL.bin <- filter(predict_pool.FL.bin, 
-                               bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci")) %>% 
-  mutate(bb.sp = case_when(
-    bb.sp == "gers" ~ "B. gerstaeckeri",
-    bb.sp == "hort" ~ "B. hortorum",
-    bb.sp == "hypn" ~ "B. hypnorum",
-    bb.sp == "jone" ~ "B. jonellus",
-    bb.sp == "lapi" ~ "B. lapidarius",
-    bb.sp == "muci" ~ "B. mucidus"
+    bb.sp == "gers" ~ "B. gers",
+    bb.sp == "hort" ~ "B. hort",
+    bb.sp == "hypn" ~ "B. hypn",
+    bb.sp == "jone" ~ "B. jone",
+    bb.sp == "lapi" ~ "B. lapi",
+    bb.sp == "muci" ~ "B. muci"
   ))
 
-predict_major.BB <- filter(predict_pool.BB, 
-                           bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf")) %>%
+predict_minor.bin <- filter(predict_pool.bin, 
+                               bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci")) %>% 
   mutate(bb.sp = case_when(
-    bb.sp == "bss" ~ "B. sensu-strictu",
-    bb.sp == "pasc" ~ "B. pascuorum",
-    bb.sp == "prat" ~ "B. pratorum",
-    bb.sp == "soro" ~ "B. soroensis",
-    bb.sp == "wurf" ~ "B. wurflenii"
-  ))
-predict_highelev.BB <- filter(predict_pool.BB, 
-                              bb.sp %in% c("pyre", "mend", "mont")) %>%
-  mutate(bb.sp = case_when(
-    bb.sp == "pyre" ~ "B. pyrenaeus",
-    bb.sp == "mend" ~ "B. mendax",
-    bb.sp == "mont" ~ "B. monticola"
-  ))
-predict_minor.BB <- filter(predict_pool.BB, 
-                           bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci")) %>%
-  mutate(bb.sp = case_when(
-    bb.sp == "gers" ~ "B. gerstaeckeri",
-    bb.sp == "hort" ~ "B. hortorum",
-    bb.sp == "hypn" ~ "B. hypnorum",
-    bb.sp == "jone" ~ "B. jonellus",
-    bb.sp == "lapi" ~ "B. lapidarius",
-    bb.sp == "muci" ~ "B. mucidus"
+    bb.sp == "gers" ~ "B. gers",
+    bb.sp == "hort" ~ "B. hort",
+    bb.sp == "hypn" ~ "B. hypn",
+    bb.sp == "jone" ~ "B. jone",
+    bb.sp == "lapi" ~ "B. lapi",
+    bb.sp == "muci" ~ "B. muci"
   ))
 ```
 
 ### Visualize
 ```{r}
-### FL GAMS
 #### Major
-ggplot(predict_major.FL, aes(date, elev.mean, fill = pred)) +
+ggplot(predict_major, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
   geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(wt. abund.)") +
-  facet_grid(year~bb.sp, ) +
+  scale_fill_viridis_c(name = "log(abund.)") +
+  #facet_grid(bb.sp + subject ~ year) +
+  facet_grid(year ~ bb.sp + subject) +
   xlab("Date") +
   ylab("Elevation (m)") +
-  theme(strip.text.x = element_text(face = "italic"),
-        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_major_FL.png")
+  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
+ggsave("./output/GAM_major.png", height = 5, width = 11, units = "in")
 
-ggplot(predict_major.FL.sqrt, aes(date, elev.mean, fill = pred)) +
+ggplot(predict_major.sqrt, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
   geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(wt. abund.)") +
-  facet_grid(year~bb.sp) +
+  scale_fill_viridis_c(name = "log(abund.)") +
+  #facet_grid(bb.sp + subject ~ year) +
+  facet_grid(year ~ bb.sp + subject) +
   xlab("Date") +
   ylab("Elevation (m)") +
-  theme(strip.text.x = element_text(face = "italic"),
-        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_major_FL_sqrt.png") 
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_major_sqrt.png")
 
-ggplot(predict_major.FL.bin, aes(date, elev.mean, fill = pred)) +
+ggplot(predict_major.bin, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
   geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(wt. abund.)") +
-  facet_grid(year~bb.sp) +
+  scale_fill_viridis_c(name = "log(abund.)") +
+  #facet_grid(bb.sp + subject ~ year) +
+  facet_grid(year ~ bb.sp + subject) +
   xlab("Date") +
   ylab("Elevation (m)") +
-  theme(strip.text.x = element_text(face = "italic"),
-        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_major_FL_bin.png") 
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
+ggsave("./output/GAM_major_bin.png")
 
 #### High Elev
-ggplot(predict_highelev.FL, aes(date, elev.mean, fill = pred)) +
+ggplot(predict_highelev, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
   geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(wt. abund.)") +
-  facet_grid(year~bb.sp) +
+  scale_fill_viridis_c(name = "log(abund.)") +
+  #facet_grid(bb.sp + subject ~ year) +
+  facet_grid(year ~ bb.sp + subject) +
   xlab("Date") +
   ylab("Elevation (m)") +
-  theme(strip.text.x = element_text(face = "italic"),
-        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_highelev_FL.png") 
+  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
+ggsave("./output/GAM_highelev.png", height = 5, width = 11, units = "in")
 
-ggplot(predict_highelev.FL.sqrt, aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  scale_fill_viridis_c(name = "log(wt. abund.)") +
-  facet_grid(year~bb.sp) +
-  xlab("Date") +
-  ylab("Elevation (m)") +
-  theme(strip.text.x = element_text(face = "italic"),
-        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_highelev_FL_sqrt.png") 
-
-ggplot(predict_highelev.FL.bin, aes(date, elev.mean, fill = pred)) +
+ggplot(predict_highelev.sqrt, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
   geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(wt. abund.)") +
-  facet_grid(year~bb.sp) +
+  scale_fill_viridis_c(name = "log(abund.)") +
+  #facet_grid(bb.sp + subject ~ year) +
+  facet_grid(year ~ bb.sp + subject) +
   xlab("Date") +
   ylab("Elevation (m)") +
-  theme(strip.text.x = element_text(face = "italic"),
-        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_highelev_FL_bin.png") 
+  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
+ggsave("./output/GAM_highelev_sqrt.png", height = 5, width = 11, units = "in")
+
+ggplot(predict_highelev.bin, aes(date, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+  scale_fill_viridis_c(name = "log(abund.)") +
+  #facet_grid(bb.sp + subject ~ year) +
+  facet_grid(year ~ bb.sp + subject) +
+  xlab("Date") +
+  ylab("Elevation (m)") +
+  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
+ggsave("./output/GAM_highelev_bin.png", height = 5, width = 11, units = "in")
 
 #### Minor
-ggplot(predict_minor.FL, aes(date, elev.mean, fill = pred)) +
+ggplot(predict_minor, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
   geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(wt. abund.)") +
-  facet_grid(year~bb.sp) +
+  scale_fill_viridis_c(name = "log(abund.)") +
+  #facet_grid(bb.sp + subject ~ year) +
+  facet_grid(year ~ bb.sp + subject) +
   xlab("Date") +
   ylab("Elevation (m)") +
-  theme(strip.text.x = element_text(face = "italic"),
-        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_minor_FL.png") 
+  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
+ggsave("./output/GAM_minor.png", height = 5, width = 11, units = "in")
 
-ggplot(predict_minor.FL.sqrt, aes(date, elev.mean, fill = pred)) +
+ggplot(predict_minor.sqrt, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
   geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(wt. abund.)") +
-  facet_grid(year~bb.sp) +
+  scale_fill_viridis_c(name = "log(abund.)") +
+  #facet_grid(bb.sp + subject ~ year) +
+  facet_grid(year ~ bb.sp + subject) +
   xlab("Date") +
   ylab("Elevation (m)") +
-  theme(strip.text.x = element_text(face = "italic"),
-        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_minor_FL_sqrt.png") 
+  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
+ggsave("./output/GAM_minor_sqrt.png", height = 5, width = 11, units = "in")
 
-ggplot(predict_minor.FL.bin, aes(date, elev.mean, fill = pred)) +
+ggplot(predict_minor.bin, aes(date, elev.mean, fill = pred)) +
   geom_raster() +
   geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(wt. abund.)") +
-  facet_grid(year~bb.sp) +
+  scale_fill_viridis_c(name = "log(abund.)") +
+  #facet_grid(bb.sp + subject ~ year) +
+  facet_grid(year ~ bb.sp + subject) +
   xlab("Date") +
   ylab("Elevation (m)") +
-  theme(strip.text.x = element_text(face = "italic"),
-        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_minor_FL_bin.png") 
-
-### BB GAMs
-ggplot(predict_major.BB, aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = log(pred)), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "wt. abund.") +
-  facet_grid(year~bb.sp) +
-  xlab("Date") +
-  ylab("Elevation (m)") +
-  theme(strip.text.x = element_text(face = "italic"),
-        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_major_BB.png")  
-
-ggplot(predict_highelev.BB, aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = log(pred)), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "wt. abund.") +
-  facet_grid(year~bb.sp) +
-  xlab("Date") +
-  ylab("Elevation (m)") +
-  theme(strip.text.x = element_text(face = "italic"),
-        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_highelev_BB.png") 
-
-ggplot(predict_minor.BB, aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = log(pred)), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "wt. abund") +
-  facet_grid(year~bb.sp) +
-  xlab("Date") +
-  ylab("Elevation (m)") +
-  theme(strip.text.x = element_text(face = "italic"),
-        axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_minor_BB.png") 
+  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
+ggsave("./output/GAM_minor_bin.png", height = 5, width = 11, units = "in")
 ```

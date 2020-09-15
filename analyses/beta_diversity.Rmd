@@ -27,11 +27,29 @@ gdd <- read_csv("../processed_data/climate.csv") %>%
 
 ### Load site data
 ```{r, include=FALSE, echo=FALSE}
+# A function for converting a geometry column back to x and y columns
+# https://github.com/r-spatial/sf/issues/231
+sfc_as_cols <- function(x, names = c("x","y")) {
+  stopifnot(inherits(x,"sf") && inherits(sf::st_geometry(x),"sfc_POINT"))
+  ret <- sf::st_coordinates(x)
+  ret <- tibble::as_tibble(ret)
+  stopifnot(length(names) == ncol(ret))
+  x <- x[ , !names(x) %in% names]
+  ret <- setNames(ret,names)
+  dplyr::bind_cols(x,ret)
+}
+
 site_data <- read_csv("../processed_data/site_data.csv") %>%
   dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
   mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
          elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) %>% # turn elav.class into an ordered factor
-  semi_join(read_csv("../processed_data/network.csv"), by = "site") # drop sites that were not sampled
+  semi_join(read_csv("../processed_data/network.csv"), by = "site") %>% # drop sites that were not sampled
+  st_as_sf(coords = c("lon", "lat")) %>%
+  st_set_crs(4326) %>%
+  st_transform(5684) %>%
+  sfc_as_cols() %>%
+  as_tibble() %>%
+  dplyr::select(-geometry)
 ```
 
 ### Load network and survey data
@@ -91,7 +109,7 @@ beta_site.date <- bind_rows(beta_site.date.2010, beta_site.date.2011, beta_site.
 
 # Save to file to avoid redoing that long step
 write_csv(beta_site.date, "./output/beta_site.date.csv")
-#beta_site.date <- read_csv("./output/beta_site.date.csv")
+beta_site.date <- read_csv("./output/beta_site.date.csv")
 
 # Add site data
 beta_mit_data <- beta_site.date %>%
@@ -106,11 +124,11 @@ beta_mit_data <- beta_site.date %>%
   left_join(site_data, by = c("site1" = "site")) %>%
   dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
                 ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
-                elev1 = elev.mean, man1 = management, lon1 = lon, lat1 = lat) %>%
+                elev1 = elev.mean, man1 = management, x1 = x, y1 = y) %>%
   left_join(site_data, by = c("site2" = "site")) %>%
   dplyr::select(site1, year1, yday1, site2, year2, yday2, S, OS, WN, ST, 
                 ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
-                elev1, elev2 = elev.mean, man1, man2 = management, lon1, lat1, lon2 = lon, lat2 = lat) %>%
+                elev1, elev2 = elev.mean, man1, man2 = management, x1, y1, x2 = x, y2 = y) %>%
   mutate(site1 = factor(site1),
          site2 = factor(site2),
          year1 = factor(year1),
@@ -127,21 +145,24 @@ beta_mit_data <- beta_site.date %>%
   gather(metric, value, -c(site1, year1, yday1, site2, year2, yday2,
                            elev1, elev2, elev.diff, yday.diff, 
                            man1, man2, man.diff, mean.elev, 
-                           lon1, lat1, lon2, lat2)) %>%
+                           x1, y1, x2, y2)) %>%
   mutate(metric.class = case_when(
     metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
     metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
     metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
-    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"
-  ))
+    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"),
+    metric = factor(metric, levels = c("WN", "ST", "OS", "ST.h", "ST.l", 
+                                       "ST.lh", "WN.repl", "WN.rich", 
+                                       "OS.repl", "OS.rich"))
+    )
 ```
 
 ### Plot interaction beta-diversity against elevation difference and time difference
 ```{r}
 # Set palette
-p <- c("OS" = "deepskyblue", "ST" = "green3", 
+p <- c("OS" = "darkorange1", "ST" = "green3", 
        "ST.h" = "firebrick1", "ST.l" = "darkorchid", 
-       "ST.lh" = "gold", "WN" = "black")
+       "ST.lh" = "deepskyblue", "WN" = "black")
 
 # Elevation diff
 ggplot(filter(beta_mit_data, year1 == year2 &
@@ -177,8 +198,10 @@ ggplot(filter(beta_mit_data, year1 == year2 &
   geom_point(alpha = 0.1, pch = 16, size = 1) +
   geom_smooth() +
   facet_grid(metric.class ~ year1) +
-  scale_color_manual(values = p) +
-  theme_light()
+  scale_color_manual(values = p, name = "partition") +
+  xlab("Elevation difference") +
+  ylab("β-diversity")
+ggsave("./output/beta_elev.png", height = 4.5, width = 6.5, units = "in")
 
 # Time diff within 250 m elev diff
 ggplot(filter(beta_mit_data, year1 == year2 &
@@ -190,8 +213,10 @@ ggplot(filter(beta_mit_data, year1 == year2 &
   geom_point(alpha = 0.1, pch = 16, size = 1) +
   geom_smooth() +
   facet_grid(metric.class ~ year1) +
-  scale_color_manual(values = p) +
-  theme_light()
+  scale_color_manual(values = p, name = "partition") +
+  xlab("Elevation difference") +
+  ylab("β-diversity")
+ggsave("./output/beta_time.png", height = 4.5, width = 6.5, units = "in")
 ```
 
 ### GDM: Interactions
@@ -206,15 +231,14 @@ site_pair_prep_net <- function(dat, y) {
     filter(metric == "WN") %>% # we'll focus for now on WN, but this could be done for partitions, too
     mutate(weights = rep(1, n())) %>% # right now this analysis is unweighted; could weight by abundance, etc, if we wanted to
     dplyr::select(distance = value, weights,
-                  s1.xCoord = lon1, s1.yCoord = lat1, 
-                  s2.xCoord = lon2, s2.yCoord = lat2, 
-                  s1.elev = elev1, s1.yday = yday1,
-                  s2.elev = elev2, s2.yday = yday2) %>%
+                  s1.xCoord = x1, s1.yCoord = y1, 
+                  s2.xCoord = x2, s2.yCoord = y2, 
+                  s1.elev.mean = elev1, s1.yday = yday1,
+                  s2.elev.mean = elev2, s2.yday = yday2) %>%
     data.frame()
 }
 
 # Prep site-pairs for GDM analysis
-### 2010
 sitepair_2010.WN <- site_pair_prep_net(beta_mit_data, 2010)
 sitepair_2011.WN <- site_pair_prep_net(beta_mit_data, 2011)
 sitepair_2012.WN <- site_pair_prep_net(beta_mit_data, 2012)
@@ -234,14 +258,64 @@ gdm_WN.2011.imp <- gdm.varImp(sitepair_2011.WN, geo = TRUE)
 gdm_WN.2012.imp <- gdm.varImp(sitepair_2012.WN, geo = TRUE)
 
 # Plot
-plot(gdm_WN.2010)
-plot(gdm_WN.2011)
-plot(gdm_WN.2012)
+plot(gdm_WN.2010, include.rug = TRUE, 
+     rug.sitepair = sitepair_2010.WN, 
+     plot.layout = c(2,3))
+plot(gdm_WN.2011, include.rug = TRUE, 
+     rug.sitepair = sitepair_2011.WN, 
+     plot.layout = c(2,3))
+plot(gdm_WN.2012, include.rug = TRUE, 
+     rug.sitepair = sitepair_2012.WN, 
+     plot.layout = c(2,3))
 
 # Plot with confidence intervals (slow; also, I'm not sure about the current settings)
 plotUncertainty(sitepair_2010.WN, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 plotUncertainty(sitepair_2011.WN, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 plotUncertainty(sitepair_2012.WN, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+
+# Plot nicely
+## wrapper for extracting splines and prepping tibble for plotting
+spline_prep <- function(x, y) {
+  isplineExtract(x) %>%
+    as.data.frame() %>%
+    tibble() %>%
+    mutate(x.Geographic = x.Geographic/1000) %>%
+    pivot_longer(cols = c(x.Geographic, x.elev.mean, x.yday), 
+                 names_to = "x.var", values_to = "predictor", 
+                 names_prefix = "x.") %>%
+    pivot_longer(cols = c(y.Geographic, y.elev.mean, y.yday), 
+                 names_to = "y.var", values_to = "response", 
+                 names_prefix = "y.") %>%
+    filter(x.var == y.var) %>%
+    mutate() %>%
+    dplyr::select(-y.var) %>%
+    mutate(year = factor(rep(y, n())))
+}
+
+## extract splines
+interaction_splines2010 <- spline_prep(gdm_WN.2010, 2010)
+interaction_splines2011 <- spline_prep(gdm_WN.2011, 2011)
+interaction_splines2012 <- spline_prep(gdm_WN.2012, 2012)
+
+## collate extracted splines  
+interaction_splines <- bind_rows(interaction_splines2010, 
+                                 interaction_splines2011, 
+                                 interaction_splines2012) %>%
+  mutate(x.var = case_when(
+    x.var == "elev.mean" ~ "Elevation (m)",
+    x.var == "Geographic" ~ "Geographic (km)",
+    x.var == "yday" ~ "Day of Year"),
+    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year"))
+    )
+
+## plot
+ggplot(interaction_splines, aes(predictor, response)) +
+  geom_line() +
+  facet_grid(year ~ x.var, scales = "free_x") +
+  xlab(NULL) +
+  ylab("f(x)") +
+  theme_gray(12)
+ggsave("./output/interaction_GDM.png")
 ```
 
 ### GDM: Floral survey
@@ -270,7 +344,7 @@ predData_prep_survey <- function(surv, y) {
     dplyr::select(site, yday) %>%
     left_join(site_data) %>%
     ungroup() %>%
-    dplyr::select(site, elev.mean, lat, lon, yday) %>%
+    dplyr::select(site, elev.mean, y, x, yday) %>%
     unique() %>%
     arrange(site, yday) %>%
     unite(site.day, site, yday, sep = "_", remove = "FALSE") %>%
@@ -279,7 +353,7 @@ predData_prep_survey <- function(surv, y) {
 
 format_set <- function(bio, pred) {
   formatsitepair(bio, bioFormat = 1, siteColumn = "site.day", 
-                 dist = "jaccard", XColumn = "lon", YColumn = "lat", 
+                 dist = "jaccard", XColumn = "x", YColumn = "y", 
                  predData = pred, abundance = FALSE)
 } 
 
@@ -319,6 +393,32 @@ plot(gdm_survey.2012)
 plotUncertainty(survey_sitepair.2010, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 plotUncertainty(survey_sitepair.2011, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 plotUncertainty(survey_sitepair.2012, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+
+# Plot nicely
+## extract splines
+survey_splines2010 <- spline_prep(gdm_survey.2010, 2010)
+survey_splines2011 <- spline_prep(gdm_survey.2011, 2011)
+survey_splines2012 <- spline_prep(gdm_survey.2012, 2012)
+
+## collate extracted splines  
+survey_splines <- bind_rows(survey_splines2010,
+                            survey_splines2011, 
+                            survey_splines2012) %>%
+  mutate(x.var = case_when(
+    x.var == "elev.mean" ~ "Elevation (m)",
+    x.var == "Geographic" ~ "Geographic (km)",
+    x.var == "yday" ~ "Day of Year"),
+    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year"))
+    )
+
+## plot
+ggplot(survey_splines, aes(predictor, response)) +
+  geom_line() +
+  facet_grid(year ~ x.var, scales = "free_x") +
+  xlab(NULL) +
+  ylab("f(x)") +
+  theme_gray(12)
+ggsave("./output/survey_GDM.png")
 ```
 
 ### GDM: BB observations
@@ -335,7 +435,7 @@ biodata_prep_BB <- function(net, y) {
     mutate(yday = yday(date)) %>%
     unite(site.day, site, yday, sep = "_", remove = "TRUE") %>%
     ungroup() %>%
-    select(-date)
+    dplyr::select(-date)
 }
 
 predData_prep_BB <- function(net, y) {
@@ -345,7 +445,7 @@ predData_prep_BB <- function(net, y) {
     dplyr::select(site, yday) %>%
     left_join(site_data) %>%
     ungroup() %>%
-    dplyr::select(site, elev.mean, lat, lon, yday) %>%
+    dplyr::select(site, elev.mean, y, x, yday) %>%
     unique() %>%
     arrange(site, yday) %>%
     unite(site.day, site, yday, sep = "_", remove = "FALSE") %>%
@@ -375,9 +475,15 @@ summary(gdm_BB.2011)
 summary(gdm_BB.2012)
 
 # Permutations tests (slow)
-gdm_BB.2010.imp <- gdm.varImp(BB_sitepair.2010, geo = TRUE)
-gdm_BB.2011.imp <- gdm.varImp(BB_sitepair.2011, geo = TRUE)
-gdm_BB.2012.imp <- gdm.varImp(BB_sitepair.2012, geo = TRUE)
+gdm_BB.2010.imp <- gdm.varImp(BB_sitepair.2010, geo = TRUE, 
+                              parallel = TRUE, cores = 4,
+                              outFile = "./output/bb_permGDM_2010")
+gdm_BB.2011.imp <- gdm.varImp(BB_sitepair.2011, geo = TRUE, 
+                              parallel = TRUE, cores = 4,
+                              outFile = "./output/bb_permGDM_2011")
+gdm_BB.2012.imp <- gdm.varImp(BB_sitepair.2012, geo = TRUE, 
+                              parallel = TRUE, cores = 4,
+                              outFile = "./output/bb_permGDM_2012")
 
 # Plot
 plot(gdm_BB.2010)
@@ -388,6 +494,32 @@ plot(gdm_BB.2012)
 plotUncertainty(BB_sitepair.2010, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 plotUncertainty(BB_sitepair.2011, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 plotUncertainty(BB_sitepair.2012, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+
+# Plot nicely
+## extract splines
+bb_splines2010 <- spline_prep(gdm_BB.2010, 2010)
+bb_splines2011 <- spline_prep(gdm_BB.2011, 2011)
+bb_splines2012 <- spline_prep(gdm_BB.2012, 2012)
+
+## collate extracted splines  
+bb_splines <- bind_rows(bb_splines2010,
+                            bb_splines2011, 
+                            bb_splines2012) %>%
+  mutate(x.var = case_when(
+    x.var == "elev.mean" ~ "Elevation (m)",
+    x.var == "Geographic" ~ "Geographic (km)",
+    x.var == "yday" ~ "Day of Year"),
+    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year"))
+    )
+
+## plot
+ggplot(bb_splines, aes(predictor, response)) +
+  geom_line() +
+  facet_grid(year ~ x.var, scales = "free_x") +
+  xlab(NULL) +
+  ylab("f(x)") +
+  theme_gray(12)
+ggsave("./output/bb_GDM.png")
 ```
 
 
