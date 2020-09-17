@@ -46,7 +46,8 @@ boot_net_sp <- function(net, n, iter) {
       dplyr::select(higher = bb.sp, lower = plant.sp, webID, freq) %>% # rename columns to match bipartite's expectations
       data.frame() %>% # convert to data frame
       frame2webs() %>% # convert to to bipartite web
-      map(specieslevel, level = "higher", index = "d") %>%
+      #map(specieslevel, level = "higher", index = "d") %>%
+      map(specieslevel, level = "higher", index = c("d", "resource range")) %>%
       map(rownames_to_column) %>%
       map(as_tibble) %>%
       bind_rows(.id = "site_year") %>% # Collapse list into big data frame
@@ -228,57 +229,6 @@ min_transects_per_year <- transects %>%
   summarize(min_transects = min(transects))
 ```
 
-### The problem with calculating network metrics on data pooled in time, particularly when you know that there is strong diversity and abundance structure in time, is that a metric like niche overlap becomes virtually uninterpretable, at least if competition is the interpretation in view. Bee 1 and Bee 2 could visit the same flower in different weeks and different flowers in the same week. In the pooled data, they might appear to have high niche overlap, but in fact they were never visiting the same flower at the same time, so there is no competition. Perhaps other metrics, like nestedness, or other interpretations -- not competition -- fare better with temporally aggregated data. So, I can consider those options. But, if I want to target an interpretation like competition through a metric like niche overlap, I have to control for time. The problem then becomes that so many of my site-dates have only a few observations, and network structure becomes uninformative (as far as I can reason) when interaction density becomes very small. You're just measuring so little of the structure that you intend to interpret. So, I've played around with the idea of setting some lower bound to drop the site-dates with too few observations, but this is inevitably arbitrary, and so many of my site-dates have very few observations that even a modest threshold culls a large number of site dates. What if I took the opposite approach, and targeted only the date(s) for each site with maximal observation density, then modeled those by elevation? The result would probably be very similar to the pooled analysis I have been doing, since pooled data becomes dominated by site-dates with high observation density. Really, all this would do is make transparent the fact that I am not controlling for time when I pool the data, I'm just masking a structure in which a few time points dominate for each site, and which time points dominate varies by site. So, this is an honest form of what I've already been doing, with no need to bootstrap.
-```{r}
-net.obs <- net %>%
-  group_by(site, date) %>%
-  summarize(total.obs = n()) %>%
-  ungroup() %>%
-  mutate(year = factor(year(date)))
-
-ggplot(net.obs, aes(total.obs)) +
-  geom_histogram() +
-  facet_grid(site ~ year)
-
-net.obs.top <- net.obs %>%
-  group_by(site, year) %>%
-  top_n(1, total.obs)
-
-web.top <- net %>%
-  semi_join(net.obs.top) %>%
-  unite(site.year.date, c(site, year, date), sep = "_") %>%
-  group_by(site.year.date, bb.sp, plant.sp) %>%
-  summarize(freq = n()) %>%
-  group_by(site.year.date) %>%
-  mutate(bb.rich = length(unique(bb.sp)),
-         plant.rich = length(unique(plant.sp))) %>%
-  filter(bb.rich >= 2 & plant.rich >= 2) %>%
-  select(higher = bb.sp, lower = plant.sp, webID = site.year.date, freq) %>%
-  data.frame() %>%
-  frame2webs() %>%
-  map(networklevel, level = "higher", weighted = TRUE, index = c("niche overlap", "weighted NODF")) %>% # We probably care mainly about the BB level of the network
-  data.frame() %>%
-  t() %>%
-  data.frame() %>%
-  rownames_to_column() %>%
-  dplyr::select(site.year.date = rowname, everything()) %>%
-  separate(site.year.date, c("site", "year", "date"), sep = "_") %>%
-  as_tibble() %>%
-  left_join(site_data)
-
-ggplot(web.top, aes(elev.mean, niche.overlap.HL, color = year)) +
-  geom_point() +
-  geom_smooth() +
-  theme_abyss() +
-  facet_wrap(~year)
-
-ggplot(web.top, aes(elev.mean, niche.overlap.HL)) +
-  geom_point(color = "goldenrod") +
-  geom_smooth() +
-  theme_abyss() +
-  facet_wrap(~year)
-```
-
 ### Tabulate metrics
 ```{r message=TRUE, warning=TRUE, include=FALSE}
 ### Auxiliary data
@@ -318,18 +268,20 @@ netmet_boot_2012 <- boot_net(net_2012, n = 9, iter = 40) %>%
 netmet_boot_2011 <- boot_net(net_2011, n = 7, iter = 40)  %>% # Note that this results in site t5 being dropped, since it had only 4 transects. I think it worth dropping problematic t5 to improve overall quality 
   mutate(year = factor(rep("2011", n())))
 # Due to the unevenness of temporal interval of sampling in 2010, I don't think my bootstrapping approach handles  the embuggerance sufficiently.
-# netmet_boot_2010 <- boot_net(net_2010, n = 3, iter = 40) %>%
-#   mutate(year = factor(rep("2010", n())))
+netmet_boot_2010 <- boot_net(net_2010, n = 3, iter = 40) %>%
+  mutate(year = factor(rep("2010", n())))
 
 ### Species-level metrics 
 spmet_2012 <- boot_net_sp(net_2012, 9, 40) %>%
   mutate(year = factor(rep("2012", n())))
 spmet_2011 <- boot_net_sp(net_2011, 7, 40) %>%
   mutate(year = factor(rep("2011", n())))  
-# spmet_2010 <- boot_net_sp(net_2010, 3, 40) %>%
-#   mutate(year = factor(rep("2010", n())))
+spmet_2010 <- boot_net_sp(net_2010, 3, 40) %>%
+  mutate(year = factor(rep("2010", n())))
 
-spmet <- bind_rows(spmet_2012, spmet_2011) %>%
+wma1_2010 <- filter(net, site == "wma1", year == "2010")
+
+spmet <- bind_rows(spmet_2012, spmet_2011, spmet_2010) %>%
   left_join(site_BB_aux.sp) %>%
   inner_join(site_FL_aux) %>%
   spread(metric, value) %>%
@@ -342,185 +294,283 @@ spmet <- bind_rows(spmet_2012, spmet_2011) %>%
 
 spmet_mean <- spmet %>%
   group_by(site, year) %>%
-  summarize(d = weighted.mean(d, bb.sp.abund, na.rm = TRUE)) %>%
+  #summarize(d = weighted.mean(d, bb.sp.abund, na.rm = TRUE)) %>%
+  summarize(resource.range = weighted.mean(resource.range, bb.sp.abund, na.rm = TRUE)) %>%
   ungroup()
 
 ### Merge network metrics and auxiliary data
 netmet <- bind_rows(netmet_boot_2012, 
-                    netmet_boot_2011) %>%
+                    netmet_boot_2011,
+                    netmet_boot_2010) %>%
   ungroup() %>%
   spread(metric, value) %>%
   left_join(spmet_mean, by = c("site", "year")) %>%
   left_join(site_BB_aux, by = c("site", "year")) %>%
   inner_join(site_FL_aux, by = c("site", "year")) %>% # one site-year is missing from floral survey data
   left_join(site_data, by = "site") %>%
-  mutate(year = factor(year),
+  mutate(year = factor(year, levels = c("2010", "2011", "2012")),
          site = factor(site),
          management = factor(management))
-
-netmet_2011 <- netmet_boot_2011 %>%
-  ungroup() %>%
-  spread(metric, value) %>%
-  left_join(spmet_mean, by = c("site", "year")) %>%
-  left_join(site_BB_aux, by = c("site", "year")) %>%
-  inner_join(site_FL_aux, by = c("site", "year")) %>% # one site-year is missing from floral survey data
-  left_join(site_data, by = "site") %>%
-  mutate(year = factor(year),
-         site = factor(site),
-         management = factor(management))
-```
-
-# Let's inspect correlations within our predictors
-```{r}
-predictors <- netmet %>%
-  select(elev.mean, bb.rich, log.bb.abund, fl.rich, log.fl.abund)
-
-ggpairs(predictors)
 ```
 
 ### Maybe the answer is not to abandon network analysis, but to include all the variables that confound my target relationship with elevation in a big model, then use variable selection to see what *does* predict network structure. I have massive concurvity, of course, so if the select() feature doesn't deal with that, I might need to opt for a model selection approach. 
 
-A source of embuggerance that I have not yet dealt with is that when I bootstrap to equalize transects count, I do not do anything to equalize the temporal (either yday or GDD) interval spanned by the randomly drawn transects. This will, of course, average out as I increase iterations, so I guess the real problem is that the time interval spanned by the full set of transects for each site varies, so no matter how much bootstrapping I do, there will still be potential bias. This seems a fairly insurmountable limitation of the sampling structure of my data, so I will probably resort to just acknowledging it as a caveat of my analysis. 
+#### A source of embuggerance that I have not yet dealt with is that when I bootstrap to equalize transects count, I do not do anything to equalize the temporal (either yday or GDD) interval spanned by the randomly drawn transects. This will, of course, average out as I increase iterations, so I guess the real problem is that the time interval spanned by the full set of transects for each site varies, so no matter how much bootstrapping I do, there will still be potential bias. This seems a fairly insurmountable limitation of the sampling structure of my data, so I will probably resort to just acknowledging it as a caveat of my analysis. 
+
+#### The way I see it, there are two schools of thought that could guide this analysis. (1) If I am only interested in modeling elevational patterns in my response variable, then I should include only elevation and bb.transects in the model. (2) If my goal is to explain the response variable as best I can, then I should throw all my variables into the model, knowing that they may covary with elevation, or that the effects of elevation may be mediated by these other variables. The latter strategy would shed more light on what DOES influence the response variables, but it would obscure pruely elevational patterns. The former would reveal any elevation patterns that might exist, but it would probably not do as good a job of explaining the response variable. Let's try both and see what we learn. Maybe we'll end up turning to SEM in the end if I can figure it out. 
+
+### Elevation-focused modeling
 ```{r}
-#### Network level
-##### niche overlap
-gam_niche.overlap <- gam(niche.overlap.HL ~ year + 
-                           s(site, bs = "re") +
-                           #management + # no effect
-                           s(elev.mean, k = 5) +
-                           #s(bb.rich, k = 5) + # too collinear with bb.abund
-                           s(fl.rich, k = 5) +
-                           #s(log.fl.abund, k = 5) + # no effect
-                           s(log.bb.abund, k = 5),
-                          select = TRUE,
-                          data = netmet,
-                          method = "REML") %>% getViz()
+#### Niche overlap
+gam_niche.overlap.1 <- gam(niche.overlap.HL ~ 
+                             s(year, bs = "re") + 
+                             s(bb.transects) + 
+                             s(elev.mean, by = year, k = 10),
+                           select = TRUE,
+                           data = netmet,
+                           method = "REML") %>% getViz()
 
-ggplot(filter(netmet, year == 2011), aes(elev.mean, niche.overlap.HL)) +
+check.gamViz(gam_niche.overlap.1)
+concurvity(gam_niche.overlap.1, full = TRUE)
+concurvity(gam_niche.overlap.1, full = FALSE)
+summary(gam_niche.overlap.1)
+print(plot(gam_niche.overlap.1, allTerms = TRUE), pages = 1)
+
+# bb.transects was zeroed out by select = TRUE, so this plot should reflect the model above perfectly
+ggplot(netmet, aes(elev.mean, niche.overlap.HL)) +
   geom_point() +
-  geom_smooth() +
-  theme_modern()
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "tp", k = 10)) +
+  facet_wrap(~year)
 
-check.gamViz(gam_niche.overlap)
-concurvity(gam_niche.overlap, full = TRUE)
-concurvity(gam_niche.overlap, full = FALSE)
-summary(gam_niche.overlap)
-print(plot(gam_niche.overlap, allTerms = TRUE), pages = 1)
-ggpredict(gam_niche.overlap)
-check_model(gam_niche.overlap)
+##### Community mean d'
+gam_mean_d.1 <- gam(d ~ 
+                      s(year, bs = "re") + 
+                      s(bb.transects) +
+                      s(elev.mean, by = year, k = 10),
+                    select = TRUE,
+                    data = netmet,
+                    method = "REML") %>% getViz()
 
-##### C.score
-gam_c.score <- gam(C.score.HL ~ year +
-                     s(site, bs = "re") +
-                     #management +
-                     s(elev.mean, k = 5) +
-                     s(bb.rich, k = 5) +
-                     #s(log.bb.abund, k = 5) +
-                     #s(log.fl.abund, k = 5) +
-                     s(fl.rich, k = 5),
-                   select = TRUE,
-                   data = netmet,
-                   method = "REML") %>% getViz()
+check.gamViz(gam_mean_d.1)
+concurvity(gam_mean_d.1, full = TRUE)
+concurvity(gam_mean_d.1, full = FALSE)
+summary(gam_mean_d.1)
+print(plot(gam_mean_d.1, allTerms = TRUE), pages = 1)
 
-check.gamViz(gam_c.score)
-concurvity(gam_c.score, full = TRUE)
-concurvity(gam_c.score, full = FALSE)
-summary(gam_c.score)
-print(plot(gam_c.score, allTerms = TRUE), pages = 1)
+ggplot(netmet, aes(elev.mean, d)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "tp", k = 10)) +
+  facet_wrap(~year)
 
-##### weighted NODF: the main takeaway here is that higher BB abundance = higher nestedness, and that could easily be a sampling effect more than an ecological effect. Nevertheless, there remains a significant linear partial effect of elevation. It is worth noting that where elevation has an effect on network structure, it is linear after accounting for the influence of other variables.
-gam_weighted.NODF <- gam(weighted.NODF ~ year + 
-                           s(site, bs = "re") +
-                           #management +
-                           s(elev.mean, by = year, k = 3) +
-                           #s(bb.rich, k = 5) +
-                           s(fl.rich, by = year, k = 3) +
-                          # s(log.fl.abund, k = 5) +
-                           s(log.bb.abund, by = year, k = 3),
-                          select = TRUE,
-                          data = netmet,
-                          method = "REML") %>% getViz()
-
-check.gamViz(gam_weighted.NODF)
-concurvity(gam_weighted.NODF, full = TRUE)
-concurvity(gam_weighted.NODF, full = FALSE)
-summary(gam_weighted.NODF)
-print(plot(gam_weighted.NODF, allTerms = TRUE), pages = 1)
-ggpredict(gam_weighted.NODF)
-check_model(gam_weighted.NODF)
-
-##### togetherness
-gam_togetherness <- gam(togetherness.HL ~ year + 
-                           s(site, bs = "re") +
-                           #management +
-                           #s(elev.mean, k = 5) +
-                           #s(bb.rich, k = 5) +
-                           #s(log.fl.abund, k = 5) +
-                           s(log.bb.abund, k = 5) +
-                           s(fl.rich, k = 5),
-                          select = TRUE,
-                          data = netmet,
-                          method = "REML") %>% getViz()
-
-check.gamViz(gam_togetherness)
-concurvity(gam_togetherness, full = TRUE)
-concurvity(gam_togetherness, full = FALSE)
-summary(gam_togetherness)
-print(plot(gam_togetherness, allTerms = TRUE), pages = 1)
-ggpredict(gam_togetherness)
-check_model(gam_togetherness)
-
-##### generality; this could be an interesting alternative to something like d', but I'm not sure whether it deals with the confunding effects of abundance -- singletons, in extreme cases.
-gam_generality <- gam(generality.HL ~ year + 
-                           s(site, bs = "re") +
-                           management +
-                           s(elev.mean, k = 5) +
-                           s(bb.rich, k = 5) +
-                           s(fl.rich, k = 5) +
-                           s(log.fl.abund, k = 5) +
-                           s(log.bb.abund, k = 5),
-                          select = TRUE,
-                          data = netmet,
-                          method = "REML") %>% getViz()
-
-check.gamViz(gam_generality)
-concurvity(gam_generality, full = TRUE)
-concurvity(gam_generality, full = FALSE)
-summary(gam_generality)
-print(plot(gam_generality, allTerms = TRUE), pages = 1)
-ggpredict(gam_generality)
-check_model(gam_generality)
-
-##### community mean d'
-gam_mean_d <- gam(d ~ year + 
-                           s(site, bs = "re") +
-                           #management +
-                           s(elev.mean, k = 5) +
-                           #s(bb.rich, k = 5) +
-                           #s(log.fl.abund, k = 5) +
-                           s(fl.rich, k = 5) +
-                           s(log.bb.abund, k = 5),
-                          select = TRUE,
-                          data = netmet,
-                          method = "REML") %>% getViz()
-
-check.gamViz(gam_mean_d)
-concurvity(gam_mean_d, full = TRUE)
-concurvity(gam_mean_d, full = FALSE)
-summary(gam_mean_d)
-print(plot(gam_mean_d, allTerms = TRUE), pages = 1)
-ggpredict(gam_mean_d)
-check_model(gam_mean_d)
-
-ggplot(netmet, aes(log.bb.abund, d, color = year)) +
+ggplot(netmet, aes(bb.transects, d)) +
   geom_point() +
   geom_smooth(method = "lm") +
-  theme_abyss()
+  facet_wrap(~year, scales = "free_x")
 
-ggplot(filter(netmet, year == 2011), aes(elev.mean, d)) +
+# I would be reluctant to interpret the year effect biologically; more likely an artifact of sampling intensity
+ggplot(netmet, aes(year, d)) +
+  geom_boxplot()
+
+# It is interesting that, while elevation explains a lot of niche overlap and virtually none of specialization, niche overlap and specialization are strongly correlated with each other.
+ggplot(netmet, aes(niche.overlap.HL, d)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~year)
+
+##### Resource range
+gam_mean_rr.1 <- gam(resource.range ~ 
+                      s(year, bs = "re") + 
+                      s(bb.transects) +
+                      s(elev.mean, by = year, k = 10),
+                    select = TRUE,
+                    data = netmet,
+                    method = "REML") %>% getViz()
+
+check.gamViz(gam_mean_rr.1)
+concurvity(gam_mean_rr.1, full = TRUE)
+concurvity(gam_mean_rr.1, full = FALSE)
+summary(gam_mean_rr.1)
+print(plot(gam_mean_rr.1, allTerms = TRUE), pages = 1)
+
+ggplot(netmet, aes(elev.mean, resource.range)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "tp", k = 10)) +
+  facet_wrap(~year)
+
+ggplot(spmet, aes(elev.mean, resource.range, color = year)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 3)) +
+  facet_wrap(~bb.sp, scales = "free")
+
+## Species-level resource range
+gam_rr.sp_I <- gam(resource.range ~ 
+                    s(year, bs = "re") + 
+                    #s(site, bs = "re") +
+                    #management +
+                    s(bb.transects) +
+                    s(bb.sp, bs = "re") +
+                    s(elev.mean, by = bb.sp, bs = "tp", k = 5),
+                  #s(fl.rich, k = 8) +
+                  #s(log.fl.abund, k = 8) +
+                  #s(bb.sp.abund, k = 5),
+                  select = TRUE,
+                  data = spmet,
+                  method = "REML") %>% getViz()
+
+check.gamViz(gam_rr.sp_I)
+concurvity(gam_rr.sp_I, full = TRUE)
+concurvity(gam_rr.sp_I, full = FALSE)
+summary(gam_rr.sp_I)
+print(plot(gam_rr.sp_I, allTerms = TRUE), pages = 4)
+
+```
+
+### Let's inspect correlations within our predictors
+#### Collinearity among my predictors will be unavoidable, but I can try to mitigate the situation. Bumble bee richness and abundance are almost perfectly correlated, so I definitely don't want to include them both in the same model. Floral abundance and richness are not significantly correlated (interestingly), but each is correlated with both bumble bee richness and bumble bee abundance. So, I think the goal is to pick the combination that minimizes collinearity. The weakest correlation between a bumble bee variable and a floral variable is between bumble bee richness and floral abundance, though the correlation is still pretty strong. Thus, I think an argument can be made for including only bumble bee richness and floral abundance in my models. 
+```{r message=FALSE}
+predictors <- netmet %>%
+  select(elev.mean, bb.rich, log.bb.abund, 
+         fl.rich, log.fl.abund, bb.transects, year)
+
+ggpairs(predictors)
+
+ggplot(predictors, aes(log.fl.abund, bb.rich)) +
+  geom_point() +
+  facet_wrap(~year)
+
+ggplot(predictors, aes(log.fl.abund, log.bb.abund)) +
+  geom_point() +
+  facet_wrap(~year)
+
+ggplot(predictors, aes(fl.rich, log.bb.abund)) +
+  geom_point() +
+  facet_wrap(~year)
+
+ggplot(predictors, aes(fl.rich, bb.rich)) +
+  geom_point() +
+  facet_wrap(~year)
+```
+
+### Response-focused modeling
+```{r}
+#### Niche overlap
+gam_niche.overlap.2 <- gam(niche.overlap.HL ~ 
+                             s(year, bs = "re") + 
+                             #s(management, bs = "re") +
+                             s(bb.transects) + 
+                             s(elev.mean, by = year, k = 10) +
+                             s(bb.rich, k = 5) + 
+                             s(log.fl.abund, k = 5),  # no effect
+                           select = TRUE,
+                           data = netmet,
+                           method = "REML") %>% getViz()
+
+check.gamViz(gam_niche.overlap.2)
+concurvity(gam_niche.overlap.2, full = TRUE)
+concurvity(gam_niche.overlap.2, full = FALSE)
+summary(gam_niche.overlap.2)
+print(plot(gam_niche.overlap.2, allTerms = TRUE), pages = 1)
+
+ggplot(netmet, aes(elev.mean, niche.overlap.HL)) +
   geom_point() +
   geom_smooth() +
-  theme_modern()
+  facet_wrap(~year)
+
+ggplot(netmet, aes(bb.transects, niche.overlap.HL)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~year, scales = "free_x")
+
+ggplot(netmet, aes(elev.mean, bb.transects)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~year)
+
+#### Community mean d'
+gam_mean_d.2 <- gam(d ~ 
+                      s(year, bs = "re") + 
+                      s(management, bs = "re") +
+                      s(bb.transects) +
+                      s(elev.mean, by = year, k = 10) +
+                      s(bb.rich, k = 5) +
+                      s(log.fl.abund, k = 5),
+                    select = TRUE,
+                    data = netmet,
+                    method = "REML") %>% getViz()
+
+check.gamViz(gam_mean_d.2)
+concurvity(gam_mean_d.2, full = TRUE)
+concurvity(gam_mean_d.2, full = FALSE)
+summary(gam_mean_d.2)
+print(plot(gam_mean_d.2, allTerms = TRUE), pages = 1)
+
+ggplot(netmet, aes(bb.rich, d)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~year)
+
+ggplot(netmet, aes(log.bb.abund, d)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~year)
+
+ggplot(netmet, aes(log.fl.abund, d)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~year)
+
+ggplot(netmet, aes(fl.rich, d)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~year)
+```
+
+### But shouldn't I be using the abundance data from the floral survey instead of the marginal totals? Yes. But no. In many cases, the species quantified during floral surveying do not include all of the species observed in the network. In those cases, I would have to either make up abundance data or drop floral species from the network, and both of those seem like bad ideas. Perhaps this is an argument for not using d'? If marginal totals are bad measures of abundance -- and I believe they are -- then maybe we need to either abandon the idea of analyzing specialization or opt for a simpler specialization metric, like PDI
+```{r}
+test <- net %>%
+      # semi_join(t_filter) %>%
+      # dplyr::select(site, date, year) %>%
+      # unique() %>%
+      # group_by(site, year) %>%
+      # sample_n(n) %>%
+      # left_join(net) %>%
+      group_by(site, year, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
+      summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+      unite(webID, c(site, year), sep = "_") %>%
+      ungroup() %>%
+      dplyr::select(higher = bb.sp, lower = plant.sp, webID, freq) %>% # rename columns to match bipartite's expectations
+      data.frame() 
+
+survey_sum <- survey %>%
+  group_by(site, date, plant.sp) %>%
+  summarize(raw.abund = sum(flower.cover)) %>%
+  group_by(site, date) %>%
+  mutate(prop.abund = raw.abund/sum(raw.abund),
+         year = year(date)) %>%
+  group_by(site, year, plant.sp) %>%
+  summarize(mean.prop.abund = mean(prop.abund)) %>%
+  unite(webID, c(site, year), sep = "_") %>%
+  rename(lower = plant.sp) %>%
+  semi_join(test)
+
+webs <- test %>% # convert to data frame
+      frame2webs() 
+
+h1_2010 <- specieslevel(webs[[1]], level = "higher", index = "d", low.abun = filter(survey_sum, webID == "h1_2010")$mean.prop.abund) 
+
+h1_2011 <- specieslevel(webs[[2]], level = "higher", index = "d", low.abun = filter(survey_sum, webID == "h1_2011")$mean.prop.abund) 
+
+h1_2012 <- specieslevel(webs[[2]], level = "higher", index = "d", low.abun = filter(survey_sum, webID == "h1_2012")$mean.prop.abund) 
+
+%>% # convert to to bipartite web
+      map(specieslevel, level = "higher", index = "d") %>%
+      map(rownames_to_column) %>%
+      map(as_tibble) %>%
+      bind_rows(.id = "site_year") %>% # Collapse list into big data frame
+      rename(bb.sp = rowname)
+
+ggplot(test, aes(bb.sp, d)) +
+  geom_boxplot()
 ```
 
 ### Since we clearly have structured collinearity in our preditors, i.e. elevation shapes abundance and diversity which shape network structure, perhaps SEM could be appropriate? The main question is whether it can handle the potentially complex (nonlinear) relationships between elevation and diversity/abundance, and whether it can handle the hierarchical structure of my data.
@@ -528,33 +578,18 @@ ggplot(filter(netmet, year == 2011), aes(elev.mean, d)) +
 # Create scales variables; this is important since SEM is based on covariance (right?)
 # For starters, let's just try to model niche.overlap
 netmet.scaled <- netmet %>%
-  select(site, year, niche.overlap.HL, elev.mean, fl.rich, bb.rich, log.fl.abund, log.bb.abund) %>%
+  select(site, year, niche.overlap.HL, elev.mean, 
+         fl.rich, bb.rich, log.fl.abund, log.bb.abund) %>%
   mutate(elev.mean.2 = elev.mean^2,
          elev.mean.3 = elev.mean^3) %>%
-  mutate(niche.overlap.HL = scale(niche.overlap.HL),
-         elev.mean = scale(elev.mean),
-         elev.mean.2 = scale(elev.mean),
-         elev.mean.3 = scale(elev.mean^3),
-         fl.rich = scale(fl.rich),
-         log.fl.abund = scale(log.fl.abund),
-         log.bb.abund = scale(log.bb.abund)) %>%
-  as.matrix() %>%
-  as_tibble() %>%
-  mutate(niche.overlap.HL = as.numeric(niche.overlap.HL),
-         elev.mean = as.numeric(elev.mean),
-         elev.mean.2 = as.numeric(elev.mean^2),
-         elev.mean.3 = as.numeric(elev.mean^3),
-         fl.rich = as.numeric(fl.rich),
-         bb.rich = as.numeric(bb.rich),
-         log.fl.abund = as.numeric(log.fl.abund),
-         log.bb.abund = as.numeric(log.bb.abund),
-         site = factor(site),
-         year = factor(year)) %>%
+  # mutate_at(c("niche.overlap.HL", "elev.mean", "elev.mean.2", "elev.mean.3", 
+  #        "fl.rich", "bb.rich", "log.fl.abund", "log.bb.abund"), ~(scale(.) %>% as.vector)) %>% # I did not know you could put pipes inside a mutate call -- good to know: https://stackoverflow.com/questions/15215457/standardize-data-columns-in-r
   na.omit()
 
 # Pairs plot to determine best model form
 predictors.scaled <- netmet.scaled %>%
-  select(elev.mean, elev.mean.2, elev.mean.3, bb.rich, log.bb.abund, fl.rich, log.fl.abund, niche.overlap.HL)
+  select(elev.mean, elev.mean.2, elev.mean.3, bb.rich, 
+         log.bb.abund, fl.rich, log.fl.abund, niche.overlap.HL)
 
 ggpairs(predictors.scaled)
 
@@ -562,287 +597,41 @@ ggpairs(predictors.scaled)
 
 # Call models
 # To avoid figuring out how to handle year and site as random effects, let's start with separate year models
+netmet.scaled.2010 <- filter(netmet.scaled, year == 2010)
 netmet.scaled.2011 <- filter(netmet.scaled, year == 2011)
+netmet.scaled.2012 <- filter(netmet.scaled, year == 2012)
+
+mod_niche.overlap.2010 <- psem(
+  lm(niche.overlap.HL ~ elev.mean + log.fl.abund + bb.rich, 
+     netmet.scaled.2010),
+  lm(log.fl.abund ~ elev.mean, 
+     netmet.scaled.2010),
+  lm(bb.rich ~ elev.mean, 
+     netmet.scaled.2010)
+)
+
+summary(mod_niche.overlap.2010)
+plot(mod_niche.overlap.2010)
 
 mod_niche.overlap.2011 <- psem(
-  lm(niche.overlap.HL ~ elev.mean + elev.mean.2 + elev.mean.3 + fl.rich + log.bb.abund, 
+  lm(niche.overlap.HL ~ elev.mean + log.fl.abund + bb.rich, 
      netmet.scaled.2011),
-  lm(fl.rich ~ elev.mean + elev.mean.2, 
+  lm(log.fl.abund ~ elev.mean, 
      netmet.scaled.2011),
-  lm(log.bb.abund ~ elev.mean + elev.mean.2 + fl.rich, 
+  lm(bb.rich ~ elev.mean, 
      netmet.scaled.2011)
-  )
+)
 
 summary(mod_niche.overlap.2011)
 plot(mod_niche.overlap.2011)
+
+mod_niche.overlap.2012 <- psem(
+  lm(niche.overlap.HL ~ elev.mean + log.fl.abund + bb.rich, 
+     netmet.scaled.2012),
+  lm(log.fl.abund ~ elev.mean, 
+     netmet.scaled.2012))
+)
+
+summary(mod_niche.overlap.2012)
+plot(mod_niche.overlap.2012)
 ```
-
-### But let's zoom in a bit closer on d' and see if we can model it per-species
-```{r}
-gam_d.sp_GI <- gam(d ~ year + 
-                     s(site, bs = "re") +
-                     management +
-                     s(bb.sp, bs = "re") +
-                     s(elev.mean, bs = "tp", k = 8) +
-                     s(elev.mean, by = bb.sp, bs = "tp", k = 8) +
-                     s(fl.rich, k = 8) +
-                     s(log.fl.abund, k = 8) +
-                     s(log.bb.sp.abund, k = 5),
-                   select = TRUE,
-                   data = spmet,
-                   method = "REML") %>% getViz()
-
-check.gamViz(gam_d.sp_GI)
-concurvity(gam_d.sp_GI, full = TRUE)
-concurvity(gam_d.sp_GI, full = FALSE)
-summary(gam_d.sp_GI)
-print(plot(gam_d.sp_GI, allTerms = TRUE), pages = 4)
-
-gam_d.sp_G <- gam(d ~ year + 
-                    s(site, bs = "re") +
-                    management +
-                    s(bb.sp, bs = "re") +
-                    s(elev.mean, bs = "tp", k = 8) +
-                    s(fl.rich, k = 8) +
-                    s(log.fl.abund, k = 8) +
-                    s(log.bb.sp.abund, k = 5),
-                  select = TRUE,
-                  data = spmet,
-                  method = "REML") %>% getViz()
-
-check.gamViz(gam_d.sp_G)
-concurvity(gam_d.sp_G, full = TRUE)
-concurvity(gam_d.sp_G, full = FALSE)
-summary(gam_d.sp_G)
-print(plot(gam_d.sp_G, allTerms = TRUE), pages = 1)
-check_model(gam_d.sp_G)
-modelG_elev.mean <- ggpredict(gam_d.sp_G, terms = "elev.mean")
-plot(modelG_elev.mean)
-
-# This simpler varying-smooth model explains just as much variance as the more complex GI model, so it should be preferred. 
-gam_d.sp_GS <- gam(d ~ year + 
-                     management +
-                     s(site, bs = "re") +
-                     s(elev.mean, bs = "tp", k = 8) +
-                     s(elev.mean, bb.sp, bs = "fs", k = 8) +
-                     s(log.fl.abund, k = 8) +
-                     s(fl.rich, k = 8) +
-                     s(log.bb.sp.abund, k = 5),
-                   select = TRUE,
-                   data = spmet,
-                   method = "REML") %>% getViz()
-
-check.gamViz(gam_d.sp_GS)
-concurvity(gam_d.sp_GS, full = TRUE)
-concurvity(gam_d.sp_GS, full = FALSE)
-summary(gam_d.sp_GS)
-print(plot(gam_d.sp_GS, allTerms = TRUE), pages = 1)
-check_model(gam_d.sp_GS)
-plot(ggpredict(gam_d.sp_GS))
-
-# What about I? Does it do any better than S?
-gam_d.sp_I <- gam(d ~ year + 
-                     #s(site, bs = "re") +
-                     management +
-                     s(bb.sp, bs = "re") +
-                     s(elev.mean, by = bb.sp, bs = "tp", k = 8) +
-                     s(fl.rich, k = 8) +
-                     s(log.fl.abund, k = 8) +
-                     s(bb.sp.abund, k = 5),
-                   select = TRUE,
-                   data = spmet,
-                   method = "REML") %>% getViz()
-
-check.gamViz(gam_d.sp_I)
-concurvity(gam_d.sp_I, full = TRUE)
-concurvity(gam_d.sp_I, full = FALSE)
-summary(gam_d.sp_I)
-print(plot(gam_d.sp_I, allTerms = TRUE), pages = 4)
-
-AIC(gam_d.sp_I, gam_d.sp_S, gam_d.sp_G, gam_d.sp_GI, gam_d.sp_GS)
-
-ggplot(spmet, aes(log.bb.sp.abund)) +
-  geom_histogram() +
-  theme_modern()
-
-ggplot(spmet, aes(log.bb.sp.abund)) +
-  geom_histogram() +
-  theme_blackboard()
-
-ggplot(spmet, aes(elev.mean, d)) +
-  geom_point(aes(color = bb.sp)) +
-  geom_smooth() +
-  theme_blackboard() +
-  facet_wrap(~year)
-
-# We lose virtually no explanatory power in going from GI, to GS, to S. So, S is the preferred model right now.
-gam_d.sp_S <- gam(d ~ year + 
-                    s(site, bs = "re") +
-                    management +
-                    s(elev.mean, bb.sp, bs = "fs", k = 8) +
-                    s(fl.rich, k = 8) +
-                    s(log.fl.abund, k = 8) +
-                    s(log.bb.sp.abund, k = 5),
-                  select = TRUE,
-                  data = spmet,
-                  method = "REML") %>% getViz()
-
-check.gamViz(gam_d.sp_S)
-concurvity(gam_d.sp_S, full = TRUE)
-concurvity(gam_d.sp_S, full = FALSE)
-summary(gam_d.sp_S)
-print(plot(gam_d.sp_S, allTerms = TRUE), pages = 1)
-
-
-###  There remains a lot of noise in my multi-year models above, and a possible explanation for that is that the influence of year extends beyond just variation in the intercept. What if year affects the shape of Y ~ X? In these year subset models, I can drop both 'year' and 's(site, bs = "re")'.
-
-gam_d.sp_GI.2010 <- gam(d ~ management +
-                          s(bb.sp, bs = "re") +
-                          s(elev.mean, bs = "tp", k = 8) +
-                          s(elev.mean, by = bb.sp, bs = "tp", k = 8) +
-                          s(fl.rich, k = 8) +
-                          s(log.fl.abund, k = 8) +
-                          s(log.bb.sp.abund, k = 5),
-                        select = TRUE,
-                        data = filter(spmet, year == 2010),
-                        method = "REML") %>% getViz()
-
-check.gamViz(gam_d.sp_GI.2010)
-concurvity(gam_d.sp_GI.2010, full = TRUE)
-concurvity(gam_d.sp_GI.2010, full = FALSE)
-summary(gam_d.sp_GI.2010)
-print(plot(gam_d.sp_GI.2010, allTerms = TRUE), pages = 4)
-
-gam_d.sp_GI.2011 <- gam(d ~ 
-                          #management +
-                          s(bb.sp, bs = "re") +
-                          s(elev.mean, bs = "tp", k = 8) +
-                          s(elev.mean, by = bb.sp, bs = "tp", k = 8) +
-                          s(fl.rich, k = 8) +
-                          s(log.fl.abund, k = 8) +
-                          s(bb.sp.abund, k = 5),
-                        select = TRUE,
-                        data = filter(spmet, year == 2011),
-                        method = "REML") %>% getViz()
-
-ggplot(filter(spmet, year == 2011), aes(elev.mean, d)) +
-  geom_point() +
-  geom_smooth() +
-  theme_modern() +
-  facet_wrap(~bb.sp)
-
-check.gamViz(gam_d.sp_GI.2011)
-concurvity(gam_d.sp_GI.2011, full = TRUE)
-concurvity(gam_d.sp_GI.2011, full = FALSE)
-summary(gam_d.sp_GI.2011)
-print(plot(gam_d.sp_GI.2011, allTerms = TRUE), pages = 4)
-
-gam_d.sp_GI.2012 <- gam(d ~ management +
-                          s(bb.sp, bs = "re") +
-                          s(elev.mean, bs = "tp", k = 8) +
-                          s(elev.mean, by = bb.sp, bs = "tp", k = 8) +
-                          s(fl.rich, k = 8) +
-                          s(log.fl.abund, k = 8) +
-                          s(log.bb.sp.abund, k = 5),
-                        select = TRUE,
-                        data = filter(spmet, year == 2012),
-                        method = "REML") %>% getViz()
-
-check.gamViz(gam_d.sp_GI.2012)
-concurvity(gam_d.sp_GI.2012, full = TRUE)
-concurvity(gam_d.sp_GI.2012, full = FALSE)
-summary(gam_d.sp_GI.2012)
-print(plot(gam_d.sp_GI.2012, allTerms = TRUE), pages = 4)
-
-### I-form models
-gam_d.sp_I.2010 <- gam(d ~ management +
-                          s(bb.sp, bs = "re") +
-                          s(elev.mean, by = bb.sp, bs = "tp", k = 8) +
-                          s(fl.rich, k = 8) +
-                          s(log.fl.abund, k = 8) +
-                          s(log.bb.sp.abund, k = 5),
-                        select = TRUE,
-                        data = filter(spmet, year == 2010),
-                        method = "REML") %>% getViz()
-
-check.gamViz(gam_d.sp_I.2010)
-concurvity(gam_d.sp_I.2010, full = TRUE)
-concurvity(gam_d.sp_I.2010, full = FALSE)
-summary(gam_d.sp_I.2010)
-print(plot(gam_d.sp_I.2010, allTerms = TRUE), pages = 4)
-
-gam_d.sp_I.2011 <- gam(d ~ management +
-                          s(bb.sp, bs = "re") +
-                          s(elev.mean, by = bb.sp, bs = "tp", k = 8) +
-                          s(fl.rich, k = 8) +
-                          s(log.fl.abund, k = 8) +
-                          s(log.bb.sp.abund, k = 5),
-                        select = TRUE,
-                        data = filter(spmet, year == 2011),
-                        method = "REML") %>% getViz()
-
-check.gamViz(gam_d.sp_I.2011)
-concurvity(gam_d.sp_I.2011, full = TRUE)
-concurvity(gam_d.sp_I.2011, full = FALSE)
-summary(gam_d.sp_I.2011)
-print(plot(gam_d.sp_I.2011, allTerms = TRUE), pages = 4)
-
-gam_d.sp_I.2012 <- gam(d ~ management +
-                          s(bb.sp, bs = "re") +
-                          s(elev.mean, by = bb.sp, bs = "tp", k = 8) +
-                          s(fl.rich, k = 8) +
-                          s(log.fl.abund, k = 8) +
-                          s(log.bb.sp.abund, k = 5),
-                        select = TRUE,
-                        data = filter(spmet, year == 2012),
-                        method = "REML") %>% getViz()
-
-check.gamViz(gam_d.sp_I.2012)
-concurvity(gam_d.sp_I.2012, full = TRUE)
-concurvity(gam_d.sp_I.2012, full = FALSE)
-summary(gam_d.sp_I.2012)
-print(plot(gam_d.sp_I.2012, allTerms = TRUE), pages = 4)
-```
-
-### Does tongue-length / corolla depth matching vary with elevation?
-```{r}
-bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
-  dplyr::select(subgenus, bb.sp, pbl.w, pbl.w.class)
-
-fl_ktype <- read.csv("../processed_data/floral_k_type_nom_fix.csv") %>%
-  dplyr::select(plant.sp, k.type) %>%
-  mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"),
-         k.type.ss = str_extract(k.type, "[-+]?[0-9]*"))
-
-fl_morph <- read.csv("../processed_data/flower_morphology_GitaBenadi.csv") %>%
-  rename(plant.sp = Species) %>%
-  group_by(plant.sp) %>%
-  summarize(corolla.depth = mean(LN))
-
-fl_tax <- read_csv("../processed_data/floral_tax.csv")
-
-net_traits <- net %>%
-  # group_by(site, year, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
-  # summarize(freq = n()) %>%
-  # ungroup() %>%
-  left_join(bb_traits) %>%
-  left_join(fl_ktype) %>%
-  left_join(fl_morph) %>%
-  separate(plant.sp, c("plant.genus", "plant.species"), sep = " ", remove = FALSE) %>%
-  left_join(fl_tax) %>%
-  mutate(tongue.mismatch = abs(pbl.w - corolla.depth),
-         bb.sp = factor(bb.sp),
-         plant.sp = factor(plant.sp),
-         plant.genus = factor(plant.genus),
-         subgenus = factor(subgenus),
-         k.type.s = factor(k.type.s),
-         plant.family = factor(plant.family))
-
-ggplot(net_traits, aes(elev.mean, tongue.mismatch)) +
-  geom_point(color = "yellow") +
-  geom_smooth(method = "lm") +
-  facet_wrap(~bb.sp) +
-  theme_abyss()
-```
-
-

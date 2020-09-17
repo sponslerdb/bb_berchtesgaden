@@ -16,15 +16,6 @@ library(see)
 library(tidyverse)
 ```
 
-### Climate data
-```{r echo=FALSE, message=FALSE, include=FALSE}
-gdd <- read_csv("../processed_data/climate.csv") %>%
-  mutate(year = factor(year),
-         yday = yday(date)) %>%
-  dplyr::select(site, year, date, yday, gdd.cum) %>%
-  semi_join(read_csv("../processed_data/network.csv"), by = "site")
-```
-
 ### Load site data
 ```{r, include=FALSE, echo=FALSE}
 # A function for converting a geometry column back to x and y columns
@@ -253,9 +244,15 @@ summary(gdm_WN.2011)
 summary(gdm_WN.2012)
 
 # Permutation tests (slow)
-gdm_WN.2010.imp <- gdm.varImp(sitepair_2010.WN, geo = TRUE)
-gdm_WN.2011.imp <- gdm.varImp(sitepair_2011.WN, geo = TRUE)
-gdm_WN.2012.imp <- gdm.varImp(sitepair_2012.WN, geo = TRUE)
+gdm_WN.2010.imp <- gdm.varImp(sitepair_2010.WN, geo = TRUE, 
+                              parallel = TRUE, cores = 4,
+                              outFile = "interaction_permGDM_2010")
+gdm_WN.2011.imp <- gdm.varImp(sitepair_2011.WN, geo = TRUE, 
+                              parallel = TRUE, cores = 4,
+                              outFile = "interaction_permGDM_2011")
+gdm_WN.2012.imp <- gdm.varImp(sitepair_2012.WN, geo = TRUE, 
+                              parallel = TRUE, cores = 4,
+                              outFile = "interaction_permGDM_2012")
 
 # Plot
 plot(gdm_WN.2010, include.rug = TRUE, 
@@ -354,13 +351,14 @@ predData_prep_survey <- function(surv, y) {
 format_set <- function(bio, pred) {
   formatsitepair(bio, bioFormat = 1, siteColumn = "site.day", 
                  dist = "jaccard", XColumn = "x", YColumn = "y", 
-                 predData = pred, abundance = FALSE)
+                 predData = pred, abundance = FALSE) %>%
+  filter(s1.elev.mean != s2.elev.mean) # this avoids comparing repeated measures of the same site (taking advantage of the fact that each site has a unique elevation in our dataset)
 } 
 
 # Prep input for GDM
 survey_bioData.2010 <- biodata_prep_survey(survey, 2010)
 survey_predData.2010 <- predData_prep_survey(survey, 2010)
-survey_sitepair.2010 <- format_set(survey_bioData.2010, survey_predData.2010)
+survey_sitepair.2010 <- format_set(survey_bioData.2010, survey_predData.2010) 
 
 survey_bioData.2011 <- biodata_prep_survey(survey, 2011)
 survey_predData.2011 <- predData_prep_survey(survey, 2011)
@@ -380,9 +378,15 @@ summary(gdm_survey.2011)
 summary(gdm_survey.2012)
 
 # Permutations tests (slow)
-gdm_survey.2010.imp <- gdm.varImp(survey_sitepair.2010, geo = TRUE)
-gdm_survey.2011.imp <- gdm.varImp(survey_sitepair.2011, geo = TRUE)
-gdm_survey.2012.imp <- gdm.varImp(survey_sitepair.2012, geo = TRUE)
+gdm_survey.2010.imp <- gdm.varImp(survey_sitepair.2010, geo = TRUE, 
+                              parallel = TRUE, cores = 3,
+                              outFile = "survey_permGDM_2010")
+gdm_survey.2011.imp <- gdm.varImp(survey_sitepair.2011, geo = TRUE, 
+                              parallel = TRUE, cores = 3,
+                              outFile = "survey_permGDM_2011")
+gdm_survey.2012.imp <- gdm.varImp(survey_sitepair.2012, geo = TRUE, 
+                              parallel = TRUE, cores = 3,
+                              outFile = "survey_permGDM_2012")
 
 # Plot
 plot(gdm_survey.2010)
@@ -421,7 +425,7 @@ ggplot(survey_splines, aes(predictor, response)) +
 ggsave("./output/survey_GDM.png")
 ```
 
-### GDM: BB observations
+### GDM: BB observations; this won't work in it's present state because I cannot 
 ```{r}
 # Create functions for prepping data
 biodata_prep_BB <- function(net, y) {
@@ -477,13 +481,13 @@ summary(gdm_BB.2012)
 # Permutations tests (slow)
 gdm_BB.2010.imp <- gdm.varImp(BB_sitepair.2010, geo = TRUE, 
                               parallel = TRUE, cores = 4,
-                              outFile = "./output/bb_permGDM_2010")
+                              outFile = "bb_permGDM_2010")
 gdm_BB.2011.imp <- gdm.varImp(BB_sitepair.2011, geo = TRUE, 
                               parallel = TRUE, cores = 4,
-                              outFile = "./output/bb_permGDM_2011")
+                              outFile = "bb_permGDM_2011")
 gdm_BB.2012.imp <- gdm.varImp(BB_sitepair.2012, geo = TRUE, 
                               parallel = TRUE, cores = 4,
-                              outFile = "./output/bb_permGDM_2012")
+                              outFile = "bb_permGDM_2012")
 
 # Plot
 plot(gdm_BB.2010)
@@ -491,7 +495,7 @@ plot(gdm_BB.2011)
 plot(gdm_BB.2012)
 
 # Plot with confidence intervals (slow)
-plotUncertainty(BB_sitepair.2010, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+p <- plotUncertainty(BB_sitepair.2010, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 plotUncertainty(BB_sitepair.2011, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 plotUncertainty(BB_sitepair.2012, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
 
