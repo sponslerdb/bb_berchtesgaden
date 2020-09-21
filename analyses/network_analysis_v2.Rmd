@@ -47,7 +47,7 @@ boot_net_sp <- function(net, n, iter) {
       data.frame() %>% # convert to data frame
       frame2webs() %>% # convert to to bipartite web
       #map(specieslevel, level = "higher", index = "d") %>%
-      map(specieslevel, level = "higher", index = c("d", "resource range")) %>%
+      map(specieslevel, level = "higher", index = c("d", "resource range", "degree", "partner diversity")) %>%
       map(rownames_to_column) %>%
       map(as_tibble) %>%
       bind_rows(.id = "site_year") %>% # Collapse list into big data frame
@@ -94,7 +94,7 @@ boot_net <- function(net, n, iter) {
       dplyr::select(higher = bb.sp, lower = plant.sp, webID, freq) %>% # rename columns to match bipartite's expectations
       data.frame() %>% # convert to data frame
       frame2webs() %>% # convert to to bipartite web
-      map(networklevel, level = "higher", weighted = TRUE, index = c("niche overlap")) %>% # We probably care mainly about the BB level of the network
+      map(networklevel, level = "higher", weighted = TRUE, index = c("niche overlap", "web asymmetry", "weighted NODF", "partner diversity", "C score")) %>% # We probably care mainly about the BB level of the network
       data.frame() %>%
       t() %>%
       data.frame() %>%
@@ -294,8 +294,10 @@ spmet <- bind_rows(spmet_2012, spmet_2011, spmet_2010) %>%
 
 spmet_mean <- spmet %>%
   group_by(site, year) %>%
-  #summarize(d = weighted.mean(d, bb.sp.abund, na.rm = TRUE)) %>%
-  summarize(resource.range = weighted.mean(resource.range, bb.sp.abund, na.rm = TRUE)) %>%
+  summarize(resource.range = weighted.mean(resource.range, bb.sp.abund, na.rm = TRUE),
+            d = weighted.mean(d, bb.sp.abund, na.rm = TRUE),
+            degree = weighted.mean(degree, bb.sp.abund, na.rm = TRUE),
+            partner.diversity = weighted.mean(partner.diversity, bb.sp.abund, na.rm = TRUE)) %>%
   #summarize(resource.range = mean(resource.range, na.rm = TRUE)) %>%
   ungroup()
 
@@ -311,7 +313,12 @@ netmet <- bind_rows(netmet_boot_2012,
   left_join(site_data, by = "site") %>%
   mutate(year = factor(year, levels = c("2010", "2011", "2012")),
          site = factor(site),
-         management = factor(management))
+         management = factor(management),
+         threshold = factor(case_when(
+           elev.mean > 1300 ~ "above",
+           elev.mean <= 1300 ~ "below"
+           ))
+         )
 ```
 
 ### Maybe the answer is not to abandon network analysis, but to include all the variables that confound my target relationship with elevation in a big model, then use variable selection to see what *does* predict network structure. I have massive concurvity, of course, so if the select() feature doesn't deal with that, I might need to opt for a model selection approach. 
@@ -322,10 +329,17 @@ netmet <- bind_rows(netmet_boot_2012,
 
 ### Elevation-focused modeling
 ```{r}
+ggplot(netmet, aes(elev.mean, C.score.HL,)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~year)
+
 #### Niche overlap
 gam_niche.overlap.1 <- gam(niche.overlap.HL ~ 
                              s(year, bs = "re") + 
                              s(bb.transects) + 
+                             s(log.bb.abund) +
+                             #s(bb.rich) +
                              s(elev.mean, by = year, k = 10),
                            select = TRUE,
                            data = netmet,
@@ -337,51 +351,75 @@ concurvity(gam_niche.overlap.1, full = FALSE)
 summary(gam_niche.overlap.1)
 print(plot(gam_niche.overlap.1, allTerms = TRUE), pages = 1)
 
-# bb.transects was zeroed out by select = TRUE, so this plot should reflect the model above perfectly
 ggplot(netmet, aes(elev.mean, niche.overlap.HL)) +
   geom_point() +
   geom_smooth(method = "gam", formula = y ~ s(x, bs = "tp", k = 10)) +
   facet_wrap(~year)
 
-##### Community mean d'
-gam_mean_d.1 <- gam(d ~ 
-                      s(year, bs = "re") + 
-                      s(bb.transects) +
-                      s(elev.mean, by = year, k = 10),
-                    select = TRUE,
-                    data = netmet,
-                    method = "REML") %>% getViz()
-
-check.gamViz(gam_mean_d.1)
-concurvity(gam_mean_d.1, full = TRUE)
-concurvity(gam_mean_d.1, full = FALSE)
-summary(gam_mean_d.1)
-print(plot(gam_mean_d.1, allTerms = TRUE), pages = 1)
-
-ggplot(netmet, aes(elev.mean, d)) +
+ggplot(netmet, aes(log.bb.abund, niche.overlap.HL)) +
   geom_point() +
   geom_smooth(method = "gam", formula = y ~ s(x, bs = "tp", k = 10)) +
   facet_wrap(~year)
 
-ggplot(netmet, aes(bb.transects, d)) +
+ggplot(netmet, aes(bb.rich, niche.overlap.HL)) +
   geom_point() +
-  geom_smooth(method = "lm") +
-  facet_wrap(~year, scales = "free_x")
-
-# I would be reluctant to interpret the year effect biologically; more likely an artifact of sampling intensity
-ggplot(netmet, aes(year, d)) +
-  geom_boxplot()
-
-# It is interesting that, while elevation explains a lot of niche overlap and virtually none of specialization, niche overlap and specialization are strongly correlated with each other.
-ggplot(netmet, aes(niche.overlap.HL, d)) +
-  geom_point() +
-  geom_smooth(method = "lm") +
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "tp", k = 10)) +
   facet_wrap(~year)
+
+#### Niche overlap
+gam_C.score.1 <- gam(C.score.HL ~ 
+                             s(year, bs = "re") + 
+                             s(bb.transects) + 
+                             s(log.bb.abund) +
+                             #s(bb.rich) +
+                             s(elev.mean, by = year, k = 10),
+                           select = TRUE,
+                           data = netmet,
+                           method = "REML") %>% getViz()
+
+check.gamViz(gam_C.score.1)
+concurvity(gam_C.score.1, full = TRUE)
+concurvity(gam_C.score.1, full = FALSE)
+summary(gam_C.score.1)
+print(plot(gam_C.score.1, allTerms = TRUE), pages = 1)
+
+ggplot(netmet, aes(elev.mean, C.score.HL)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "tp", k = 10)) +
+  facet_wrap(~year)
+
+ggplot(netmet, aes(log.bb.abund, C.score.HL)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "tp", k = 10)) +
+  facet_wrap(~year)
+
+ggplot(netmet, aes(bb.rich, C.score.HL)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "tp", k = 10)) +
+  facet_wrap(~year)
+
+### NODF
+gam_NODF.1 <- gam(weighted.NODF ~ 
+                             s(year, bs = "re") + 
+                             s(bb.transects) + 
+                             s(log.bb.abund) +
+                             #s(bb.rich) +
+                             s(elev.mean, by = year, k = 10),
+                           select = TRUE,
+                           data = netmet,
+                           method = "REML") %>% getViz()
+
+check.gamViz(gam_NODF.1)
+concurvity(gam_NODF.1, full = TRUE)
+concurvity(gam_NODF.1, full = FALSE)
+summary(gam_NODF.1)
+print(plot(gam_NODF.1, allTerms = TRUE), pages = 1)
 
 ##### Resource range
 gam_mean_rr.1 <- gam(resource.range ~ 
                       s(year, bs = "re") + 
                       s(bb.transects) +
+                       s(log.bb.abund) +
                       s(elev.mean, by = year, k = 10),
                     select = TRUE,
                     data = netmet,
@@ -410,6 +448,7 @@ gam_rr.sp_I <- gam(resource.range ~
                     #management +
                     s(bb.transects) +
                     s(bb.sp, bs = "re") +
+                     s(log.bb.abund, k = 5) +
                     s(elev.mean, by = bb.sp, bs = "tp", k = 5),
                   #s(fl.rich, k = 8) +
                   #s(log.fl.abund, k = 8) +
@@ -423,6 +462,12 @@ concurvity(gam_rr.sp_I, full = TRUE)
 concurvity(gam_rr.sp_I, full = FALSE)
 summary(gam_rr.sp_I)
 print(plot(gam_rr.sp_I, allTerms = TRUE), pages = 4)
+
+
+ggplot(spmet, aes(log.bb.abund, resource.range)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~year, scales =  "free")
 
 ```
 
@@ -487,40 +532,42 @@ ggplot(netmet, aes(elev.mean, bb.transects)) +
   geom_smooth() +
   facet_wrap(~year)
 
-#### Community mean d'
-gam_mean_d.2 <- gam(d ~ 
+#### Resource range
+gam_mean_rr.2 <- gam(resource.range ~ 
                       s(year, bs = "re") + 
-                      s(management, bs = "re") +
+                      #s(management, bs = "re") +
                       s(bb.transects) +
                       s(elev.mean, by = year, k = 10) +
-                      s(bb.rich, k = 5) +
-                      s(log.fl.abund, k = 5),
+                      #s(bb.rich, k = 5) +
+                       s(fl.rich, k = 5) +
+                       s(log.bb.abund, k = 5),
+                     # s(log.fl.abund, k = 5),
                     select = TRUE,
                     data = netmet,
                     method = "REML") %>% getViz()
 
-check.gamViz(gam_mean_d.2)
-concurvity(gam_mean_d.2, full = TRUE)
-concurvity(gam_mean_d.2, full = FALSE)
-summary(gam_mean_d.2)
-print(plot(gam_mean_d.2, allTerms = TRUE), pages = 1)
+check.gamViz(gam_mean_rr.2)
+concurvity(gam_mean_rr.2, full = TRUE)
+concurvity(gam_mean_rr.2, full = FALSE)
+summary(gam_mean_rr.2)
+print(plot(gam_mean_rr.2, allTerms = TRUE), pages = 1)
 
-ggplot(netmet, aes(bb.rich, d)) +
+ggplot(netmet, aes(bb.rich, resource.range)) +
   geom_point() +
   geom_smooth(method = "lm") +
   facet_wrap(~year)
 
-ggplot(netmet, aes(log.bb.abund, d)) +
+ggplot(netmet, aes(log.bb.abund, resource.range)) +
   geom_point() +
   geom_smooth(method = "lm") +
   facet_wrap(~year)
 
-ggplot(netmet, aes(log.fl.abund, d)) +
+ggplot(netmet, aes(log.fl.abund, resource.range)) +
   geom_point() +
   geom_smooth(method = "lm") +
   facet_wrap(~year)
 
-ggplot(netmet, aes(fl.rich, d)) +
+ggplot(netmet, aes(fl.rich, resource.range)) +
   geom_point() +
   geom_smooth(method = "lm") +
   facet_wrap(~year)
@@ -635,4 +682,9 @@ mod_niche.overlap.2012 <- psem(
 
 summary(mod_niche.overlap.2012)
 plot(mod_niche.overlap.2012)
+```
+
+## Threshold-based network analysis: do network properties differ meaningfully above and below the threshold (~1300m) evident in my abundance and beta-diversity analyses?
+```{r}
+
 ```

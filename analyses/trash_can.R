@@ -1744,3 +1744,23 @@ ggplot(web.top_splevel, aes(elev.mean, d)) +
   theme_abyss() +
   facet_wrap(~year)
 ```
+
+
+### Play with null models
+```{r}
+webs <- net %>%
+  group_by(site, year, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
+  summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+  ungroup() %>%
+  unite(webID, c(site, year), sep = "_") %>%
+  dplyr::select(higher = bb.sp, lower = plant.sp, webID, freq) %>% # rename columns to match bipartite's expectations
+  data.frame() %>% # convert to data frame
+  frame2webs()
+
+null.t.test(webs[[2]], level = "higher", index = "niche overlap")
+
+n1 <- nullmodel(webs[[1]], N = 1000, method = 1)
+met1 <- map(n1, specieslevel, level = "higher", index = "resource range") %>%
+  bind_rows(.id = "id") %>%
+  
+  ```
