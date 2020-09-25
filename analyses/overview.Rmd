@@ -1,0 +1,308 @@
+---
+title: "overview"
+output: html_document
+---
+
+### Set up
+```{r}
+library(bipartite)
+library(ggbipart)
+library(GGally)
+library(tidyverse)
+library(lubridate)
+library(patchwork)
+```
+
+### Load site data
+```{r, include=FALSE}
+site_data <- read_csv("../processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
+  mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")),
+         elev.class2 = factor(elev.class2, levels = c("high", "mid", "low"))) # turn elav.class into an ordered factor
+```
+
+### Load network and survey data
+```{r, include=FALSE}
+net <- read_csv("../processed_data/network.csv") %>%
+  unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
+  mutate(year = factor(year)) %>% # convert year to factor
+  left_join(site_data, by = "site") %>%
+  ungroup() %>%
+  arrange(site, date)
+
+# Yearly subsets
+net_2012 <- filter(net, year == "2012")
+net_2011 <- filter(net, year == "2011")
+net_2010 <- filter(net, year == "2010")
+
+# Floral survey
+survey <- read_csv("../processed_data/floral_survey.csv") %>%
+  dplyr::select(site, date, plant.sp, flower.cover)
+
+### Species names and such for plotting
+species_names <- cbind(c("bss", "pasc", "prat", 
+                         "soro", "wurf", "hort", 
+                         "pyre", "mend", "mont", 
+                         "gers", "hypn","jone", 
+                         "lapi", "muci", "psit", 
+                         "humi"),
+                       c("B. sensu-strictu", "B. pascuorum", "B. pratorum", 
+                         "B. soroensis", "B. wurflenii", "B. hortorum",
+                         "B. pyrenaeus", "B. mendax", "B. monticola",
+                         "B. gerstaeckeri", "B. hypnorum", "B. jonellus", 
+                         "B. lapidarius", "B. mucidus", "B. psithyrus", 
+                         "B. humilis"),
+                       c("B. ss.", "B. pasc.", "B. prat.", 
+                         "B. soro.", "B. wurf.", "B. hort.",
+                         "B. pyre.", "B. mend.", "B. mont.",
+                         "B. gers.", "B. hypn.", "B. jone.", 
+                         "B. lapi.", "B. muci.", "B. psit.", 
+                         "B. humi"),
+                       c("major", "major", "major", 
+                         "major", "major", "common", 
+                         "high elev.", "high elev.", "high elev.",
+                         "minor", "minor", "common", 
+                         "minor", "minor", "common", 
+                         "minor")
+                       ) %>%
+  as.data.frame() %>%
+  as_tibble() %>%
+  dplyr::select(bb.sp = 1, species.name = 2, species.abb = 3, abund.class = 4)
+```
+
+### Visualize metaweb
+```{r}
+taxa <- read_csv("../processed_data/floral_tax.csv")  
+
+bb_range <- net %>%
+  left_join(site_data) %>%
+  group_by(site, date, elev.mean, bb.sp) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, bb.sp) %>%
+  summarize(abund = mean(abund)) %>%
+  group_by(bb.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2)) %>%
+  left_join(species_names) %>%
+  mutate(abund.class = factor(abund.class, levels = c("major", "common", "high elev.", "minor")))
+
+bb_range.year <- net %>%
+  left_join(site_data) %>%
+  group_by(site, date, elev.mean, bb.sp, year) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, bb.sp, year) %>%
+  summarize(abund = mean(abund)) %>%
+  group_by(bb.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2)) %>%
+  left_join(species_names) %>%
+  mutate(abund.class = factor(abund.class, levels = c("major", "common", "high elev.", "minor")))
+
+metaweb <- net %>%
+  separate(plant.sp, c("plant.genus", "species"), sep = " ") %>%
+  left_join(taxa) %>%
+  group_by(bb.sp, plant.family) %>%
+  summarize(freq = n()) %>%
+  pivot_wider(names_from = bb.sp, values_from = freq) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("plant.family")
+
+metaweb.rev <- net %>%
+  separate(plant.sp, c("plant.genus", "species"), sep = " ") %>%
+  left_join(taxa) %>%
+  group_by(bb.sp, plant.family) %>%
+  summarize(freq = n()) %>%
+  pivot_wider(names_from = plant.family, values_from = freq) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("bb.sp")
+
+bip_ggnet(bip_init_network(as.matrix(metaweb.rev)), 
+                           as.matrix(metaweb.rev),
+          edge.label = NULL,
+          label= TRUE)
+
+visweb(metaweb, type = "diagonal", labsize = 2, pred.lablength = 5, prey.lablength = 5)
+visweb(metaweb.rev, type = "nested", labsize = 2, pred.lablength = 5, prey.lablength = 5)
+
+pdf("./output/metaweb.pdf", width = 8.5, height = 4.5)
+plotweb(metaweb, text.rot = 90, labsize = 1, low.lablength = 5)
+dev.off()
+
+ggplot(bb_range, aes(reorder(bb.sp, elev.med), elev.mean, color = abund.class)) +
+  geom_line(size = 2, alpha = 0.25) +
+  geom_point(aes(size = abund), alpha = 0.5) +
+  #facet_wrap(~year, ncol = 1) +
+  theme_light(12) +
+  scale_size_continuous(name = "Abundance") +
+  scale_color_discrete(name = "Abund. class") +
+  xlab("BB species") +
+  ylab("Elevation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggsave("./output/bb_range.png", width = 6, height = 4, units = "in")
+ggsave("./output/bb_range.pdf", width = 6, height = 4)
+
+
+```
+
+### Observations per sample per year
+```{r}
+bb_obs_per_year <- net %>%
+  mutate(year = year(date)) %>%
+  group_by(year) %>%
+  summarize(obs = n())
+
+bb_obs_per_sample <- net %>%
+  mutate(year = factor(year(date))) %>%
+  group_by(year, site, date) %>%
+  summarize(obs = n()) %>%
+  left_join(site_data) %>%
+  mutate(date =as_date(yday(date)))
+
+bb_samples_per_year <- net %>%
+  mutate(year = year(date)) %>%
+  select(year, site, date) %>%
+  unique() %>%
+  group_by(year) %>%
+  summarize(samples = n())
+
+bb_summary <- full_join(bb_obs_per_year, bb_samples_per_year) %>%
+  mutate(obs.per.sample = obs/samples)
+```
+
+### Network observations through elevation and time
+```{r}
+obs_count_plot <- ggplot(net, aes(x = "x")) +
+  geom_bar(fill = "gray60") +
+  ylab("Observations") +
+  facet_wrap(~year(date)) +
+  theme_light(12) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+sample_count_plot <- ggplot(bb_obs_per_sample, aes(x = "x")) +
+  geom_bar(fill = "gray60") +
+  ylab("Samples") +
+  facet_wrap(~year) +
+  theme_light(12) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_blank())
+
+obs_plot <- ggplot(bb_obs_per_sample, aes(x = "x", y = obs)) +
+  geom_violin(draw_quantiles = 0.5, fill = "gray60", color = NA) +
+  geom_boxplot(fill = NA) +
+  #geom_density(outline.type = "full", position = "fill") +
+  ylab("Observations/sample") +
+  #xlab(NULL) +
+  facet_wrap(~year) +
+  theme_light(12) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_blank())
+
+samples_plot <- ggplot(bb_obs_per_sample, aes(as_date(yday(date)), elev.mean/10)) +
+  geom_point(size = 1, aes(alpha = obs)) +
+  facet_wrap(~year) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  #scale_color_gradient(low = "gray80", high = "black") +
+  scale_alpha_continuous(name = "Observations") +
+  #scale_x_date(date_labels = "%m", date_breaks = "1 month", limit) +
+  scale_x_date(date_labels = "%b", breaks = as_date(c("1970-04-01", "1970-05-01", "1970-06-01",
+                                                    "1970-07-01", "1970-08-01", "1970-09-01"))) +
+  theme_light(12) +
+  labs(x = NULL,
+       y = "Elevation (m x 10)") +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_blank())
+
+png("./output/sampling.png", width = 8, height = 8, units = "in", res = 300)
+obs_count_plot / sample_count_plot / obs_plot / samples_plot + 
+  plot_annotation(tag_levels = c("A", "B", "C", "D"))
+dev.off()
+```
+
+### Survey data through elevation and time
+```{r}
+survey <- survey %>%
+  #semi_join(net, by = c("plant.sp")) %>% # Consider only plants visited (anytime anywhere, not specifically for a given site*date)
+  separate(plant.sp, c("plant.genus", "plant.sp"), sep = " ") %>%
+  left_join(taxa)
+
+survey_sub <- survey %>%
+  semi_join(net, by = c("plant.sp")) %>% # Consider only plants visited (anytime anywhere, not specifically for a given site*date)
+  separate(plant.sp, c("plant.genus", "plant.sp"), sep = " ") %>%
+  left_join(taxa)
+
+length(unique(survey_sub$plant.genus))
+  
+fl_obs_per_sample <- survey %>%
+  mutate(year = factor(year(date))) %>%
+  group_by(year, site, date) %>%
+  summarize(obs = n()) %>%
+  left_join(site_data) %>%
+  mutate(date =as_date(yday(date)))  
+
+obs_count_plot <- ggplot(survey, aes(x = "x")) +
+  geom_bar(fill = "gray60") +
+  ylab("Observations") +
+  facet_wrap(~year(date)) +
+  theme_light(12) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+sample_count_plot <- ggplot(fl_obs_per_sample, aes(x = "x")) +
+  geom_bar(fill = "gray60") +
+  ylab("Samples") +
+  facet_wrap(~year) +
+  theme_light(12) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_blank())
+
+obs_plot <- ggplot(fl_obs_per_sample, aes(x = "x", y = obs)) +
+  geom_violin(draw_quantiles = 0.5, fill = "gray60", color = NA) +
+  geom_boxplot(fill = NA) +
+  #geom_density(outline.type = "full", position = "fill") +
+  ylab("Observations/sample") +
+  #xlab(NULL) +
+  facet_wrap(~year) +
+  theme_light(12) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_blank())
+
+samples_plot <- ggplot(fl_obs_per_sample, aes(as_date(yday(date)), elev.mean/10)) +
+  geom_point(size = 1, aes(alpha = obs)) +
+  facet_wrap(~year) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  #scale_color_gradient(low = "gray80", high = "black") +
+  scale_alpha_continuous(name = "Observations") +
+  #scale_x_date(date_labels = "%m", date_breaks = "1 month", limit) +
+  scale_x_date(date_labels = "%b", breaks = as_date(c("1970-04-01", "1970-05-01", "1970-06-01",
+                                                    "1970-07-01", "1970-08-01", "1970-09-01"))) +
+  theme_light(12) +
+  labs(x = NULL,
+       y = "Elevation (m x 10)") +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_blank())
+
+png("./output/sampling.png", width = 8, height = 8, units = "in", res = 300)
+obs_count_plot / sample_count_plot / obs_plot / samples_plot + 
+  plot_annotation(tag_levels = c("A", "B", "C", "D"))
+dev.off()
+
+```

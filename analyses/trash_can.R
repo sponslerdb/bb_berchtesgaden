@@ -532,6 +532,157 @@ ggplot(net, aes(factor(pbl.w.class), corolla.depth)) +
   geom_boxplot() 
 ```
 
+### Make a data set that sets the boundaries for plotting predictions extrapolated (or interpolated) beyond samples
+```{r}
+### This could be so much more beautiful, but I don't have it in me right now. This works.
+seq_yday <- function(x){
+  seq((x - 14), (x + 14), 1) # This says I'm willing to go 10 days beyond my data...
+}
+
+seq_elev <- function(x){
+  seq((x - 250), (x + 250), 5) # ...and 150 meters beyond my data
+}
+
+df <- function(x) {
+  as.data.frame(x)
+}
+
+survey_range.2010 <- survey %>%
+  ungroup() %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date),
+         year = year(date)) %>%
+  filter(year == 2010) %>%
+  select(yday, elev.mean) %>%
+  unique() %>%
+  arrange(yday) %>%
+  mutate(ydays = map(yday, seq_yday),
+         elevs = map(elev.mean, seq_elev)) %>%
+  mutate(ydays = map(ydays, df),
+         elevs = map(elevs, df)) %>%
+  unnest(cols = ydays) %>%
+  select(yday = x, elevs) %>%
+  unnest(cols = elevs) %>%
+  unique() %>%
+  select(yday, elev.mean = x) %>%
+  mutate(year = rep(2010, n()))
+
+survey_range.2011 <- survey %>%
+  ungroup() %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date),
+         year = year(date)) %>%
+  filter(year == 2011) %>%
+  select(yday, elev.mean) %>%
+  unique() %>%
+  arrange(yday) %>%
+  mutate(ydays = map(yday, seq_yday),
+         elevs = map(elev.mean, seq_elev)) %>%
+  mutate(ydays = map(ydays, df),
+         elevs = map(elevs, df)) %>%
+  unnest(cols = ydays) %>%
+  select(yday = x, elevs) %>%
+  unnest(cols = elevs) %>%
+  unique() %>%
+  select(yday, elev.mean = x) %>%
+  mutate(year = rep(2011, n()))
+
+survey_range.2012 <- survey %>%
+  ungroup() %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date),
+         year = year(date)) %>%
+  filter(year == 2012) %>%
+  select(yday, elev.mean) %>%
+  unique() %>%
+  arrange(yday) %>%
+  mutate(ydays = map(yday, seq_yday),
+         elevs = map(elev.mean, seq_elev)) %>%
+  mutate(ydays = map(ydays, df),
+         elevs = map(elevs, df)) %>%
+  unnest(cols = ydays) %>%
+  select(yday = x, elevs) %>%
+  unnest(cols = elevs) %>%
+  unique() %>%
+  select(yday, elev.mean = x) %>%
+  mutate(year = rep(2012, n()))
+
+bb_range.2010 <- net %>%
+  ungroup() %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date),
+         year = year(date)) %>%
+  filter(year == 2010) %>%
+  select(yday, elev.mean) %>%
+  unique() %>%
+  arrange(yday) %>%
+  mutate(ydays = map(yday, seq_yday),
+         elevs = map(elev.mean, seq_elev)) %>%
+  mutate(ydays = map(ydays, df),
+         elevs = map(elevs, df)) %>%
+  unnest(cols = ydays) %>%
+  select(yday = x, elevs) %>%
+  unnest(cols = elevs) %>%
+  unique() %>%
+  select(yday, elev.mean = x) %>%
+  mutate(year = rep(2010, n()))
+
+bb_range.2011 <- net %>%
+  ungroup() %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date),
+         year = year(date)) %>%
+  filter(year == 2011) %>%
+  select(yday, elev.mean) %>%
+  unique() %>%
+  arrange(yday) %>%
+  mutate(ydays = map(yday, seq_yday),
+         elevs = map(elev.mean, seq_elev)) %>%
+  mutate(ydays = map(ydays, df),
+         elevs = map(elevs, df)) %>%
+  unnest(cols = ydays) %>%
+  select(yday = x, elevs) %>%
+  unnest(cols = elevs) %>%
+  unique() %>%
+  select(yday, elev.mean = x) %>%
+  mutate(year = rep(2011, n()))
+
+bb_range.2012 <- net %>%
+  ungroup() %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date),
+         year = year(date)) %>%
+  filter(year == 2012) %>%
+  select(yday, elev.mean) %>%
+  unique() %>%
+  arrange(yday) %>%
+  mutate(ydays = map(yday, seq_yday),
+         elevs = map(elev.mean, seq_elev)) %>%
+  mutate(ydays = map(ydays, df),
+         elevs = map(elevs, df)) %>%
+  unnest(cols = ydays) %>%
+  select(yday = x, elevs) %>%
+  unnest(cols = elevs) %>%
+  unique() %>%
+  select(yday, elev.mean = x) %>%
+  mutate(year = rep(2012, n()))
+
+# Rounding function from: https://stackoverflow.com/questions/43627679/round-any-equivalent-for-dplyr/46489816#46489816
+round_any <- function(x, accuracy, f=round){f(x/ accuracy) * accuracy}
+
+survey_range <- bind_rows(survey_range.2010, survey_range.2011, survey_range.2012) %>%
+  mutate(yday = round(yday),
+         year = factor(round(year)),
+         elev.mean = round_any(elev.mean, 5, f = ceiling)) %>%
+  unique()
+
+bb_range <- bind_rows(bb_range.2010, bb_range.2011, bb_range.2012) %>%
+  mutate(yday = round(yday),
+         year = factor(round(year)),
+         elev.mean = round_any(elev.mean, 5, f = ceiling)) %>%
+  unique()
+```
+
 ######## Old analyses that I probably don't care to use but don't want to delete yet #########
 
 ### Per-transect network analysis -- is it worth it? I would have to filter out the transects for which the networks are too small.

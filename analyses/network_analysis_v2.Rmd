@@ -183,6 +183,7 @@ survey <- read_csv("../processed_data/floral_survey.csv") %>%
   dplyr::select(site, date, plant.sp, flower.cover)
 ```
 
+
 ### Analyze sampling patterns
 ```{r}
 samples <- net %>%

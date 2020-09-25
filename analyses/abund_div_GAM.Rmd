@@ -293,8 +293,8 @@ weighted_fl_abundance.2010 <- bam(log(fl.abund.wt + 0.01) ~
                                     method = "fREML") %>% getViz(nsim = 500)
 
 #check.gamViz(weighted_fl_abundance.2010)
-weighted_fl_abundance.2010.sum <- summary(weighted_fl_abundance.2010)
-saveRDS(weighted_fl_abundance.2010.sum, file = "./output/weighted_fl_abundance_2010.rds")
+#weighted_fl_abundance.2010.sum <- summary(weighted_fl_abundance.2010)
+#saveRDS(weighted_fl_abundance.2010.sum, file = "./output/weighted_fl_abundance_2010.rds")
 #print(plot(weighted_fl_abundance.2010, allTerms = TRUE), pages = 4)
 #weighted_fl_abundance.2010.ck <- check2D(weighted_fl_abundance.2010, x1 = "yday", x2 = "elev.mean")
 
@@ -532,119 +532,84 @@ bb_abund.2012 <- bam(bb.abund ~
 #bb_abund.2012.ck <- check2D(bb_abund.2012, x1 = "yday", x2 = "elev.mean") # See if there is any spatiotemporal pattern to the residuals
 ```
 
-### Make a data set that sets the boundaries for plotting predictions extrapolated (or interpolated) beyond samples
+# We might be interested in whether and where (in time*elev) a given pair of smooths differs from each other. It might only make sense to do this, though, if we first normalized abundance for each species; otherwise, the differences may be driven by differences in overall abundance. I'm not sure the species random effect takes care of that.
 ```{r}
-survey_samples <- survey %>%
-  ungroup() %>%
-  left_join(site_data) %>%
-  mutate(yday = yday(date),
-         year = year(date)) %>%
-  select(year, yday, elev.mean) %>%
-  unique() %>%
-  mutate(sample = factor(c(1:length(year)))) %>%
-  group_by(year, sample) %>%
-  arrange(yday)
-%>%
-  nest()
+# 2010 pasc vs prat
+plotDiff.mgcv.smooth.2D(s1 = sm(bb_abund.2010, 10), s2 = sm(bb_abund.2010, 11)) +
+  l_pvRaster() + 
+  l_pvContour()
 
-dat <- survey_samples$data[[1]]
+plotDiff.mgcv.smooth.2D(s1 = sm(weighted_fl_abundance.2010, 12), 
+                        s2 = sm(weighted_fl_abundance.2010, 13)) +
+  l_pvRaster() + 
+  l_pvContour()
 
-func <- function(x, days, meters) {
-  for(i in 1:dim(x)[1]) {
-    
-    yday = x[i, 2]
-    print(yday)
-   # x = seq(x$)
-  }
-}
+# 2010 pasc vs prat
+plotDiff.mgcv.smooth.2D(s1 = sm(bb_abund.2011, 10), s2 = sm(bb_abund.2011, 11)) +
+  l_pvRaster() + 
+  l_pvContour()
 
-func(survey_samples), 
-
-dat <- survey_samples$data[[1]]
-yday <- dat$yday # set reference yday
-ydays <- seq((yday - 7), (yday + 7), 0.5) # add all days within range
-elev <- dat$elev.mean # set reference elev
-elevs <- seq((elev - 100), (elev + 100), 1) # add all elevs within range
-out.temp <- expand.grid(ydays, elevs) # expand grid to all possible combos
-
-
-bb_samples <- net %>%
-  ungroup() %>%
-  left_join(site_data) %>%
-  mutate(yday = yday(date),
-         year = year(date)) %>%
-  select(year, yday, elev.mean) %>%
-  unique() %>%
-  mutate(sample = factor(c(1:length(year)))) %>%
-  group_by(sample, year) %>%
-  nest()
-
-### Fill func
-#### Creates a set of yday*elevation combinations that can be used to filter surface plots to exclude predictions too far from the data
-#### This is very hard-wired right now, and it would break if any of the column names changed.
-plotting_boundaries <- function(x,
-                                year_sub, # a sloppy way to let me filter by year
-                                days, # how many days of outside our samples will we plot?
-                                meters) { # how many meters of outside our samples will we plot?
-  
-  #out <- tibble() # create empty tibble to fill
-  out <- c()
-  
-  data <- x %>%
-    filter(year == year_sub)
-  
-  for(i in 1:dim(data)[1]) { 
-    
-    dat <- x$data[[i]] # this pull out the ith data frame of the data column in the nested data frame
-  
-    yday <- dat$yday # set reference yday
-    # ydays <- seq((yday - days), (yday + days), 0.5) # add all days within range
-    # 
-    # elev <- dat$elev.mean # set reference elev
-    # elevs <- seq((elev - meters), (elev + meters), 1) # add all elevs within range
-    # 
-    # out.temp <- expand.grid(ydays, elevs) # expand grid to all possible combos
-    # out <- bind_rows(out, out.temp)
-    out[i] <- yday
-  }
-  # out <- unique(out) %>% # drop duplicates created by overlapping ranges
-  #   select(yday = 1, elev.mean = 2) # name columns
-  out
-}
-
-FL_plotting_2010 <- plotting_boundaries(survey_samples, 2010, 7, 100)
-FL_plotting_2011 <- plotting_boundaries(survey_samples, 2011, 7, 100)
-FL_plotting_2012 <- plotting_boundaries(survey_samples, 2012, 7, 100)
-View(unique(FL_plotting_2012$yday))
-
-BB_plotting_2010 <- plotting_boundaries(bb_samples, 2010, 7, 100)
-BB_plotting_2011 <- plotting_boundaries(bb_samples, 2011, 7, 100)
-BB_plotting_2012 <- plotting_boundaries(bb_samples, 2012, 7, 100)
+# 2010 pasc vs prat
+plotDiff.mgcv.smooth.2D(s1 = sm(bb_abund.2012, 10), s2 = sm(bb_abund.2012, 11)) +
+  l_pvRaster() + 
+  l_pvContour()
 ```
 
 ### Extract predictions
 ```{r message=FALSE}
 ### Species names and such for plotting
-species_names <- cbind(c("bss", "pasc", "prat", "soro", "wurf", 
-                         "hort", "pyre", "mend", "mont", "gers", 
-                         "hypn","jone", "lapi", "muci", "psit", "himi"),
+species_names <- cbind(c("bss", "pasc", "prat", 
+                         "soro", "wurf", "hort", 
+                         "pyre", "mend", "mont", 
+                         "gers", "hypn","jone", 
+                         "lapi", "muci", "psit", 
+                         "humi"),
                        c("B. sensu-strictu", "B. pascuorum", "B. pratorum", 
                          "B. soroensis", "B. wurflenii", "B. hortorum",
                          "B. pyrenaeus", "B. mendax", "B. monticola",
                          "B. gerstaeckeri", "B. hypnorum", "B. jonellus", 
-                         "B. lapidarius", "B. mucidus", "B. psithyrus", "B. humilis"),
+                         "B. lapidarius", "B. mucidus", "B. psithyrus", 
+                         "B. humilis"),
                        c("B. ss.", "B. pasc.", "B. prat.", 
                          "B. soro.", "B. wurf.", "B. hort.",
                          "B. pyre.", "B. mend.", "B. mont.",
                          "B. gers.", "B. hypn.", "B. jone.", 
-                         "B. lapi.", "B. muci.", "B. psit.", "B. humi"),
-                       c("major", "major", "major", "major", "major",
-                         "major", "high elev.", "high elev.", "high elev.",
-                         "minor", "minor", "minor", "minor", "minor", "minor", "minor")
+                         "B. lapi.", "B. muci.", "B. psit.", 
+                         "B. humi"),
+                       c("major", "major", "major", 
+                         "major", "major", "common", 
+                         "high elev.", "high elev.", "high elev.",
+                         "minor", "minor", "common", 
+                         "minor", "minor", "common", 
+                         "minor")
                        ) %>%
   as.data.frame() %>%
   as_tibble() %>%
   dplyr::select(bb.sp = 1, species.name = 2, species.abb = 3, abund.class = 4)
+
+BB_samples <- net %>%
+  mutate(year = year(date),
+         date = as_date(yday(date))) %>%
+  left_join(site_data) %>%
+  select(year, date, elev.mean) %>%
+  mutate(subject = rep("BB", n()),
+         sampled = rep(TRUE, n())) %>%
+  unique()
+
+FL_samples <- survey %>%
+  ungroup() %>%
+  mutate(year = year(date),
+         date = as_date(yday(date))) %>%
+  unique() %>%
+  left_join(site_data) %>%
+  select(year, date, elev.mean) %>%
+  mutate(subject = rep("FL", n()),
+         sampled = rep(TRUE, n())) %>%
+  unique()
+
+samples <- bind_rows(BB_samples, FL_samples)
+
+
 # Function to build data set over which to generate predictions
 newdata_build <- function(dat, y) {
   
@@ -659,7 +624,7 @@ newdata_build <- function(dat, y) {
   ## species list
   spp <- dat %>%
     filter(year == y) %>%
-    select(bb.sp) %>%
+    dplyr::select(bb.sp) %>%
     unique()
   
   # sequence of 50 points along the yday and elev ranges, respectively
@@ -668,8 +633,8 @@ newdata_build <- function(dat, y) {
   
   newdata <- tibble(seq_yday, seq_elev) %>% # combine seqs into data frame
     complete(seq_yday, seq_elev) %>% # get all possible values
-    crossing(spp) %>% # get all possible combos with species
-    select(yday = seq_yday, elev.mean = seq_elev, bb.sp) # rename columns to match the original model inputs
+    tidyr::crossing(spp) %>% # get all possible combos with species
+    dplyr::select(yday = seq_yday, elev.mean = seq_elev, bb.sp) # rename columns to match the original model inputs
 }
 
 newdata2010.FL <- newdata_build(fl_abund_wt, 2010)
@@ -691,172 +656,141 @@ predict_func <- function(mod, new, y) {
 }
 
 # Generate predictions
-predict2010.FL <- predict_func(weighted_fl_abundance.2010, newdata2010.FL, 2010) %>%
-  mutate(yday = ceiling(yday*2)/2) %>%
-  semi_join(FL_plotting_2010, by =  c("yday", "elev.mean"))
-predict2010.FL.sqrt <- predict_func(weighted_fl_abundance.2010.sqrt, newdata2010.FL, 2010) %>%
-  mutate(yday = ceiling(yday*2)/2) %>%
-  semi_join(FL_plotting_2010, by =  c("yday", "elev.mean"))
-predict2010.FL.bin <- predict_func(weighted_fl_abundance.2010.bin, newdata2010.FL, 2010) %>%
-  mutate(yday = ceiling(yday*2)/2) %>%
-  semi_join(FL_plotting_2010, by =  c("yday", "elev.mean"))
+predict2010.FL <- predict_func(weighted_fl_abundance.2010, newdata2010.FL, 2010) 
+predict2010.FL.sqrt <- predict_func(weighted_fl_abundance.2010.sqrt, newdata2010.FL, 2010)
+predict2010.FL.bin <- predict_func(weighted_fl_abundance.2010.bin, newdata2010.FL, 2010)
 
-predict2011.FL <- predict_func(weighted_fl_abundance.2011, newdata2011.FL, 2011) %>%
-  mutate(yday = ceiling(yday*2)/2) %>%
-  semi_join(FL_plotting_2011, by =  c("yday", "elev.mean"))
-predict2011.FL.sqrt <- predict_func(weighted_fl_abundance.2011.sqrt, newdata2011.FL, 2011) %>%
-  mutate(yday = ceiling(yday*2)/2) %>%
-  semi_join(FL_plotting_2011, by =  c("yday", "elev.mean"))
-predict2011.FL.bin <- predict_func(weighted_fl_abundance.2011.bin, newdata2011.FL, 2011) %>%
-  mutate(yday = ceiling(yday*2)/2) %>%
-  semi_join(FL_plotting_2011, by =  c("yday", "elev.mean"))
-
+predict2011.FL <- predict_func(weighted_fl_abundance.2011, newdata2011.FL, 2011) 
+predict2011.FL.sqrt <- predict_func(weighted_fl_abundance.2011.sqrt, newdata2011.FL, 2011)
+predict2011.FL.bin <- predict_func(weighted_fl_abundance.2011.bin, newdata2011.FL, 2011) 
 
 predict2012.FL <- predict_func(weighted_fl_abundance.2012, newdata2012.FL, 2012)
-predict2012.FL2 <- predict2012.FL %>%
-  mutate(yday = ceiling(yday*2)/2) %>%
-  semi_join(FL_plotting_2012, by =  c("yday", "elev.mean"))
-
-ggplot(predict2012.FL2, aes(yday, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(abund.)") +
-  facet_wrap(~ bb.sp)
-
-predict2012.FL.sqrt <- predict_func(weighted_fl_abundance.2012.sqrt, newdata2012.FL, 2012) %>%
-  mutate(yday = ceiling(yday*2)/2) %>%
-  semi_join(FL_plotting_2012, by =  c("yday", "elev.mean"))
-predict2012.FL.bin <- predict_func(weighted_fl_abundance.2012.bin, newdata2012.FL, 2012) %>%
-  mutate(yday = ceiling(yday*2)/2) %>%
-  semi_join(FL_plotting_2012, by =  c("yday", "elev.mean"))
+predict2012.FL.sqrt <- predict_func(weighted_fl_abundance.2012.sqrt, newdata2012.FL, 2012)
+predict2012.FL.bin <- predict_func(weighted_fl_abundance.2012.bin, newdata2012.FL, 2012) 
 
 predict_pool.FL <- bind_rows(predict2010.FL, predict2011.FL, predict2012.FL) %>%
-  mutate(date = as_date(yday),
-         subject = factor(rep("FL", n())))
+  mutate(subject = factor(rep("FL", n())))
+
 predict_pool.FL.sqrt <- bind_rows(predict2010.FL.sqrt, predict2011.FL.sqrt, predict2012.FL.sqrt) %>%
-  mutate(date = as_date(yday),
-         subject = factor(rep("FL", n())))
+  mutate(subject = factor(rep("FL", n())))
+
 predict_pool.FL.bin <- bind_rows(predict2010.FL.bin, predict2011.FL.bin, predict2012.FL.bin) %>%
-  mutate(date = as_date(yday),
-         subject = factor(rep("FL", n())))
+  mutate(subject = factor(rep("FL", n())))
 
 predict2010.BB <- predict_func(bb_abund.2010, newdata2010.BB, 2010)
 predict2011.BB <- predict_func(bb_abund.2011, newdata2011.BB, 2011)
 predict2012.BB <- predict_func(bb_abund.2012, newdata2012.BB, 2012)
 predict_pool.BB <- bind_rows(predict2010.BB, predict2011.BB, predict2012.BB) %>%
-  mutate(date = as_date(yday),
-         subject = factor(rep("BB", n())),
-         pred = log(pred))
+  mutate(subject = factor(rep("BB", n()))) %>%
+  mutate(pred = log(pred))
 
 predict_pool <- bind_rows(predict_pool.FL, predict_pool.BB) %>%
-  left_join(species_names)
+  left_join(species_names) %>%
+  mutate(date = as_date(yday))
 predict_pool.sqrt <- bind_rows(predict_pool.FL.sqrt, predict_pool.BB) %>%
-  left_join(species_names)
+  left_join(species_names) %>%
+  mutate(date = as_date(yday))
 predict_pool.bin <- bind_rows(predict_pool.FL.bin, predict_pool.BB) %>%
-  left_join(species_names)
+  left_join(species_names) %>%
+  mutate(date = as_date(yday))
 ```
 
 ### Visualize
 ```{r}
+# Convex hull function: https://cran.r-project.org/web/packages/ggplot2/vignettes/extending-ggplot2.html
+
+StatChull <- ggproto("StatChull", Stat,
+  compute_group = function(data, scales) {
+    data[chull(data$x, data$y), , drop = FALSE]
+  },
+  
+  required_aes = c("x", "y")
+)
+
+stat_chull <- function(mapping = NULL, data = NULL, geom = "polygon",
+                       position = "identity", na.rm = FALSE, show.legend = NA, 
+                       inherit.aes = TRUE, ...) {
+  layer(
+    stat = StatChull, data = data, mapping = mapping, geom = geom, 
+    position = position, show.legend = show.legend, inherit.aes = inherit.aes,
+    params = list(na.rm = na.rm, ...)
+  )
+}
+##
+
 #### Major
-ggplot(filter(predict_pool, abund.class == "major"), aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+ggplot() +
+  geom_raster(data = filter(predict_pool, abund.class == "major"), 
+              aes(date, elev.mean, fill = pred), 
+              interpolate = TRUE) +
+  geom_contour(data = filter(predict_pool, abund.class == "major"),
+               aes(date, elev.mean, z = pred), color = "black", size = 0.25) +
   scale_fill_viridis_c(name = "log(abund.)") +
-  #facet_grid(bb.sp + subject ~ year) +
-  facet_grid(year ~ bb.sp + subject) +
+  stat_chull(data = samples, aes(date, elev.mean), fill = NA, 
+             color = "deeppink", size = 0.25) +
+  facet_grid(year ~ species.abb + subject, scales = "free_y") +
   xlab("Date") +
   ylab("Elevation (m)") +
-  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
-ggsave("./output/GAM_major.png", height = 3, width = 6.5, units = "in")
+  theme_gray(6) +
+  theme(axis.text.x = element_text(angle = 90, size = 5, vjust = 0.5)) 
+ggsave("./output/GAM_major.png", height = 2.5, width = 6.5, units = "in")
+ggsave("./output/GAM_major.pdf", height = 2.5, width = 6.5)
 
-ggplot(predict_major.sqrt, aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(abund.)") +
-  #facet_grid(bb.sp + subject ~ year) +
-  facet_grid(year ~ bb.sp + subject) +
-  xlab("Date") +
-  ylab("Elevation (m)") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_major_sqrt.png")
-
-ggplot(predict_major.bin, aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(abund.)") +
-  #facet_grid(bb.sp + subject ~ year) +
-  facet_grid(year ~ bb.sp + subject) +
-  xlab("Date") +
-  ylab("Elevation (m)") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust = 1))
-ggsave("./output/GAM_major_bin.png")
 
 #### High Elev
-ggplot(predict_highelev, aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+ggplot() +
+  geom_raster(data = filter(predict_pool, abund.class == "high elev."), 
+              aes(date, elev.mean, fill = pred), 
+              interpolate = TRUE) +
+  geom_contour(data = filter(predict_pool, abund.class == "high elev."),
+               aes(date, elev.mean, z = pred), color = "black", size = 0.25) +
   scale_fill_viridis_c(name = "log(abund.)") +
-  #facet_grid(bb.sp + subject ~ year) +
-  facet_grid(year ~ bb.sp + subject) +
+  stat_chull(data = samples, aes(date, elev.mean), fill = NA, 
+             color = "deeppink", size = 0.25) +
+  facet_grid(year ~ species.abb + subject, scales = "free_y") +
   xlab("Date") +
   ylab("Elevation (m)") +
-  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
-ggsave("./output/GAM_highelev.png", height = 5, width = 11, units = "in")
-
-ggplot(predict_highelev.sqrt, aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(abund.)") +
-  #facet_grid(bb.sp + subject ~ year) +
-  facet_grid(year ~ bb.sp + subject) +
-  xlab("Date") +
-  ylab("Elevation (m)") +
-  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
-ggsave("./output/GAM_highelev_sqrt.png", height = 5, width = 11, units = "in")
-
-ggplot(predict_highelev.bin, aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(abund.)") +
-  #facet_grid(bb.sp + subject ~ year) +
-  facet_grid(year ~ bb.sp + subject) +
-  xlab("Date") +
-  ylab("Elevation (m)") +
-  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
-ggsave("./output/GAM_highelev_bin.png", height = 5, width = 11, units = "in")
+  theme_gray(6) +
+  theme(axis.text.x = element_text(angle = 90, size = 5, vjust = 0.5)) 
+ggsave("./output/GAM_highelev.png", height = 2.5, width = 6.5, units = "in")
+ggsave("./output/GAM_highelev.pdf", height = 2.5, width = 6.5)
 
 #### Minor
-ggplot(predict_minor, aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+ggplot() +
+  geom_raster(data = filter(predict_pool, abund.class == "minor"), 
+              aes(date, elev.mean, fill = pred), 
+              interpolate = TRUE) +
+  geom_contour(data = filter(predict_pool, abund.class == "minor"),
+               aes(date, elev.mean, z = pred), color = "black", size = 0.25) +
   scale_fill_viridis_c(name = "log(abund.)") +
-  #facet_grid(bb.sp + subject ~ year) +
+  stat_chull(data = samples, aes(date, elev.mean), fill = NA, 
+             color = "white", size = 0.5, linetype = "dashed") +
   facet_grid(year ~ bb.sp + subject) +
   xlab("Date") +
   ylab("Elevation (m)") +
   theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
 ggsave("./output/GAM_minor.png", height = 5, width = 11, units = "in")
 
-ggplot(predict_minor.sqrt, aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25) +
+### Just for kicks and chortles, let's see what happens if we scale the prediction for each species, then average across species to create a single plot.
+predict_pool.mean <- predict_pool %>%
+  group_by(bb.sp, species.name, species.abb, year, subject) %>%
+  mutate(pred.norm = scale(pred)) %>%
+  group_by(date, elev.mean, year, subject, abund.class) %>%
+  summarize(pred.mean = mean(pred.norm))
+  
+ggplot() +
+  geom_raster(data = predict_pool.mean, 
+              aes(date, elev.mean, fill = pred.mean), 
+              interpolate = TRUE) +
+  geom_contour(data = predict_pool.mean,
+               aes(date, elev.mean, z = pred.mean), 
+               color = "black", size = 0.25) +
   scale_fill_viridis_c(name = "log(abund.)") +
-  #facet_grid(bb.sp + subject ~ year) +
-  facet_grid(year ~ bb.sp + subject) +
+  stat_chull(data = samples, aes(date, elev.mean), fill = NA, 
+             color = "white", size = 0.5, linetype = "dashed") +
+  facet_grid(year ~ abund.class + subject) +
   xlab("Date") +
   ylab("Elevation (m)") +
   theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
-ggsave("./output/GAM_minor_sqrt.png", height = 5, width = 11, units = "in")
-
-ggplot(predict_minor.bin, aes(date, elev.mean, fill = pred)) +
-  geom_raster() +
-  geom_contour(aes(z = pred), color = "black", size = 0.25) +
-  scale_fill_viridis_c(name = "log(abund.)") +
-  #facet_grid(bb.sp + subject ~ year) +
-  facet_grid(year ~ bb.sp + subject) +
-  xlab("Date") +
-  ylab("Elevation (m)") +
-  theme(axis.text.x = element_text(angle = 90, size = 8, vjust = 0.5))
-ggsave("./output/GAM_minor_bin.png", height = 5, width = 11, units = "in")
+ggsave("./output/GAM_mean.png", height = 5, width = 11, units = "in")
 ```

@@ -8,6 +8,7 @@ output: html_document
 library(lubridate)
 library(sf)
 library(gdm)
+library(patchwork)
 library(bipartite)
 library(vegan)
 library(mgcv)
@@ -180,34 +181,53 @@ ggplot(filter(beta_mit_data, year1 == year2 &
   theme_abyss()
 
 # Elevation diff within 1 wk time diff
-ggplot(filter(beta_mit_data, year1 == year2 &
+p1 <- ggplot(filter(beta_mit_data, year1 == year2 &
                 site1 != site2 &
                 metric != "S" & 
-                !metric.class %in% c("OS.partition", "WN.partition") &
-                yday.diff <= 7), 
+                !metric.class %in% c("OS.partition", "WN.partition") 
+                #& yday.diff <= 7
+                ), 
        aes(elev.diff, value, color = metric)) +
-  geom_point(alpha = 0.1, pch = 16, size = 1) +
-  geom_smooth() +
+  geom_point(alpha = 0.03, pch = 16, size = 0.25) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6)) +
   facet_grid(metric.class ~ year1) +
   scale_color_manual(values = p, name = "partition") +
-  xlab("Elevation difference") +
+  xlab("Elevation difference (m)") +
   ylab("β-diversity")
 ggsave("./output/beta_elev.png", height = 4.5, width = 6.5, units = "in")
 
 # Time diff within 250 m elev diff
-ggplot(filter(beta_mit_data, year1 == year2 &
+p2 <- ggplot(filter(beta_mit_data, year1 == year2 &
                 site1 != site2 &
                 metric != "S" & 
-                !metric.class %in% c("OS.partition", "WN.partition") &
-                elev.diff <= 250), 
+                !metric.class %in% c("OS.partition", "WN.partition")
+               # & elev.diff <= 250
+                ), 
        aes(yday.diff, value, color = metric)) +
-  geom_point(alpha = 0.1, pch = 16, size = 1) +
-  geom_smooth() +
+  geom_point(alpha = 0.03, pch = 16, size = 0.25) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6)) +
   facet_grid(metric.class ~ year1) +
   scale_color_manual(values = p, name = "partition") +
-  xlab("Elevation difference") +
-  ylab("β-diversity")
+  xlab("Time difference (days)") +
+  ylab("β-diversity") + 
+  theme(legend.position="none")
 ggsave("./output/beta_time.png", height = 4.5, width = 6.5, units = "in")
+
+png("./output/beta_stack.png", width = 6.5, height = 6.5, units = "in", res = 300)
+p1 / p2 + plot_annotation(tag_levels = c("A", "B", "C")) + plot_layout(guides = "collect")
+dev.off()
+
+WN.hist <- ggplot(filter(beta_mit_data, year1 == year2 &
+                           site1 != site2 &
+                           metric == "WN"), 
+                aes(value)) +
+  geom_histogram() +
+  scale_y_continuous(trans="pseudo_log", breaks = c(0, 10, 100, 1000, 10000)) +
+  geom_vline(aes(xintercept = mean(value))) +
+  facet_wrap(~year1) +
+  xlab("Total β-diversity") +
+  ylab("Site-date pairs")
+ggsave("./output/WN_hist.png", width = 6.5, height = 3, units = "in")
 ```
 
 ### GDM: Interactions
