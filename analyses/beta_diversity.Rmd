@@ -55,6 +55,64 @@ survey <- read_csv("../processed_data/floral_survey.csv") %>%
   dplyr::select(site, date, plant.sp, flower.cover)
 ```
 
+### Get beta-diversity for BBs and plants (not their interactions)
+```{r}
+bb_beta <- net %>%
+  mutate(yday = yday(date)) %>%
+  group_by(site, yday, year, bb.sp) %>%
+  summarize(count = n()) %>%
+  unite(id, c(site, yday, year), sep = "_") %>%
+  pivot_wider(names_from = bb.sp, values_from = count) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("id") %>%
+  vegdist(method = "bray", binary = TRUE) %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "id1") %>%
+  pivot_longer(cols = -id1, names_to = "id2", values_to = "BB") %>%
+  separate(id1, into = c("site1", "yday1", "year1"), sep = "_") %>%
+  separate(id2, into = c("site2", "yday2", "year2"), sep = "_") 
+
+fl_beta <- survey %>%
+  filter(flower.cover > 0) %>%
+  mutate(yday = yday(date),
+         year= year(date)) %>%
+  group_by(site, yday, year, plant.sp) %>%
+  summarize(count = sum(flower.cover)) %>%
+  unite(id, c(site, yday, year), sep = "_") %>%
+  pivot_wider(names_from = plant.sp, values_from = count) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("id") %>%
+  vegdist(method = "bray", binary = TRUE, upper = TRUE) %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "id1") %>%
+  pivot_longer(cols = -id1, names_to = "id2", values_to = "FL") %>%
+  separate(id1, into = c("site1", "yday1", "year1"), sep = "_") %>%
+  separate(id2, into = c("site2", "yday2", "year2"), sep = "_")
+
+species_beta <- full_join(bb_beta, fl_beta) %>%
+  left_join(site_data, by = c("site1" = "site")) %>%
+  dplyr::select(site1, year1, yday1, site2, year2, yday2, FL, BB,
+                elev1 = elev.mean, x1 = x, y1 = y) %>%
+  left_join(site_data, by = c("site2" = "site")) %>%
+  dplyr::select(site1, year1, yday1, site2, year2, yday2, FL, BB,
+                elev1, elev2 = elev.mean, x1, y1, x2 = x, y2 = y) %>%
+  mutate(site1 = factor(site1),
+         site2 = factor(site2),
+         year1 = factor(year1),
+         year2 = factor(year2),
+         yday1 = as.numeric(yday1),
+         yday2 = as.numeric(yday2),
+         elev.diff = elev1 - elev2,
+         mean.elev = (elev1 + elev2)/2,
+         yday.diff = yday1 - yday2,
+         yday.diff.abs = abs(yday1 - yday2)) %>%
+  pivot_longer(cols = c(BB, FL), names_to = "group", values_to = "beta") %>%
+  filter(year1 == year2 &
+           elev.diff >= 0) # this simply deduplicates the data so that site1 vs site2 and site2 vs. site 1 are not both included; only works because elev.diff is unique for each site pair
+```
+
 ### Tabulate webs
 S	= beta_S, the dissimilarity in species composition
 OS = beta_OS, the dissimilarity (component) explained by "rewiring" among shared species
@@ -129,13 +187,13 @@ beta_mit_data <- beta_site.date %>%
          yday2 = as.numeric(yday2),
          elev.diff = abs(elev1 - elev2),
          mean.elev = (elev1 + elev2)/2,
-         yday.diff = abs(yday1 - yday2),
+         yday.diff.abs = abs(yday1 - yday2),
          man.diff = case_when(
            man1 == man2 ~ FALSE,
            man1 != man2 ~ TRUE
          )) %>%
   gather(metric, value, -c(site1, year1, yday1, site2, year2, yday2,
-                           elev1, elev2, elev.diff, yday.diff, 
+                           elev1, elev2, elev.diff, yday.diff.abs, 
                            man1, man2, man.diff, mean.elev, 
                            x1, y1, x2, y2)) %>%
   mutate(metric.class = case_when(
@@ -152,69 +210,62 @@ beta_mit_data <- beta_site.date %>%
 ### Plot interaction beta-diversity against elevation difference and time difference
 ```{r}
 # Set palette
-p <- c("OS" = "darkorange1", "ST" = "green3", 
+p <- c("OS" = "deepskyblue", "ST" = "green3", 
        "ST.h" = "firebrick1", "ST.l" = "darkorchid", 
-       "ST.lh" = "deepskyblue", "WN" = "black")
+       "ST.lh" = "darkorange1", "WN" = "black")
 
-# Elevation diff
-ggplot(filter(beta_mit_data, year1 == year2 &
-                site1 != site2 &
-                metric != "S" & 
-                !metric.class %in% c("OS.partition", "WN.partition")), 
-       aes(elev.diff, value, color = metric)) +
-  geom_point(alpha = 0.25, pch = 16) +
-  geom_smooth() +
-  facet_grid(metric.class ~ year1) +
-  scale_color_manual(values = p) +
-  theme_abyss()
-
-# Time diff
-ggplot(filter(beta_mit_data, year1 == year2 &
-                site1 != site2 &
-                metric != "S" & 
-                !metric.class %in% c("OS.partition", "WN.partition")), 
-       aes(yday.diff, value, color = metric)) +
-  geom_point(alpha = 0.25, pch = 16) +
-  geom_smooth() +
-  facet_grid(metric.class ~ year1) +
-  scale_color_manual(values = p) +
-  theme_abyss()
-
-# Elevation diff within 1 wk time diff
-p1 <- ggplot(filter(beta_mit_data, year1 == year2 &
-                site1 != site2 &
-                metric != "S" & 
-                !metric.class %in% c("OS.partition", "WN.partition") 
-                #& yday.diff <= 7
-                ), 
-       aes(elev.diff, value, color = metric)) +
-  geom_point(alpha = 0.03, pch = 16, size = 0.25) +
+# BB + FL elevation diff
+g1 <- ggplot(filter(species_beta, site1 != site2 & yday.diff.abs <= 5), aes(elev.diff, beta)) +
+  geom_point(alpha = 0.05, pch = 16) +
   geom_smooth(method = "gam", formula = y ~ s(x, k = 6)) +
-  facet_grid(metric.class ~ year1) +
+  facet_grid(group ~ year1) +
+  xlab("Elevation difference (m)") +
+  ylab("β-diversity")
+
+# BB + FL time diff
+g2 <- ggplot(filter(species_beta, site1 == site2 & yday.diff > 0), aes(yday.diff.abs, beta)) +
+  geom_point(alpha = 0.05, pch = 16) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6)) +
+  facet_grid(group ~ year1) +
+  xlab("Time difference (days)") +
+  ylab("β-diversity") 
+
+# BB * FL elevation diff
+g3 <- ggplot(filter(beta_mit_data, year1 == year2 &
+                      site1 != site2 &
+                      metric != "S" & 
+                      !metric.class %in% c("OS.partition", "WN.partition") & 
+                      yday.diff.abs <= 5), 
+             aes(elev.diff, value, color = metric)) +
+  #geom_point(alpha = 0.03, pch = 16, size = 0.25) +
+  geom_point(alpha = 0.05, pch = 16, size = 1) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6)) +
+  #facet_grid(metric.class ~ year1) +
+  facet_wrap(~year1) +
   scale_color_manual(values = p, name = "partition") +
   xlab("Elevation difference (m)") +
   ylab("β-diversity")
-ggsave("./output/beta_elev.png", height = 4.5, width = 6.5, units = "in")
 
-# Time diff within 250 m elev diff
-p2 <- ggplot(filter(beta_mit_data, year1 == year2 &
-                site1 != site2 &
-                metric != "S" & 
-                !metric.class %in% c("OS.partition", "WN.partition")
-               # & elev.diff <= 250
-                ), 
-       aes(yday.diff, value, color = metric)) +
-  geom_point(alpha = 0.03, pch = 16, size = 0.25) +
+# BB * FL time diff
+g4 <- ggplot(filter(beta_mit_data, year1 == year2 &
+                      site1 == site2 &
+                      metric != "S" & 
+                      !metric.class %in% c("OS.partition", "WN.partition")), 
+             aes(yday.diff.abs, value, color = metric)) +
+  #geom_point(alpha = 0.03, pch = 16, size = 0.25) +
+  geom_point(alpha = 0.05, pch = 16, size = 1) +
   geom_smooth(method = "gam", formula = y ~ s(x, k = 6)) +
-  facet_grid(metric.class ~ year1) +
+  #facet_grid(metric.class ~ year1) +
+  facet_wrap(~year1) +
   scale_color_manual(values = p, name = "partition") +
   xlab("Time difference (days)") +
   ylab("β-diversity") + 
   theme(legend.position="none")
-ggsave("./output/beta_time.png", height = 4.5, width = 6.5, units = "in")
 
-png("./output/beta_stack.png", width = 6.5, height = 6.5, units = "in", res = 300)
-p1 / p2 + plot_annotation(tag_levels = c("A", "B", "C")) + plot_layout(guides = "collect")
+png("./output/beta_stack.png", width = 9, height = 6.5, units = "in", res = 300)
+(g1 + g3) / (g2 + g4) + 
+  plot_annotation(tag_levels = c("A", "B", "C", "D")) + 
+  plot_layout(guides = "collect") & theme_light()
 dev.off()
 
 WN.hist <- ggplot(filter(beta_mit_data, year1 == year2 &
@@ -322,7 +373,8 @@ interaction_splines <- bind_rows(interaction_splines2010,
     x.var == "elev.mean" ~ "Elevation (m)",
     x.var == "Geographic" ~ "Geographic (km)",
     x.var == "yday" ~ "Day of Year"),
-    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year"))
+    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year")),
+    subject = rep("BB*FL", n())
     )
 
 ## plot
@@ -432,7 +484,8 @@ survey_splines <- bind_rows(survey_splines2010,
     x.var == "elev.mean" ~ "Elevation (m)",
     x.var == "Geographic" ~ "Geographic (km)",
     x.var == "yday" ~ "Day of Year"),
-    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year"))
+    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year")),
+    subject = rep("FL", n())
     )
 
 ## plot
@@ -445,7 +498,7 @@ ggplot(survey_splines, aes(predictor, response)) +
 ggsave("./output/survey_GDM.png")
 ```
 
-### GDM: BB observations; this won't work in it's present state because I cannot 
+### GDM: BB observations
 ```{r}
 # Create functions for prepping data
 biodata_prep_BB <- function(net, y) {
@@ -533,7 +586,8 @@ bb_splines <- bind_rows(bb_splines2010,
     x.var == "elev.mean" ~ "Elevation (m)",
     x.var == "Geographic" ~ "Geographic (km)",
     x.var == "yday" ~ "Day of Year"),
-    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year"))
+    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year")),
+    subject = rep("BB", n())
     )
 
 ## plot
@@ -546,4 +600,17 @@ ggplot(bb_splines, aes(predictor, response)) +
 ggsave("./output/bb_GDM.png")
 ```
 
+### GDM all together now
+```{r}
+splines <- bind_rows(interaction_splines, bb_splines, survey_splines) %>%
+  mutate(subject = factor(subject))
+
+ggplot(splines, aes(predictor, response, color = subject)) +
+  geom_line() +
+  facet_grid(year ~ x.var, scales = "free_x") +
+  xlab(NULL) +
+  ylab("f(x)") +
+  theme_light(12)
+ggsave("./output/GDM.png")
+```
 
