@@ -116,8 +116,8 @@ ggsave("./output/bb_range_year.pdf", height = 6, width = 6)
 pcoa_fort <- function(x){
   fortify(x, axes = 1:2) %>% 
   mutate(Score = case_when( # rename default scores to match my data
-    Score == "species" ~ "FL.sp",
-    Score == "sites" ~ "BB.sp"))
+    Score == "species" ~ "FL sp.",
+    Score == "sites" ~ "BB sp."))
 }
 
 # Plot PCoA; to avoid overplotting, scores < min_score are not plotted
@@ -134,9 +134,10 @@ pcoa_plot <- function(x, min_score = 0.25) {
     geom_polygon(data = t.class, aes(MDS1, MDS2, linetype = T.class), # draw polygons around T classes
                  color = "gray70", fill = NA, size = 1.25, key_glyph = "abline") +
     geom_point(aes(MDS1, MDS2, color = Score), size = 3, alpha = 0.75) + # add points
-    ggrepel::geom_text_repel(aes(MDS1, MDS2, color = Score, label = Label), key_glyph = "rect") + # add labels
+    ggrepel::geom_text_repel(aes(MDS1, MDS2, color = Score, label = Label), key_glyph = "rect", size = 3) + # add labels
     coord_fixed() + # Gavin Simpson says this is **really** important
-    theme_classic() 
+    theme_classic() +
+    theme(legend.title=element_blank())
 }
 
 
@@ -548,26 +549,17 @@ dev.off()
 niche_x_elevperiod.tax <- niche_analysis(net, bb_traits, criterion = plant.sp.abb, elev.class, period)
 
 ## Extract and name plots
-niche_oben_early.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "oben" & period == "early")$pcoa.plot[[1]] +
-  ggtitle("Oben/Early/Tax")
-niche_oben_mid.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "oben" & period == "mid")$pcoa.plot[[1]] +
-  ggtitle("Oben/Mid/Tax")
-niche_oben_late.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "oben" & period == "late")$pcoa.plot[[1]] +
-  ggtitle("Oben/Late/Tax")
+niche_oben_early.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "oben" & period == "early")$pcoa.plot[[1]] 
+niche_oben_mid.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "oben" & period == "mid")$pcoa.plot[[1]] 
+niche_oben_late.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "oben" & period == "late")$pcoa.plot[[1]]
 
-niche_mitte_early.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "mitte" & period == "early")$pcoa.plot[[1]] +
-  ggtitle("Mitte/Early/Tax")
-niche_mitte_mid.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "mitte" & period == "mid")$pcoa.plot[[1]] +
-  ggtitle("Mitte/Mid/Tax")
-niche_mitte_late.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "mitte" & period == "late")$pcoa.plot[[1]] +
-  ggtitle("Mitte/Late/Tax")
+niche_mitte_early.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "mitte" & period == "early")$pcoa.plot[[1]]
+niche_mitte_mid.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "mitte" & period == "mid")$pcoa.plot[[1]] 
+niche_mitte_late.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "mitte" & period == "late")$pcoa.plot[[1]]
 
-niche_unten_early.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "unten" & period == "early")$pcoa.plot[[1]] +
-  ggtitle("Unten/Early/Tax")
-niche_unten_mid.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "unten" & period == "mid")$pcoa.plot[[1]] +
-  ggtitle("Unten/Mid/Tax")
-niche_unten_late.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "unten" & period == "late")$pcoa.plot[[1]] +
-  ggtitle("Unten/Late/Tax")
+niche_unten_early.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "unten" & period == "early")$pcoa.plot[[1]]
+niche_unten_mid.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "unten" & period == "mid")$pcoa.plot[[1]]
+niche_unten_late.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "unten" & period == "late")$pcoa.plot[[1]]
 
 # Morphological
 niche_x_elevperiod.morph <- niche_analysis(net, bb_traits, criterion = k.type.s, elev.class, period)
@@ -739,7 +731,7 @@ ggplot(diet_breadth.tax, aes(prop, normalised.degree, color = pbl.fac)) +
   geom_smooth(method = "lm")
 ```
 ### Results
-In a nutshell, proportional diet breadth is extremely tightly correlated with proportional anbundance. The story here is that LT species are more abundant than ST species at lower elevations, and ST species are more abundant than LT species at higher elevations. This relationship is strong and basically linear, with the relative abundances "crossing" at   
+In a nutshell, proportional diet breadth is extremely tightly correlated with proportional anbundance. The story here is that LT species are more abundant than ST species at lower elevations, and ST species are more abundant than LT species at higher elevations. This relationship is strong and basically linear, with the relative abundances crossing at mid-elevation.   
 
 ## 1.5 Another follow-up. How does the morphological composition of the plant community change with elevation? 
 To make the graphs readable, we'll simplify Kugler classes to integers.
@@ -866,7 +858,7 @@ visitation_abund.sp <- net %>%
   mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
   mutate(k.type.ss = factor(k.type.ss),
          bb.sp = factor(bb.sp, levels = c("hort", "pasc", "wurf", "bss", "prat", "soro"))) %>%
-  group_by(period, elev.class, plant.genus, k.type.ss, plant.family, bb.sp) %>%
+  group_by(period, elev.class, plant.sp.abb, plant.genus, k.type.ss, plant.family, bb.sp) %>%
   summarize(abund = n()) %>%
   group_by(elev.class, period, bb.sp) %>%
   mutate(prop = abund/sum(abund)) %>%
@@ -878,28 +870,43 @@ cols = c("0" = "gray60", "1" = "#8DD3C7", "2" = "#FFFFB3", "3" = "#BEBADA",
          "8" = "#FCCDE5", "9" = "#D9D9D9")
 
 # Early
-ggplot(filter(visitation_abund.sp, period == "early"), 
-       aes(area = prop, fill = k.type.ss, label = plant.genus)) +
-  geom_treemap(color = "black") +
+tp.early <- ggplot(filter(visitation_abund.sp, period == "early"), 
+                aes(area = prop, fill = k.type.ss, label = plant.sp.abb)) +
+  geom_treemap(color = "white") +
   geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
   scale_fill_manual(values = cols) + 
+  labs(fill = "Morphotype") +
   facet_grid(fct_rev(elev.class)~bb.sp)
 
 # Mid
-ggplot(filter(visitation_abund.sp, period == "mid"), 
-       aes(area = prop, fill = k.type.ss, label = plant.genus)) +
-  geom_treemap(color = "black") +
+tp.mid <- ggplot(filter(visitation_abund.sp, period == "mid"), 
+                 aes(area = prop, fill = k.type.ss, label = plant.sp.abb)) +
+  geom_treemap(color = "white") +
   geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
   scale_fill_manual(values = cols) + 
+  labs(fill = "Morphotype") +
   facet_grid(fct_rev(elev.class)~bb.sp)
 
 # Late
-ggplot(filter(visitation_abund.sp, period == "late"), 
-       aes(area = prop, fill = k.type.ss, label = plant.genus)) +
-  geom_treemap(color = "black") +
+tp.late <- ggplot(filter(visitation_abund.sp, period == "late"), 
+                  aes(area = prop, fill = k.type.ss, label = plant.sp.abb)) +
+  geom_treemap(color = "white") +
   geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
   scale_fill_manual(values = cols) + 
+  labs(fill = "Morphotype") +
   facet_grid(fct_rev(elev.class)~bb.sp)
+
+pdf("./output/tree_ord_early.pdf", width = 14, height = 7)
+(tp.early | (niche_oben_early.tax.plot / niche_mitte_early.tax.plot / niche_unten_early.tax.plot) + plot_layout(guides = 'collect')) + plot_layout(widths = c(3, 1))
+dev.off()
+
+pdf("./output/tree_ord_mid.pdf", width = 14, height = 7)
+(tp.mid | (niche_oben_mid.tax.plot / niche_mitte_mid.tax.plot / niche_unten_mid.tax.plot) + plot_layout(guides = 'collect')) + plot_layout(widths = c(3, 1))
+dev.off()
+
+pdf("./output/tree_ord_late.pdf", width = 14, height = 7)
+(tp.late | (niche_oben_late.tax.plot / niche_mitte_late.tax.plot / niche_unten_late.tax.plot) + plot_layout(guides = 'collect')) + plot_layout(widths = c(3, 1))
+dev.off()
 
 ```
 
