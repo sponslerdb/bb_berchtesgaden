@@ -1,0 +1,76 @@
+---
+title: "floral_resources"
+output: html_document
+---
+
+### Prepare environment
+```{r setup, message=FALSE, warning=FALSE, include=FALSE}
+library(ggforce)
+library(vegan)
+library(tidyverse)
+library(lubridate)
+library(tidymodels)
+```
+
+```{r}
+# Network
+net <- read_csv("../processed_data/network.csv") %>%
+  unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
+  mutate(year = factor(year)) %>% # convert year to factor
+  left_join(site_data, by = "site") %>%
+  left_join(gdd, by = c("site", "date")) %>%
+  ungroup() %>%
+  arrange(site, date)
+
+# Floral survey
+# FL traits
+fl_tax <- read_csv("../processed_data/floral_tax.csv")
+  
+fl_ktype <- read_csv("../processed_data/floral_k_type.csv") %>%
+  select(plant.sp, plant.genus = genus, k.type) %>%
+  mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"),
+         k.type.ss = str_extract(k.type, "[-+]?[0-9]*"))
+
+fl_morph <- read_csv("../processed_data/flower_morphology_GitaBenadi.csv") %>%
+  select(SampleID, plant.family = Family, plant.sp = Species, 
+         Unit, Flowers_per_unit, diam = Diameter, LN) %>%
+  group_by(plant.sp) %>%
+  summarize(diam = mean(diam),
+            LN = mean(LN))
+
+fl_ktype_key <- read_delim("../processed_data/kugler_key.tsv", delim = "\t", col_names = FALSE) %>%
+  select(k.type = 1, description = 2)
+
+fl_traits <- fl_tax %>%
+  full_join(fl_ktype) %>%
+  full_join(fl_morph) %>%
+  select(plant.sp, plant.genus, plant.family, 
+         k.type, k.type.s, k.type.ss, diam, LN)
+
+
+survey <- read_csv("../processed_data/floral_survey.csv") %>%
+  group_by(site, date, plant.sp) %>%
+  summarize(flower.cover = sum(flower.cover)) %>%
+  group_by(site, date) %>%
+  mutate(prop = flower.cover/sum(flower.cover)) %>%
+  semi_join(net, by = "plant.sp") %>% # Consider only plants visited (anytime anywhere, not specifically for a given site*date)
+  dplyr::select(site, date, plant.sp, flower.cover, prop) %>%
+  mutate(yday = yday(date),
+         year = year(date)) %>%
+  left_join(fl_traits)
+
+top_plants <- survey %>%
+  select(site, date, plant.sp, prop) %>%
+  complete(fill = list(prop = 0)) %>%
+  group_by(plant.sp) %>%
+  summarize(mean.prop = mean(prop))
+  
+```
+
+```{r}
+ggplot(survey, aes(month(date), flower.cover, fill = k.type.ss)) +
+  geom_col(position = "fill") +
+  facet_grid(year ~ site)
++
+  theme(legend.position = "none")
+```

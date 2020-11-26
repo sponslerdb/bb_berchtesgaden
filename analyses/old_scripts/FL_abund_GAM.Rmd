@@ -1,0 +1,593 @@
+---
+title: "FL_abund_GAM"
+output: html_document
+---
+### Prepare environment
+```{r setup, include=FALSE, echo=FALSE}
+library(mgcv)
+library(mgcViz)
+library(tidyverse)
+library(lubridate)
+```
+
+### Load site data
+```{r, include=FALSE, echo=FALSE}
+site_data <- read_csv("../processed_data/site_data.csv") %>%
+  mutate(elev.class = factor(elev.class, levels = c("oben", "mitte", "unten")), # rename in English
+         elev.class2 = factor(elev.class2, levels = c("high", "mid", "low")))
+```
+
+### Load network and survey data
+```{r}
+### BB-FL visitation data
+net <- read_csv("../processed_data/network.csv") %>%
+  dplyr::select(site, date, bb.sp, plant.sp) # drop unused columns
+
+### Floral survey data
+survey <- read_csv("../processed_data/floral_survey.csv") %>%
+  semi_join(net, by = "plant.sp") %>% # Consider only visited plant species (anytime anywhere, not specifically for a given site*date)
+  dplyr::select(site, date, plant.sp, flower.cover)
+
+### Identify duplicate observations; these may be errors or intentionally duplicated (see correspondence with Kalli)
+survey_dups <- survey %>%
+  group_by(site, date, plant.sp) %>%
+  mutate(dups = n()) %>%
+  filter(dups > 1)
+
+### Shared transects
+shared_transects <- inner_join(net, survey, by = c("site", "date")) %>%
+  dplyr::select(site, date) %>%
+  unique() 
+```
+
+### FL and BB abundance / diversity
+```{r echo=FALSE, include=FALSE}
+### Per-transect BB abundance, filtered to include only samples with corresponding floral survey data
+bb_abund_sp <- net %>%
+  dplyr::select(site, date, bb.sp) %>%
+  semi_join(shared_transects) %>% # I only want BB data with corresponding floral data
+  group_by(site, date, bb.sp) %>% # group by bb.sp*transect (and other variables we want to retain)
+  summarize(bb.abund = n()) %>% # get bb.sp*transect abundance
+  ungroup %>%
+  complete(site, date, bb.sp, fill = list(bb.abund = 0)) %>% # complete implicit absences
+  mutate(year = factor(year(date))) %>%
+  semi_join(shared_transects, by = c("site", "date")) # only include site-dates that actually occurred
+
+### Per-transect floral abund: by species
+fl_abund_sp <- survey %>%
+  #semi_join(shared_transects) %>%
+  group_by(site, date, plant.sp) %>% # group by plant.sp*transect
+  summarize(fl.abund = sum(flower.cover)) %>% # get plant.sp*transect total flower cover; this step really shouldn't be required, but in a few cases, there is more than one abundance entry for the same species on a given transect; not sure how that happened, but it's in the original data that Fabrice sent me; alternatively, I could drop the dups or average them. We'll see what Kalli and Fabrice have to say.
+  group_by(site, date) %>%
+  mutate(prop.fl.abund = fl.abund/sum(fl.abund)) %>% # get the proportional flower cover for each species.
+  ungroup() %>%
+  full_join(dplyr::select(net, site, date, plant.sp), by = c("site", "date", "plant.sp")) %>% # add the handful of species occurring in the visitation network but missing from the survey data
+  complete(site, date, plant.sp, fill = list(fl.abund = 0, prop.fl.abund = 0)) %>%
+  semi_join(survey, by = c("site", "date")) %>%  # only include site-dates that actually occurred
+  unique() %>%
+  mutate(year = factor(year(date)))
+
+test <- fl_abund_sp %>%
+  group_by(site, date) %>%
+  summarize(n = n())
+```
+
+### Get most important plants for each BB species
+```{r}
+observed_visits <- net %>%
+  semi_join(shared_transects) %>% # include only site*date combos where floral surveying was done
+  group_by(site, date, bb.sp, plant.sp) %>% # group by bb*plant*transect
+  summarize(visits = n()) %>% # total visits per bb-fl pair
+  group_by(site, date, bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits))
+
+# All possible bumble-plant pairings *site * date, filtered to include only those when the given bb.sp was present and the given plant.sp was *either* present *or* visited (see note below)
+visitation_by_abundance <- fl_abund_sp %>%
+  inner_join(bb_abund_sp) %>%
+  filter(bb.abund > 0) %>%
+  filter(fl.abund > 0) %>% 
+  left_join(observed_visits) %>%
+  #filter(fl.abund > 0 | visits > 0) %>% # In about 10% of the bb.sp*plant.sp*site*year combos, the visited plant was not recorded in the floral survey data. There are a few different ways we could handle this, but I think an argument could be make that treating those plants as if they had zero abundance (even though they were evidently present gets close to the truth, since they must have been rather rare to have been missed in the surveying.)
+  replace_na(list(visits = 0, prop.visits = 0))
+
+#write_csv(visitation_by_abundance, "../analyses/output/visitation_by_abundance.csv") 
+
+### Get mean abundance/visitation for each plant*bb combo
+visitation_by_abundance_mean <- visitation_by_abundance %>%
+  mutate(year = factor(year(date))) %>%
+  group_by(plant.sp, bb.sp) %>%
+  summarize(prop.fl.abund.m = mean(prop.fl.abund),
+            prop.visits.wm = weighted.mean(prop.visits, bb.abund))
+
+#write_csv(visitation_by_abundance_mean, "../analyses/output/visitation_by_abundance_mean.csv")
+
+ggplot(filter(visitation_by_abundance_mean, prop.visits.wm > 0), 
+       aes(log(prop.fl.abund.m + 0.01), log(prop.visits.wm))) +
+  geom_point(alpha = 0.5, aes(color = bb.sp)) +
+  geom_smooth(method = "lm")
+
+ggplot(filter(visitation_by_abundance_mean), 
+       aes(prop.fl.abund.m, prop.visits.wm)) +
+  geom_point(alpha = 0.5, aes(color = bb.sp)) +
+  geom_smooth(method = "lm")
+```
+
+### Okay, here's what we're going to do. Preference has a strong bimodal pattern, with lots of plant species totally ignored while the ones that are foraged upon are visited in proportion to their abundance. We can't model that latter pattern well if we retain all the totally ignored plant species. So, let's model the visited plants separately from the unvisited ones. 
+```{r}
+### Call linear model on the subset of the floral species that were visited at least once
+# log on log regression is common for proportional datam (log ratio regression)
+pref.lm <- lm(log(prop.visits.wm) ~ log(prop.fl.abund.m + 0.01), 
+              data = filter(visitation_by_abundance_mean, prop.visits.wm > 0))
+
+summary(pref.lm)
+plot(pref.lm)
+
+### Extract residuals
+pref.lm.resid <- residuals(pref.lm) %>%
+  data.frame() %>%
+  as_tibble() %>%
+  rename(preference = 1)
+```
+
+Join residuals back into data and summarize by site-date-bb.sp (this deserves its own code chunk)
+```{r}
+#################################
+### Build preference data set ###
+#################################
+# Start with the mean prop.fl.abund and weighted mean prop.visits
+preference <- visitation_by_abundance_mean %>%  
+  ungroup() %>%
+
+# Remove bb*fl*year combos that had 0 visits
+  filter(prop.visits.wm > 0) %>% 
+  
+# With the zeroes removed, what's left can be joined 1:1 with the 
+# residuals of the model above, i.e. the raw preference data
+  bind_cols(pref.lm.resid) %>% 
+  
+# Exponentiate the residuals to back-transform the data and ensure 
+# that preference is > 0 for all visited plant species.
+  mutate(preference = exp(preference)) %>% 
+  
+# Now we need to add back all the bb*fl*year combos that had 0 visits
+# Then we have NAs for preference and floral abundance columns
+  full_join(unique(dplyr::select(visitation_by_abundance_mean, bb.sp, plant.sp))) %>%
+  
+# Replace the NAs of the preference column with 0s; 
+  replace_na(list(preference = 0)) %>%
+
+# Drop the columns used to calculate preference so that they
+# don't confuse us when we add site-date level abundance data
+  dplyr::select(bb.sp, plant.sp, preference)
+  
+write_csv(preference, "../analyses/output/preference.csv")
+
+#################################
+### Join with FL and BB abund ###
+#################################
+
+# For bb-fl combos that never co-occurred, set preference = 1
+pref_forbidden_link_fill <- inner_join(fl_abund_sp, bb_abund_sp) %>%
+  mutate(co = case_when(
+    fl.abund == 0 | bb.abund == 0 ~ 0,
+    fl.abund != 0 & bb.abund != 0 ~ 1)
+  ) %>%
+  group_by(plant.sp, bb.sp) %>%
+  summarize(co.max = max(co)) %>%
+  filter(co.max == 0) %>%
+  mutate(preference.update = rep(1, n())) %>%
+  dplyr::select(-co.max) %>%
+  inner_join(fl_abund_sp) %>%
+  select(-year)
+
+fl_abund_wt <- fl_abund_sp %>%
+  select(-year) %>%
+  left_join(preference) %>% 
+  
+  # Add the forbidden links with preference set to 1 (neutral)
+  full_join(pref_forbidden_link_fill) %>%
+  mutate(preference = case_when(
+    is.na(preference) ~ preference.update,
+    !is.na(preference) ~ preference)
+    ) %>%
+  dplyr::select(-preference.update) %>%
+  mutate(fl.abund.wt = fl.abund*preference) %>%
+  mutate(yday = yday(date)) %>%
+  group_by(site, date, yday, bb.sp) %>%
+  summarize(fl.abund.wt = sum(fl.abund.wt, na.rm = TRUE)) %>%
+  ungroup() %>%
+  semi_join(survey, by = c("site", "date")) %>% # This gets rid of site*date combos that don't exist
+  left_join(site_data, by = "site") %>%
+  mutate(year = factor(year(date)), # add in the years missing from the bb_abund join
+         bb.sp = factor(bb.sp), # convert bb.sp to a factor
+         management = factor(management),
+         site = factor(site),
+         transect = factor(transect)) %>%
+  group_by(year) %>%
+  mutate(total.transects.year = n()) %>%
+  ungroup()
+
+write_csv(fl_abund_wt, "../analyses/output/fl_abund_wt.csv")
+```
+
+# GAM modeling of preference-weighted abundance per bb species
+## Global model
+```{r}
+#### My concern with using a global model is that, because I have so much higher sampling density in 2012, the global model will basically be just a 2012 model with 2010 and 2011 in the residuals, so to speak. I think this is at least partly mitigated by included a global by = year smooth, but I still don't quite understand how hierarchical effects relate to one another in a GAM. I'm also concerned that if I include the by = year smooth, it will be too concurve with my by = bb.sp smooths, and it will be hard to interpret the pattern of resource availability per species.
+weighted_fl_abundance.global <- bam(log(fl.abund.wt + 0.001) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      s(year, bs = "re") +
+                                      #s(site, bs = "re") +
+                                        te(yday, elev.mean, 
+                                         by = year,
+                                                id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(5, 5), 
+                                                m=2) +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(10, 10), 
+                                                m=1),
+                                    data = fl_abund_wt,
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+weighted_fl_abundance.global2 <- bam(log(fl.abund.wt + 0.001) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      s(year, bs = "re") +
+                                      s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(10, 10), 
+                                                m=1),
+                                    data = fl_abund_wt,
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+AIC(weighted_fl_abundance.global, weighted_fl_abundance.global2)
+
+check.gamViz(weighted_fl_abundance.global)
+check.gamViz(weighted_fl_abundance.global2)
+check.gamViz(weighted_fl_abundance.global3)
+check.gamViz(weighted_fl_abundance.global4)
+
+weighted_fl_abundance.global.sum <- summary(weighted_fl_abundance.global)
+weighted_fl_abundance.global.sum2 <- summary(weighted_fl_abundance.global2)
+
+print(plot(weighted_fl_abundance.global, allTerms = TRUE), pages = 4)
+print(plot(weighted_fl_abundance.global2, allTerms = TRUE), pages = 4)
+
+weighted_fl_abundance.global.ck <- check2D(weighted_fl_abundance.global, 
+                                         x1 = "yday", x2 = "elev.mean")
+weighted_fl_abundance.global.ck + l_gridCheck2D(gridFun = mean)
+
+weighted_fl_abundance.global2.ck <- check2D(weighted_fl_abundance.global2, 
+                                         x1 = "yday", x2 = "elev.mean")
+weighted_fl_abundance.global2.ck + l_gridCheck2D(gridFun = mean)
+```
+
+## Annual models
+```{r}
+### 2010
+weighted_fl_abundance.2010 <- bam(log(fl.abund.wt + 0.001) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(8, 8), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2010),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2010)
+weighted_fl_abundance.2010.sum <- summary(weighted_fl_abundance.2010)
+print(plot(weighted_fl_abundance.2010, allTerms = TRUE), pages = 4)
+weighted_fl_abundance.2010.ck <- check2D(weighted_fl_abundance.2010, 
+                                         x1 = "yday", x2 = "elev.mean")
+
+### 2011
+weighted_fl_abundance.2011 <- bam(log(fl.abund.wt + 0.001) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(8, 8), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2011),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2011)
+weighted_fl_abundance.2011.sum <- summary(weighted_fl_abundance.2011)
+print(plot(weighted_fl_abundance.2011, allTerms = TRUE), pages = 4)
+weighted_fl_abundance.2011.ck <- check2D(weighted_fl_abundance.2011, 
+                                         x1 = "yday", x2 = "elev.mean")
+
+### 2012
+weighted_fl_abundance.2012 <- bam(log(fl.abund.wt + 0.001) ~
+                                      s(bb.sp, bs = "re") +
+                                      #s(management, bs = "re") +
+                                      #s(site, bs = "re") +
+                                      te(yday, elev.mean, 
+                                                by = bb.sp,
+                                                #id = 0,
+                                                bs= c("gp", "tp"), 
+                                                k=c(8, 8), 
+                                                m=2),
+                                    data = filter(fl_abund_wt, year == 2012),
+                                    discrete = TRUE,
+                                    family = "gaussian",
+                                    select = TRUE,
+                                    method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abundance.2012)
+weighted_fl_abundance.2012.sum <- summary(weighted_fl_abundance.2012)
+print(plot(weighted_fl_abundance.2012, allTerms = TRUE), pages = 4)
+weighted_fl_abundance.2012.ck <- check2D(weighted_fl_abundance.2012, 
+                                         x1 = "yday", x2 = "elev.mean")
+```
+
+# Extract predictions
+```{r}
+# Function to build data set over which to generate predictions
+newdata_build <- function(dat, y) {
+  
+  ## yday min/max
+  min_yday <- min(filter(dat, year == y)$yday)
+  max_yday <- max(filter(dat, year == y)$yday)
+  
+  ## elev min.max
+  min_elev <- min(filter(dat, year == y)$elev.mean)
+  max_elev <- max(filter(dat, year == y)$elev.mean)
+  
+  ## species list
+  spp <- dat %>%
+    filter(year == y) %>%
+    select(bb.sp) %>%
+    unique() %>%
+    na.omit() ##### NEED TO FIGURE OUT WHERE THE NA COMES FROM!
+  
+  # sequence of 50 points along the yday and elev ranges, respectively
+  seq_yday <- seq(min_yday, max_yday, length.out = 50)
+  seq_elev <- seq(min_elev, max_elev, length.out = 50)
+  
+  newdata <- tibble(seq_yday, seq_elev) %>% # combine seqs into data frame
+    complete(seq_yday, seq_elev) %>% # get all possible values
+    crossing(spp) %>% # get all possible combos with species
+    select(yday = seq_yday, elev.mean = seq_elev, bb.sp) # rename columns to match the original model inputs
+}
+
+newdata2010 <- newdata_build(fl_abund_wt, 2010)
+newdata2011 <- newdata_build(fl_abund_wt, 2011)
+newdata2012 <- newdata_build(fl_abund_wt, 2012)
+
+# A little wrapper to make predictions and return a tibble with desired columns 
+predict_func <- function(mod, new, y) {
+  predict.bam(mod, newdata = new, type = "response") %>%
+    data.frame() %>%
+    tibble() %>%
+    bind_cols(new) %>%
+    select(yday, elev.mean, bb.sp, pred = 1) %>%
+    mutate(pred.backtrans = exp(pred),
+           year = rep(y, n()))
+}
+
+# Generate predictions
+predict2010 <- predict_func(weighted_fl_abundance.2010, newdata2010, 2010)
+predict2011 <- predict_func(weighted_fl_abundance.2011, newdata2011, 2011)
+predict2012 <- predict_func(weighted_fl_abundance.2012, newdata2012, 2012)
+predict_pool <- bind_rows(predict2010, predict2011, predict2012)
+
+# Subset predictions
+predict_major <- filter(predict_pool, bb.sp %in% c("bss", "pasc", "prat", "soro", "wurf"))
+predict_highelev <- filter(predict_pool, bb.sp %in% c("pyre", "mend", "mont"))
+predict_minor <- filter(predict_pool, bb.sp %in% c("gers", "hort", "hypn","jone", "lapi", "muci"))
+
+ggplot(predict_major, aes(yday, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = pred), color = "black", size = 0.25, binwidth = 1) +
+  scale_fill_viridis_c() +
+  facet_grid(year~bb.sp)
+
+ggplot(predict_highelev, aes(yday, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = pred), color = "black", size = 0.25, binwidth = 1) +
+  scale_fill_viridis_c() +
+  facet_grid(year~bb.sp)
+
+ggplot(predict_minor, aes(yday, elev.mean, fill = pred)) +
+  geom_raster() +
+  geom_contour(aes(z = pred), color = "black", size = 0.25, binwidth = 1) +
+  scale_fill_viridis_c() +
+  facet_grid(year~bb.sp)
+```
+
+
+### Abundance mismatch
+```{r}
+mismatch <- fl_abund_wt %>%
+  filter(!is.na(bb.abund)) %>%
+  group_by(year, bb.sp) %>%
+  mutate(bb.abund.rank = rank(-bb.abund, ties.method = "average"),
+            fl.abund.wt.rank = rank(-fl.abund.wt, ties.method = "average"))
+
+ggplot(mismatch, aes(fl.abund.wt, bb.abund)) +
+  geom_point() +
+  facet_wrap(~bb.sp)
+
+lm_mismatch <- lmer(bb.abund ~ log(fl.abund.wt + 0.01) + (1 +fl.abund.wt | bb.sp),
+                    data = mismatch)
+summary(lm_mismatch)
+plot(lm_mismatch)
+
+ggplot(mismatch, aes(log(fl.abund.wt + 0.01), sqrt(bb.abund))) +
+  geom_point(aes(color = year)) +
+  facet_wrap(~bb.sp, scales = "free")
+
+mismatch_gam <- bam(bb.abund ~ bb.sp + year + s(log(fl.abund.wt + 0.01), by = bb.sp) + s(yday, k = 10),
+                    family = "quasipoisson",
+                    method = "fREML",
+                    discrete = TRUE,
+                    data = mismatch) %>% getViz()
+
+check.gamViz(mismatch_gam)
+summary(mismatch_gam)
+print(plot(mismatch_gam , allTerms = TRUE), pages = 4)
+```
+
+### Now let's model floral richness, but considering only species with preference > 0. This is very consistent year-to-year, so we can get away with a single model. In fact, AIC favors the global-only model, so we can make a case for not considering species differences (indeed, they appear to be minimal, with the exception of a couple of rare species (gers, humi) that we need to take with a grain of salt anyway).
+```{r}
+fl_rich_wt <- fl_abund_sp %>%
+  right_join(preference) %>% 
+  filter(preference > 0 & fl.abund > 0) %>%
+  mutate(yday = yday(date)) %>%
+  group_by(site, date, yday, bb.sp) %>%
+  summarize(fl.rich.wt = length(unique(plant.sp))) %>%
+  ungroup() %>%
+  left_join(bb_abund_sp) %>%
+  left_join(site_data, by = "site") %>%
+  semi_join(survey, by = c("site", "date")) %>% # This gets rid of site*date combos that don't exist
+  mutate(year = factor(year(date)), # add in the years missing from the bb_abund join
+         bb.sp = factor(bb.sp), # convert bb.sp to a factor
+         management = factor(management),
+         site = factor(site)) # convert management to a factor
+
+fl.rich_I <- bam(fl.rich.wt ~ s(bb.sp, bs = "re") + 
+                 year +
+                 s(management, bs = "re") + 
+                 s(site, bs = "re") +
+                 te(yday, elev.mean, 
+                    by = bb.sp,
+                    bs= c("tp", "tp"), 
+                    k=c(6, 6), m=2),
+               data = fl_rich_wt,
+               discrete = TRUE,
+               family = "quasipoisson",
+               select = TRUE,
+               method = "fREML") %>% getViz()
+
+check.gamViz(fl.rich)
+fl.rich.sum <- summary(fl.rich)
+print(plot(fl.rich, allTerms = TRUE), pages = 1)
+
+fl.rich_GI <- bam(fl.rich.wt ~ s(bb.sp, bs = "re") + 
+                 year +
+                 s(management, bs = "re") + 
+                 s(site, bs = "re") +
+                 te(yday, elev.mean, 
+                    bs= c("tp", "tp"), 
+                    k=c(6, 6), m=2) +
+                 te(yday, elev.mean, 
+                    by = bb.sp,
+                    bs= c("tp", "tp"), 
+                    k=c(6, 6), m=2),
+               data = fl_rich_wt,
+               discrete = TRUE,
+               family = "quasipoisson",
+               select = TRUE,
+               method = "fREML") %>% getViz()
+
+check.gamViz(fl.rich)
+fl.rich_GI.sum <- summary(fl.rich_GI)
+print(plot(fl.rich_GI, allTerms = TRUE), pages = 1)
+
+fl.rich_G <- bam(fl.rich.wt ~ s(bb.sp, bs = "re") + 
+                 year +
+                 s(management, bs = "re") + 
+                 s(site, bs = "re") +
+                 te(yday, elev.mean, 
+                    bs= c("tp", "tp"), 
+                    k=c(6, 6), m=2),
+               data = fl_rich_wt,
+               discrete = TRUE,
+               family = "quasipoisson",
+               select = TRUE,
+               method = "fREML") %>% getViz()
+
+check.gamViz(fl.rich_G)
+fl.rich_G.sum <- summary(fl.rich_G)
+print(plot(fl.rich_G, allTerms = TRUE), pages = 1)
+
+AIC(fl.rich_GI, fl.rich_I, fl.rich_G)
+```
+
+### Does preference relate to BB-FL traits? This serves mainly as a sanity check for my floral preference assessment.
+```{r}
+bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
+  dplyr::select(subgenus, bb.sp, pbl.w, pbl.w.class)
+
+fl_ktype <- read.csv("../processed_data/floral_k_type_nom_fix.csv") %>%
+  dplyr::select(plant.sp, k.type) %>%
+  mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"),
+         k.type.ss = str_extract(k.type, "[-+]?[0-9]*"))
+
+fl_morph <- read.csv("../processed_data/flower_morphology_GitaBenadi.csv") %>%
+  rename(plant.sp = Species) %>%
+  group_by(plant.sp) %>%
+  summarize(corolla.depth = mean(LN))
+
+fl_tax <- read_csv("../processed_data/floral_tax.csv")
+
+pref_traits <- preference %>%
+  left_join(bb_traits) %>%
+  left_join(fl_ktype) %>%
+  left_join(fl_morph) %>%
+  separate(plant.sp, c("plant.genus", "plant.species"), sep = " ", remove = FALSE) %>%
+  left_join(fl_tax) %>%
+  mutate(preference.bin = case_when(
+    preference > 0 ~ 1,
+    preference == 0 ~ 0
+  )) %>%
+  mutate(tongue.mismatch = abs(pbl.w - corolla.depth),
+         bb.sp = factor(bb.sp),
+         plant.sp = factor(plant.sp),
+         plant.genus = factor(plant.genus),
+         subgenus = factor(subgenus),
+         k.type.s = factor(k.type.s),
+         plant.family = factor(plant.family))
+
+### To deal with zero inflation, binarize and do binomial regression
+binomial_smooth <- function(...) {
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), ...)
+}
+
+ggplot(pref_traits, aes(tongue.mismatch, preference.bin)) + 
+  geom_point() +
+  binomial_smooth()
+
+### Model: the binomial model might be the best bet
+library(DHARMa)
+library(lmerTest)
+lmer_bin <- glmer(preference.bin ~ tongue.mismatch + 
+                       (1 | plant.sp) +
+                       (1 | bb.sp), 
+                 family = "binomial",
+                 data = pref_traits)
+
+summary(lmer_bin)
+plot(lmer_bin)
+simulationOutput_bin <- simulateResiduals(fittedModel = lmer_bin, plot = T)
+testResiduals(simulationOutput_bin)
+plot(simulationOutput_bin)
+```

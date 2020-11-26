@@ -1915,3 +1915,216 @@ met1 <- map(n1, specieslevel, level = "higher", index = "resource range") %>%
   bind_rows(.id = "id") %>%
   
   ```
+
+### Could we pool across years? That introduces a bit of pseudo replication, but I'm not sure it matters much. It would certainly simplify the workflow and presentation to pool across years, and it would correspond to the pooling I did in the simple visualizations of beta-diversity.
+```{r}
+###################
+### Interaction ###
+###################
+# Site_pair prep function
+site_pair_prep_net_pool <- function(dat) {
+  beta_mit_data %>%
+    ungroup() %>%
+    filter(year1 == year2 & 
+             site1 != site2) %>% # I don't think we want to compare samples through within sites, introduces a new form of non-independence.
+    filter(metric == "WN") %>% # we'll focus for now on WN, but this could be done for partitions, too
+    mutate(weights = rep(1, n())) %>% # right now this analysis is unweighted; could weight by abundance, etc, if we wanted to
+    dplyr::select(distance = value, weights,
+                  s1.xCoord = x1, s1.yCoord = y1, 
+                  s2.xCoord = x2, s2.yCoord = y2, 
+                  s1.elev.mean = elev1, s1.yday = yday1,
+                  s2.elev.mean = elev2, s2.yday = yday2) %>%
+    data.frame()
+}
+
+# Prep site-pairs for GDM analysis
+sitepair.WN <- site_pair_prep_net_pool(beta_mit_data)
+
+# Run GDM analysis
+gdm.WN <- gdm(sitepair.WN, geo = TRUE)
+summary(gdm.WN)
+
+# Permutation tests (slow)
+gdm.WN.imp <- gdm.varImp(sitepair.WN, geo = TRUE, 
+                         parallel = TRUE, cores = 2,
+                         outFile = "interaction_permGDM")
+
+# Plot nicely
+## wrapper for extracting splines and prepping tibble for plotting
+spline_prep_pool <- function(x) {
+  isplineExtract(x) %>%
+    as.data.frame() %>%
+    tibble() %>%
+    mutate(x.Geographic = x.Geographic/1000) %>%
+    pivot_longer(cols = c(x.Geographic, x.elev.mean, x.yday), 
+                 names_to = "x.var", values_to = "predictor", 
+                 names_prefix = "x.") %>%
+    pivot_longer(cols = c(y.Geographic, y.elev.mean, y.yday), 
+                 names_to = "y.var", values_to = "response", 
+                 names_prefix = "y.") %>%
+    filter(x.var == y.var) %>%
+    mutate() %>%
+    dplyr::select(-y.var)
+}
+
+## extract splines
+interaction_splines <- spline_prep_pool(gdm.WN) %>%
+  mutate(x.var = case_when(
+    x.var == "elev.mean" ~ "Elevation (m)",
+    x.var == "Geographic" ~ "Geographic (km)",
+    x.var == "yday" ~ "Day of Year"),
+    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year")),
+    subject = rep("BB*FL", n())
+  )
+
+
+##############
+### Survey ###
+##############
+
+# Create functions for prepping data
+biodata_prep_survey_pool <- function(surv) {
+  surv %>%
+    mutate(year = year(date),
+           yday = yday(date)) %>%
+    filter(flower.cover > 0) %>%
+    mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
+    group_by(site, yday, plant.sp) %>%
+    summarize(cover = sum(flower.cover)) %>%
+    mutate(cover = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
+    spread(plant.sp, cover) %>%
+    replace(is.na(.), 0) %>%
+    arrange(site, yday) %>%
+    unite(site.day, site, yday, sep = "_")
+}
+
+predData_prep_survey_pool <- function(surv) {
+  surv %>%
+    mutate(year = year(date),
+           yday = yday(date)) %>%
+    filter(flower.cover > 0) %>%
+    dplyr::select(site, yday) %>%
+    left_join(site_data) %>%
+    ungroup() %>%
+    dplyr::select(site, elev.mean, x, y, yday) %>%
+    unique() %>%
+    arrange(site, yday) %>%
+    unite(site.day, site, yday, sep = "_", remove = "FALSE") %>%
+    dplyr::select(-site)
+}
+
+format_set <- function(bio, pred) {
+  formatsitepair(bio, bioFormat = 1, siteColumn = "site.day", 
+                 dist = "jaccard", XColumn = "x", YColumn = "y", 
+                 predData = pred, abundance = FALSE) %>%
+    filter(s1.elev.mean != s2.elev.mean) # this avoids comparing repeated measures of the same site (taking advantage of the fact that each site has a unique elevation in our dataset)
+} 
+
+# Prep input for GDM
+survey_bioData <- biodata_prep_survey_pool(survey)
+survey_predData <- predData_prep_survey_pool(survey)
+survey_sitepair <- format_set(survey_bioData, survey_predData) 
+
+# Call GDMs
+gdm_survey <- gdm(survey_sitepair, geo = TRUE)
+summary(gdm_survey.2010)
+
+# Permutations tests (slow)
+gdm_survey.imp <- gdm.varImp(survey_sitepair, geo = TRUE, 
+                             parallel = TRUE, cores = 3,
+                             outFile = "survey_permGDM")
+
+# Plot with confidence intervals (slow)
+plotUncertainty(survey_sitepair, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+
+# Plot nicely
+## extract splines
+survey_splines <- spline_prep_pool(gdm_survey) %>%
+  mutate(x.var = case_when(
+    x.var == "elev.mean" ~ "Elevation (m)",
+    x.var == "Geographic" ~ "Geographic (km)",
+    x.var == "yday" ~ "Day of Year"),
+    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year")),
+    subject = rep("FL", n())
+  )
+
+##############
+### Bees   ###
+##############
+# Create functions for prepping data
+biodata_prep_BB_pool <- function(net) {
+  net %>%
+    group_by(site, date, bb.sp) %>%
+    summarize(count = n()) %>%
+    mutate(count = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
+    spread(bb.sp, count) %>%
+    replace(is.na(.), 0) %>%
+    mutate(yday = yday(date)) %>%
+    unite(site.day, site, yday, sep = "_", remove = "TRUE") %>%
+    ungroup() %>%
+    dplyr::select(-date)
+}
+
+predData_prep_BB_pool <- function(net) {
+  net %>%
+    mutate(yday = yday(date)) %>%
+    dplyr::select(site, yday) %>%
+    left_join(site_data) %>%
+    ungroup() %>%
+    dplyr::select(site, elev.mean, y, x, yday) %>%
+    unique() %>%
+    arrange(site, yday) %>%
+    unite(site.day, site, yday, sep = "_", remove = "FALSE") %>%
+    dplyr::select(-site)
+}
+
+# Prep input for GDM
+BB_bioData <- biodata_prep_BB_pool(net)
+BB_predData <- predData_prep_BB_pool(net)
+BB_sitepair <- format_set(BB_bioData, BB_predData)
+
+
+# Call GDMs
+gdm_BB <- gdm(BB_sitepair, geo = TRUE)
+
+summary(gdm_BB)
+
+# Permutations tests (slow)
+gdm_BB.imp <- gdm.varImp(BB_sitepair, geo = TRUE, 
+                         parallel = TRUE, cores = 4,
+                         outFile = "bb_permGDM")
+
+# Plot
+plot(gdm_BB)
+
+# Plot with confidence intervals (slow)
+p <- plotUncertainty(BB_sitepair.2010, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+plotUncertainty(BB_sitepair.2011, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+plotUncertainty(BB_sitepair.2012, sampleSites = 0.7, bsIters = 10, geo  = TRUE)
+
+# Plot nicely
+## extract splines
+bb_splines <- spline_prep_pool(gdm_BB.2010) %>%
+  mutate(x.var = case_when(
+    x.var == "elev.mean" ~ "Elevation (m)",
+    x.var == "Geographic" ~ "Geographic (km)",
+    x.var == "yday" ~ "Day of Year"),
+    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year")),
+    subject = rep("BB", n())
+  )
+```
+
+### GDM all together again
+```{r}
+splines <- bind_rows(interaction_splines, bb_splines, survey_splines) %>%
+  mutate(subject = factor(subject))
+
+ggplot(splines, aes(predictor, response, color = subject)) +
+  geom_line() +
+  facet_grid(year ~ x.var, scales = "free_x") +
+  xlab(NULL) +
+  ylab("f(x)") +
+  theme_light(12)
+ggsave("./output/GDM.png")
+```
+

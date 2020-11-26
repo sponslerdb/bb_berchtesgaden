@@ -1,0 +1,36 @@
+---
+title: "trees"
+output: html_document
+---
+
+```{r}
+library(treemapify)
+library(tidyverse)
+```
+
+# Survey data
+```{r}
+taxa <- read_csv("../processed_data/floral_tax.csv") 
+
+survey <- read_csv("../processed_data/floral_survey.csv") %>%
+  filter(flower.cover > 0) %>%
+  dplyr::select(site, date, plant.sp, flower.cover) %>%
+  separate(plant.sp, c("plant.genus", "plant.sp"), sep = " ") %>%
+  left_join(taxa) %>%
+  select(site, date, plant.family, plant.genus, plant.sp, flower.cover) %>%
+  group_by(site, plant.family, plant.genus, plant.sp) %>%
+  summarize(flower.cover = sum(flower.cover))
+```
+
+# Tree plot
+```{r}
+ggplot(survey, aes(area = flower.cover, fill = plant.family)) +
+  geom_treemap() +
+  theme(legend.position = "none") +
+  facet_wrap(~site)
+
+
+ggplot(survey, aes(area = flower.cover, fill = plant.family, label = plant.family,
+                subgroup = plant.family)) +
+  geom_treemap()
+```

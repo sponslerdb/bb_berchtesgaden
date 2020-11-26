@@ -487,7 +487,7 @@ gdm_WN.2011.imp <- gdm.varImp(sitepair_2011.WN, geo = TRUE,
 gdm_WN.2012.imp <- gdm.varImp(sitepair_2012.WN, geo = TRUE, 
                               parallel = TRUE, cores = 2,
                               sampleSitePairs = 0.5, # it keep crashing...
-                              outFile = "./output/winteraction_permGDM_2012")
+                              outFile = "./output/interaction_permGDM_2012")
 
 # Plot
 plot(gdm_WN.2010, include.rug = TRUE, 
@@ -516,11 +516,11 @@ interaction_splines <- bind_rows(interaction_splines2010,
                                  interaction_splines2011, 
                                  interaction_splines2012) %>%
   mutate(x.var = case_when(
-    x.var == "elev.mean" ~ "Elevation (m)",
-    x.var == "Geographic" ~ "Geographic (km)",
-    x.var == "yday" ~ "Day of Year")) %>%
-  mutate(x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year")),
-    subject = rep("BB*FL", dim(.)[1]))
+    x.var == "elev.mean" ~ "Elevation",
+    x.var == "Geographic" ~ "Geographic dist.",
+    x.var == "yday" ~ "Time")) %>%
+  mutate(x.var = factor(x.var, levels = c("Geographic dist.", "Elevation", "Time")),
+    subject = rep("interaction", dim(.)[1]))
 ```
 
 ### GDM: Floral survey
@@ -582,10 +582,10 @@ survey_splines <- bind_rows(survey_splines2010,
                             survey_splines2011, 
                             survey_splines2012) %>%
   mutate(x.var = case_when(
-    x.var == "elev.mean" ~ "Elevation (m)",
-    x.var == "Geographic" ~ "Geographic (km)",
-    x.var == "yday" ~ "Day of Year"),
-    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year")),
+    x.var == "elev.mean" ~ "Elevation",
+    x.var == "Geographic" ~ "Geographic dist.",
+    x.var == "yday" ~ "Time"),
+    x.var = factor(x.var, levels = c("Geographic dist.", "Elevation", "Time")),
     subject = rep("FL", n())
     )
 
@@ -658,10 +658,10 @@ bb_splines <- bind_rows(bb_splines2010,
                             bb_splines2011, 
                             bb_splines2012) %>%
   mutate(x.var = case_when(
-    x.var == "elev.mean" ~ "Elevation (m)",
-    x.var == "Geographic" ~ "Geographic (km)",
-    x.var == "yday" ~ "Day of Year"),
-    x.var = factor(x.var, levels = c("Geographic (km)", "Elevation (m)", "Day of Year")),
+    x.var == "elev.mean" ~ "Elevation",
+    x.var == "Geographic" ~ "Geographic dist.",
+    x.var == "yday" ~ "Time"),
+    x.var = factor(x.var, levels = c("Geographic dist.", "Elevation", "Time")),
     subject = rep("BB", n())
     )
 
@@ -677,6 +677,112 @@ ggsave("./output/bb_GDM.png")
 
 ### Tabulate model output
 ```{r}
+# assign("gdm_WN.2010.imp", get(load("~/Documents/Research/bb_berchtesgaden/analyses/output/interaction_permGDM_2010.RData")))
+# 
+# assign("gdm_WN.2011.imp", get(load("~/Documents/Research/bb_berchtesgaden/analyses/output/interaction_permGDM_2011.RData")))
+# 
+# assign("gdm_WN.2012.imp", get(load("~/Documents/Research/bb_berchtesgaden/analyses/output/interaction_permGDM_2012.RData")))
+
+####### WN
+gdm_WN.2010.tab1 <- gdm_WN.2010.imp[1] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  mutate(subject = "WN",
+         year = 2010) %>%
+  select(subject, year, 
+         mod.dev = `Model deviance`, 
+         dev.exp = `Percent deviance explained`, 
+         mod.pval = `Model p-value`)
+
+gdm_WN.2010.tab2 <- gdm_WN.2010.imp[2] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  select(geo.imp = Geographic, elev.imp = elev.mean, yday.imp = yday)
+
+gdm_WN.2010.tab3 <- gdm_WN.2010.imp[3] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble()  %>%
+  select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2)  %>%
+  select(geo.pval = Geographic, elev.pval = elev.mean, yday.pval = yday)
+
+gdm_WN.2011.tab1 <- gdm_WN.2011.imp[1] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  mutate(subject = "WN",
+         year = 2011) %>%
+  select(subject, year, 
+         mod.dev = `Model deviance`, 
+         dev.exp = `Percent deviance explained`, 
+         mod.pval = `Model p-value`)
+
+gdm_WN.2011.tab2 <- gdm_WN.2011.imp[2] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  select(geo.imp = Geographic, elev.imp = elev.mean, yday.imp = yday)
+
+gdm_WN.2011.tab3 <- gdm_WN.2011.imp[3] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble()  %>%
+  select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2)  %>%
+  select(geo.pval = Geographic, elev.pval = elev.mean, yday.pval = yday)
+
+gdm_WN.2012.tab1 <- gdm_WN.2012.imp[1] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  mutate(subject = "WN",
+         year = 2012) %>%
+  select(subject, year, 
+         mod.dev = `Model deviance`, 
+         dev.exp = `Percent deviance explained`, 
+         mod.pval = `Model p-value`)
+
+gdm_WN.2012.tab2 <- gdm_WN.2012.imp[2] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  select(geo.imp = Geographic, elev.imp = elev.mean, yday.imp = yday)
+
+gdm_WN.2012.tab3 <- gdm_WN.2012.imp[3] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble()  %>%
+  select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2)  %>%
+  select(geo.pval = Geographic, elev.pval = elev.mean, yday.pval = yday)
+
+gdm_WN.2010.tab_join <- bind_cols(gdm_WN.2010.tab1,
+                                  gdm_WN.2010.tab2, 
+                                  gdm_WN.2010.tab3)
+
+gdm_WN.2011.tab_join <- bind_cols(gdm_WN.2011.tab1,
+                                  gdm_WN.2011.tab2, 
+                                  gdm_WN.2011.tab3)
+
+gdm_WN.2012.tab_join <- bind_cols(gdm_WN.2012.tab1,
+                                  gdm_WN.2012.tab2, 
+                                  gdm_WN.2012.tab3)
+
 ####### survey
 gdm_survey.2010.tab1 <- gdm_survey.2010.imp[1] %>% 
   as.data.frame() %>%
@@ -881,31 +987,116 @@ gdm_BB.2012.tab_join <- bind_cols(gdm_BB.2012.tab1,
 
 gdm_BB.tab_join <- bind_rows(gdm_BB.2010.tab_join,
                              gdm_BB.2011.tab_join,
-                             gdm_BB.2012.tab_join) %>%
- # pivot_longer(cols = -c(subject, year), names_to = "var", values_to = "value") %>%
-  gt() %>%
-  tab_header(title = "GDM Model Output") %>%
+                             gdm_BB.2012.tab_join,
+                             gdm_survey.2010.tab_join,
+                             gdm_survey.2011.tab_join,
+                             gdm_survey.2012.tab_join,
+                             gdm_WN.2010.tab_join,
+                             gdm_WN.2011.tab_join,
+                             gdm_WN.2012.tab_join) %>%
+  select(-subject) 
+
+gdm_tab <- gdm_BB.tab_join %>%
+  gt(rowname_col = "year") %>%
   tab_spanner(
     label = "Model",
     columns = vars(mod.dev, dev.exp, mod.pval)
   ) %>%
   tab_spanner(
-    label = "Variable importance",
-    columns = vars(geo.imp, elev.imp, yday.imp)
+    label = "Geographic distance",
+    columns = vars(geo.imp, geo.pval)
   ) %>%
   tab_spanner(
-    label = "Variable p-value",
-    columns = vars(geo.pval, elev.pval, yday.pval)
+    label = "Elevational distance",
+    columns = vars(elev.imp, elev.pval)
+  ) %>%
+  tab_spanner(
+    label = "Temporal distance",
+    columns = vars(yday.imp, yday.pval)
+  ) %>%
+  tab_row_group(
+    group = "Bumble bees",
+    rows = 1:3
   ) %>% 
   tab_row_group(
-    group = "Bumble bee",
-    rows = 1:3
+    group = "Flora",
+    rows = 4:6
+  ) %>%
+  tab_row_group(
+    group = "Interactions",
+    rows = 7:9
   ) %>%
   fmt_number(
     columns = c("mod.dev", "dev.exp",
                 "geo.imp", "elev.imp", "yday.imp"),
     decimals = 1
-  )
+  ) %>%
+  fmt_number(
+    columns = c("mod.pval", "geo.pval", 
+                "elev.pval", "yday.pval"),
+    decimals = 3
+  ) %>%
+  cols_label(mod.dev = "tot. dev.",
+             dev.exp = "dev. expl. (%)",
+             mod.pval = "p",
+             geo.imp = "imp.",
+             elev.imp = "imp.",
+             yday.imp = "imp.",
+             geo.pval = "p-val",
+             elev.pval = "p-val",
+             yday.pval = "p-val")
+
+
+
+gdm_tab.nopval <- gdm_BB.tab_join %>%
+  dplyr::select(-c(geo.pval, elev.pval, yday.pval, mod.pval)) %>%
+  gt(rowname_col = "year") %>%
+  tab_spanner(
+    label = "Model",
+    columns = vars(mod.dev, dev.exp)
+  ) %>%
+  tab_spanner(
+    label = "Variable importance (%)",
+    columns = vars(geo.imp, elev.imp, yday.imp)
+  ) %>%
+  tab_row_group(
+    group = "Bumble bees",
+    rows = 1:3
+  ) %>% 
+  tab_row_group(
+    group = "Flora",
+    rows = 4:6
+  ) %>%
+  tab_row_group(
+    group = "Interactions",
+    rows = 7:9
+  ) %>%
+  fmt_number(
+    columns = c("mod.dev", "dev.exp",
+                "geo.imp", "elev.imp", "yday.imp"),
+    decimals = 1
+  ) %>%
+  cols_label(mod.dev = "tot. dev.",
+             dev.exp = "dev. expl. (%)",
+             geo.imp = "geo. dist.",
+             elev.imp = "elev. dist.",
+             yday.imp = "temp. dist.") %>%
+  data_color(
+    columns = vars(geo.imp, elev.imp, yday.imp),
+    colors = scales::col_numeric(
+      palette = c("white", "red"), 
+      domain = c(-5, 100))
+    ) %>%
+  data_color(
+    columns = vars(dev.exp),
+    colors = scales::col_numeric(
+      palette = c("white", "red"), 
+      domain = c(-5, 100))
+  ) 
+
+gtsave(gdm_tab.nopval, "gdm_tab.png","./output/gdm_tab.png")
+  
+
 ```
 
 ### GDM all together now
@@ -913,14 +1104,52 @@ gdm_BB.tab_join <- bind_rows(gdm_BB.2010.tab_join,
 splines <- bind_rows(interaction_splines, bb_splines, survey_splines) %>%
   mutate(subject = factor(subject))
 
-ggplot(splines, aes(predictor, response, color = subject)) +
+# ggplot(splines, aes(predictor, response, color = subject)) +
+#   geom_line() +
+#   facet_grid(year ~ x.var, scales = "free_x") +
+#   xlab(NULL) +
+#   ylab("f(x)") +
+#   theme_light(12)
+# ggsave("./output/GDM.png", width = 6.5, height = 5, units = "in")
+
+splot1 <- ggplot(filter(splines, x.var == "Geographic dist."), 
+                 aes(predictor, response, color = subject)) +
   geom_line() +
+  #facet_wrap(~year, ncol = 1, scales = "free_x") +
   facet_grid(year ~ x.var, scales = "free_x") +
-  xlab(NULL) +
+  xlab("km") +
   ylab("f(x)") +
-  theme_light(12)
-ggsave("./output/GDM.png", width = 6.5, height = 5, units = "in")
+  ylim(c(0, 7)) +
+  theme_light(12) +
+  theme(legend.position = "none")
+
+splot2 <- ggplot(filter(splines, x.var == "Elevation"), 
+       aes(predictor, response, color = subject)) +
+  geom_line() +
+  #facet_wrap(~year, ncol = 1, scales = "free_x") +
+  facet_grid(year ~ x.var, scales = "free_x") +
+  xlab("m") +
+  ylab(NULL) +
+  ylim(c(0, 7)) +
+  theme_light(12) +
+  theme(legend.position = "none")
+
+splot3 <- ggplot(filter(splines, x.var == "Time"), 
+       aes(as_date(predictor), response, color = subject)) +
+  geom_line() +
+  #facet_wrap(~year, ncol = 1, scales = "free_x") +
+  facet_grid(year ~ x.var, scales = "free_x") +
+  xlab("date") +
+  ylab(NULL) +
+  ylim(c(0, 7)) +
+  theme_light(12) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) 
+
+png("./output/GDM_splines.png", width = 8, height = 5, units = "in", res = 300)
+splot1 | splot2 | splot3
+dev.off()
 ```
+
 # If I could get this to work, it would be cool to transform and plot my GDMs. But the script crashes every time. 
 ```{r}
 

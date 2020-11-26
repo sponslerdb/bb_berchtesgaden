@@ -1,0 +1,1800 @@
+---
+title: "Dietary niche relationships between core bumble bee species in the Berchtesgadener Alps"
+output: html_document
+---
+
+# Prepare workspace
+## Load packages 
+```{r message=FALSE, warning=FALSE, include=FALSE, echo = FALSE}
+library(bipartite)
+library(mgcv)
+library(mgcViz)
+library(vegan)
+library(ggvegan)
+library(ggrepel)
+library(treemapify)
+library(RColorBrewer)
+library(tidyverse)
+library(lubridate)
+library(patchwork)
+library(tidymodels)
+```
+
+## Load data
+```{r message=FALSE, warning=FALSE, include=FALSE, echo = FALSE}
+# Site data
+site_data <- read_csv("../processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
+  mutate(elev.class = factor(elev.class, levels = c("unten", "mitte", "oben"))) # turn elav.class into an ordered factor
+
+# BB traits
+bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
+  mutate(pbl.fac = factor(if_else(
+    bb.sp %in% c("hort", "pasc", "wurf", "gers", "mend", "hypn"), "long", "short"))
+    )
+
+# FL traits
+## family-level taxonomy
+fl_tax <- read_csv("../processed_data/floral_tax.csv") 
+
+## Kugler morphotypes (accessed through Bioflor)
+fl_ktype <- read_csv("../processed_data/floral_k_type.csv") 
+
+## diameter and corolla depth data from Gita Benadi
+fl_morph <- read_csv("../processed_data/flower_morphology_GitaBenadi.csv") %>% 
+  dplyr::select(SampleID, plant.family = Family, plant.sp = Species, 
+                Unit, Flowers_per_unit, diam = Diameter, LN) %>%
+  group_by(plant.sp) %>%
+  summarize(diam = mean(diam), LN = mean(LN))
+
+## verbal description of Kugler morphotypes
+fl_ktype_key <- read_delim("../processed_data/kugler_key.tsv", delim = "\t", col_names = FALSE) %>%
+  dplyr::select(k.type = 1, description = 2)
+
+## join all trait tables
+fl_traits <- fl_tax %>%
+  full_join(fl_ktype) %>%
+  full_join(fl_morph) %>%
+  dplyr::select(plant.sp, plant.genus, plant.family, k.type, k.type.s, k.type.ss, diam, LN)
+
+# Network
+net <- read_csv("../processed_data/network.csv") %>%
+  mutate(year = factor(year)) %>% # convert year to factor
+  left_join(site_data, by = "site") %>% # add site data
+  ungroup() %>%
+  arrange(site, date) %>%
+  left_join(fl_traits) %>% # add floral traits
+  group_by(elev.class) %>%
+  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) # divide each elev.class into 3 equal time slices
+
+# Floral survey
+survey <- read_csv("../processed_data/floral_survey.csv") %>%
+  filter(flower.cover > 0) %>% # only count plants in bloom
+  semi_join(net, by = "plant.sp") %>% # Consider only plants visited (anytime anywhere, not specifically for a given site*date)
+  dplyr::select(site, date, plant.sp, flower.cover) %>%
+  left_join(fl_traits) # add floral traits
+```
+
+We will focus on six species that are abundant and widespread:  
+  1. *B. sensu-strictu*
+  2. *B. pascuorum*
+  3. *B. pratorum*
+  4. *B. hortorum*
+  5. *B. soroensis*
+  6. *B. wurflenii*
+
+```{r fig.cap="**Figure 1: Focal species**", message=FALSE, warning=FALSE, echo=FALSE}
+bb_range.year <- net %>%
+  left_join(site_data) %>%
+  group_by(site, elev.mean, bb.sp, year) %>%
+  summarize(abund = n()) %>%
+  group_by(bb.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2)) %>%
+  mutate(focal = if_else(
+    bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf"), TRUE, FALSE)
+    )
+
+ggplot(bb_range.year, aes(reorder(bb.sp, elev.med), elev.mean, color = focal)) +
+  geom_line(size = 2, alpha = 0.25) +
+  geom_point(aes(size = abund), alpha = 0.5) +
+  facet_wrap(~year, ncol = 1) +
+  theme_light(12) +
+  scale_size_continuous(name = "Abundance") +
+  scale_color_discrete(name = "Focal species") +
+  xlab("BB species") +
+  ylab("Elevation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggsave("./output/bb_range_year.pdf", height = 6, width = 6)
+```
+
+## Define functions
+```{r, echo = FALSE}
+# Convert PCoA to tidy array ("fortify")
+pcoa_fort <- function(x){
+  fortify(x, axes = 1:2) %>% 
+  mutate(Score = case_when( # rename default scores to match my data
+    Score == "species" ~ "FL.sp",
+    Score == "sites" ~ "BB.sp"))
+}
+
+# Plot PCoA; to avoid overplotting, scores < min_score are not plotted
+pcoa_plot <- function(x, min_score = 0.25) {
+  
+  # Add T.class variable for the BB.sp subset of the PCoA
+  t.class <- x %>%
+    filter(Score == "BB.sp") %>%
+    mutate(T.class = factor(if_else(
+      Label %in% c("hort", "pasc", "wurf", "gers", "mend", "hypn"), "long", "short"))
+      )
+  
+  ggplot(filter(x, (abs(MDS1) > min_score | abs(MDS2) > min_score) | (Score == "BB.sp"))) + # no threshold for BB spp
+    geom_polygon(data = t.class, aes(MDS1, MDS2, linetype = T.class), # draw polygons around T classes
+                 color = "gray70", fill = NA, size = 1.25, key_glyph = "abline") +
+    geom_point(aes(MDS1, MDS2, color = Score), size = 3, alpha = 0.75) + # add points
+    ggrepel::geom_text_repel(aes(MDS1, MDS2, color = Score, label = Label), key_glyph = "rect") + # add labels
+    coord_fixed() + # Gavin Simpson says this is **really** important
+    theme_classic() 
+}
+
+
+# Generates PCoAs, ADONIS tests, and ordination plots (fully aggregated)
+## The ... represents the variables we will use to parse our analysis. For aggregate analysis, just leave the ...
+## unpopulated, e.g. niche_analysis(net, bb_traits, plant.sp). 
+## To parse by elev.class: niche_analysis(net, bb_traits, plant.sp)
+## To parse by  elev.class, period, and pollen: niche_analysis(net, bb_traits, plant.sp, period, pollen)
+## You get the idea. You should anyway -- you wrote it. https://tidyeval.tidyverse.org/multiple.html
+niche_analysis <- function(x, y, criterion, ...) { 
+  
+  criterion <- enquo(criterion) # this argument toggles taxonomic (plant.sp) vs. morphological (k.type.s) analysis
+
+  x %>%
+    filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
+    group_by(..., bb.sp, !!criterion) %>% # pooling all sites and years
+    summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair
+    group_by(..., bb.sp) %>%
+    mutate(prop = freq/sum(freq)) %>% # get proportional interaction frequency for each BB-FL pair
+    dplyr::select(-freq) %>% # drop freq variable
+    group_by(...) %>%
+    nest() %>% # nest into list-column
+    mutate(comm1 = map(data, # spread into the kind of array vegan likes
+                       function(x) pivot_wider(x, names_from = !!criterion, values_from = prop) %>%
+                         replace(is.na(.), 0)
+                       ), 
+           comm2 = map(comm1, # column to rowname
+                       function(x) column_to_rownames(x, var = "bb.sp")
+                       ),
+           pcoa = map(comm2, # call PCoA
+                      function(x) capscale(x ~ 1, distance = "horn")
+                      ),
+           traits = map(comm1, # join BB traits
+                        function(x) x %>% 
+                          left_join(y) %>% # y is the trait table, an argument in the main function call
+                          column_to_rownames(var = "bb.sp") %>% 
+                          select(pbl.fac) # pbl.fac is the variable I'm interested in
+                        ),
+           adonis = map2(comm2, traits, # run adonis permuatation test for distance ~ tongue class
+                         function(x, y) adonis(x ~ pbl.fac, data = y, method = "horn")
+                         ),
+           betadis = map2(comm2, traits, # betadisper to test for difference in dispersion between tongue classes
+                         function(x, y) x %>%
+                           vegdist(method = "horn") %>% # betadisper runs a PCoA under the hood; match method to my PCoA
+                           betadisper(group = y$pbl.fac) 
+                         ),
+           betadis.permutest = map(betadis, permutest), # perumutation test
+           betadis.p = map(betadis.permutest, # extract betadisper p-value
+                           function(x) x$tab$'Pr(>F)'[[1]]
+                           ),
+           betadis.boxplot = map(betadis, boxplot), # boxplot of betadisper
+           pcoa.fort = map(pcoa, pcoa_fort), 
+           pcoa.plot = map(pcoa.fort, pcoa_plot),
+           adonis.r2 = map(adonis, # extract adonis r2
+                           function(x) x$aov.tab$R2[[1]]
+                           ),
+           adonis.p = map(adonis, # extract adonis p-value
+                          function(x) x$aov.tab$'Pr(>F)'[[1]]
+                          ),
+           MDS1 = map(pcoa, # extract variance explained by MDS1
+                      function(x) x$CA$eig[[1]] / sum(x$CA$eig)
+                      ), 
+           MDS2 = map(pcoa, # extract variance explained by MDS2
+                      function(x) x$CA$eig[[2]] / sum(x$CA$eig)
+                      )) %>%
+    unnest(cols = c(adonis.r2, adonis.p, betadis.p, MDS1, MDS2)) %>% # these are lists of length = 1, so unnesting them simply displays the value
+    select(..., comm2, pcoa, betadis, betadis.permutest, betadis.p, adonis, 
+           adonis.r2, adonis.p, betadis.boxplot, pcoa.plot, MDS1, MDS2) 
+}
+
+beta_func <- function(x, traits, sitedata, level, criterion, binary, ...) {
+  
+  criterion <- enquo(criterion) # plant.sp or k.type.s
+  level <- enquo(level) # bb.sp or pbl.fac (i.e. tongue length  guild)
+
+  x %>% 
+    filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+    left_join(traits) %>% # add BB traits
+    group_by(site, !!level, !!criterion, ...) %>% # in addition to grouping by level (bb.sp/pbl.fac) and criterion (plant.sp/k.type.s), the ... argument will also group by any variables supplied in the function call, e.g. elev.class, period, year.
+    summarize(freq = n()) %>% # get visitation frequency
+    group_by(site, !!level, ...) %>%
+    mutate(prop = freq/sum(freq)) %>% # get visitation proportions
+    group_by(!!level, ...) %>%
+    select(-freq) %>%
+    nest() %>% # nest into list-column
+    mutate(comm = map(data, function(x) pivot_wider(x, names_from = !!criterion, values_from = prop, values_fill = 0)), # convert to community matrix
+           comm2 = map(comm, function(x) column_to_rownames(x, var = "site")), # column to rowname
+           dist = map(comm2, function(x) vegdist(x, method = "horn", binary = binary)), # conver to Horn's distance matrix
+           tidy.dist = map(dist, tidy), # convert matrix to tidy array
+           elevation = map(comm, function(x) left_join(x, sitedata, by = "site") %>% # add elevation data
+                             select(site, elev.mean) %>% 
+                             column_to_rownames(var = "site")),
+           adonis = map2(dist, elevation, function(x, y) adonis(x ~ elev.mean, data = y)), # run adonis test
+           adonis.r2 = map(adonis, function(x) x$aov.tab$R2[[1]]), # extract adonis r2
+           adonis.p = map(adonis, function(x) x$aov.tab$'Pr(>F)'[[1]])) %>% # extract adonis p-val
+    unnest(c(tidy.dist, adonis.r2, adonis.p)) %>% 
+    select(..., !!level, site1 = item1, site2 = item2, distance, adonis.r2, adonis.p) %>%
+    left_join(select(site_data, site, elev.mean), by = c("site1" = "site")) %>%
+    rename(elev1 = elev.mean) %>%
+    left_join(select(site_data, site, elev.mean), by = c("site2" = "site")) %>%
+    rename(elev2 = elev.mean) %>%
+    mutate(elev.diff = abs(elev1 - elev2)) 
+}
+
+# For the floral survey data
+beta_func_fl <- function(x, sitedata, criterion, binary, ...) {
+  
+  criterion <- enquo(criterion) # plant.sp or k.type.s
+
+  x %>% 
+    group_by(site, !!criterion, ...) %>% # 
+    summarize(abund = sum(flower.cover)) %>% # get visitation frequency
+    group_by(site, ...) %>%
+    mutate(prop = abund/sum(abund)) %>% # get visitation proportions
+    select(-abund) %>%
+    pivot_wider(names_from = !!criterion, values_from = prop, values_fill = 0) %>%
+    column_to_rownames(var = "site") %>%
+    vegdist(method = "horn", binary = binary) %>%
+    tidy() %>%
+    select(..., site1 = item1, site2 = item2, distance) %>%
+    left_join(select(site_data, site, elev.mean), by = c("site1" = "site")) %>%
+    rename(elev1 = elev.mean) %>%
+    left_join(select(site_data, site, elev.mean), by = c("site2" = "site")) %>%
+    rename(elev2 = elev.mean) %>%
+    mutate(elev.diff = abs(elev1 - elev2)) 
+}
+
+# Niche overlap by sp.pair * site * year
+niche_overlapper <- function(x, criterion) {
+    
+  criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
+  
+  x %>%
+    filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+    group_by(bb.sp, !!criterion, site, year) %>% # group by site-year and BB-FL pair
+    summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-year
+    group_by(bb.sp, site, year) %>% # group by site-year and BB species
+    mutate(prop = freq/sum(freq)) %>% # get proportional interaction frequency for each BB-FL pair
+    dplyr::select(-freq) %>% # drop freq variable
+    pivot_wider(names_from = !!criterion, values_from = prop, values_fill = 0) %>% # spread into the kind of array vegan likes
+    group_by(site, year) %>%
+    nest() %>% # nest into list-column
+    mutate(data2 = map(data, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
+           dist = map(data2, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
+           tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
+    dplyr::select(site, year, tidy_dist) %>% # drop intermediate list-columns
+    unnest(cols = c(tidy_dist)) %>% # unnest back into a single data frame
+    left_join(site_data) %>% # add site data
+    dplyr::select(site, year, bb.sp1 = item1, bb.sp2 = item2, distance, elev.mean) %>% # dplyr::select and rename vars
+    left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>% # add traits for bb.sp1
+    rename(subgenus1 = subgenus, pbl.w1 = pbl.w, pbl.w.class1 = pbl.w.class, pbl.fac1 = pbl.fac) %>%
+    left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>% # add traits for bb.sp2
+    rename(subgenus2 = subgenus, pbl.w2 = pbl.w, pbl.w.class2 = pbl.w.class, pbl.fac2 = pbl.fac) %>%
+    dplyr::select(site, year, bb.sp1, bb.sp2, subgenus1, subgenus2, distance, 
+           pbl.w1, pbl.w2, pbl.w.class1, pbl.w.class2, pbl.fac1, pbl.fac2, elev.mean) %>%
+    mutate(pbl.diff = abs(pbl.w1 - pbl.w2), # tongue length differences
+           pbl.fac.diff = if_else(pbl.fac1 == pbl.fac2, "same", "different"),
+           subgenus.diff = if_else(subgenus1 == subgenus2, "same", "different"), # binary: same or different subgenus
+           
+           # Logical columns indicating whether a given species belongs to a given species pair
+           # This is handy for extracting data for individual species across all their counterparts
+           bss = if_else(bb.sp1 == "bss" | bb.sp2 == "bss", TRUE, FALSE),
+           pasc = if_else(bb.sp1 == "pasc" | bb.sp2 == "pasc", TRUE, FALSE),
+           wurf = if_else(bb.sp1 == "wurf" | bb.sp2 == "wurf", TRUE, FALSE),
+           prat = if_else(bb.sp1 == "prat" | bb.sp2 == "prat", TRUE, FALSE),
+           soro = if_else(bb.sp1 == "soro" | bb.sp2 == "soro", TRUE, FALSE),
+           hort = if_else(bb.sp1 == "hort" | bb.sp2 == "hort", TRUE, FALSE)) %>%
+    
+    unite(sp.pair, c(bb.sp1, bb.sp2), sep = ":") %>% # create a single species pair column...
+    mutate(sp.pair = factor(sp.pair)) %>% # ...and make it a factor so that mgcv can handle it
+    mutate(niche.overlap = 1-distance) # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+}
+
+# Diet breadth analysis
+diet_breit <- function(x, y, z, criterion, indices = c("normalised degree")) {
+  
+  criterion <- enquo(criterion) # plant.sp or k.type.s
+  
+  a <- x %>%
+    filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+    left_join(y) %>%
+    group_by(elev.class) %>%
+    mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+    group_by(site, period, pbl.fac, !!criterion) %>% # group by site, date, bee species, plant species
+    summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+    unite(webID, c(site, period), sep = "_") %>%
+    ungroup() %>%
+    dplyr::select(higher = pbl.fac, lower = !!criterion, webID, freq) %>% # rename columns to match bipartite's expectations
+    data.frame() %>% # convert to data frame
+    frame2webs() %>% # convert to to bipartite web
+    map(specieslevel, level = "higher", index = indices) %>%
+    map(rownames_to_column) %>%
+    map(as_tibble) %>%
+    bind_rows(.id = "webID") %>% # Collapse list into big data frame
+    rename(pbl.fac = rowname) %>%
+    separate(webID, c("site", "period"), sep =  "_") %>%
+    left_join(z) %>%
+    filter(pbl.fac %in% c("long", "short")) %>% # for some reason, a few rows have a "1" for pbl.fac, and I don't know where this comes from; this gets rid of it, but I would still like to know why
+    mutate(site = factor(site),
+           period = factor(period, levels = c("early", "mid", "late")))
+  
+  b <- x %>%
+    filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+    group_by(elev.class) %>%
+    mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+    left_join(bb_traits) %>%
+    group_by(site, period, pbl.fac) %>% # group by site, date, bee species, plant species
+    summarize(abund = n()) %>%
+    group_by(site, period) %>%
+    mutate(prop = abund/sum(abund))
+  
+  out <- left_join(a, b)
+}
+
+diet_breit2 <- function(x, y, z, criterion, indices = c("normalised degree")) {
+  
+  criterion <- enquo(criterion) # plant.sp or k.type.s
+  
+  a <- x %>%
+    filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+    left_join(y) %>%
+    # group_by(elev.class) %>%
+    # mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+    #group_by(site, period, pbl.fac, !!criterion) %>% # group by site, date, bee species, plant species
+    group_by(site, pbl.fac, !!criterion) %>% # group by site, date, bee species, plant species
+    summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+    #unite(webID, c(site, period), sep = "_") %>%
+    ungroup() %>%
+    #dplyr::select(higher = pbl.fac, lower = !!criterion, webID, freq) %>% # rename columns to match bipartite's expectations
+    dplyr::select(higher = pbl.fac, lower = !!criterion, webID = site, freq) %>% # rename columns to match bipartite's expectations
+    data.frame() %>% # convert to data frame
+    frame2webs() %>% # convert to to bipartite web
+    map(specieslevel, level = "higher", index = indices) %>%
+    map(rownames_to_column) %>%
+    map(as_tibble) %>%
+    bind_rows(.id = "webID") %>% # Collapse list into big data frame
+    #rename(pbl.fac = rowname) %>%
+    rename(pbl.fac = rowname,
+           site = webID) %>%
+    #separate(webID, c("site", "period"), sep =  "_") %>%
+    left_join(z) %>%
+    filter(pbl.fac %in% c("long", "short")) %>% # for some reason, a few rows have a "1" for pbl.fac, and I don't know where this comes from; this gets rid of it, but I would still like to know why
+    # mutate(site = factor(site),
+    #        period = factor(period, levels = c("early", "mid", "late")))
+    mutate(site = factor(site))
+  
+  
+  b <- x %>%
+    filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+    # group_by(elev.class) %>%
+    # mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+    left_join(bb_traits) %>%
+   # group_by(site, period, pbl.fac) %>% # group by site, date, bee species, plant species
+    group_by(site, pbl.fac) %>% # group by site, date, bee species, plant species
+    summarize(abund = n()) %>%
+    #group_by(site, period) %>%
+    group_by(site) %>%
+    mutate(prop = abund/sum(abund))
+  
+  out <- left_join(a, b)
+}
+
+
+# Null model generator
+nullify1 <- function(x, n, criterion){
+  
+  criterion <- enquo(criterion) # plant.sp or k.type.s
+
+  x %>%
+    filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+    select(site, bb.sp, !!criterion) %>% 
+    group_by(site, bb.sp, !!criterion) %>%
+    summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair
+    group_by(site) %>%
+    nest() %>% # nest data into list-column grouped by pollen, site, date
+    mutate(data = map(data, function(x) pivot_wider(x, 
+                                                    names_from = !!criterion, 
+                                                    values_from = freq, 
+                                                    values_fill = 0) %>% column_to_rownames("bb.sp")), # turn table into community matrix
+           data = map(data, function(x) vegan::permatfull(x, 
+                                                          fixedmar = "rows", 
+                                                          shuffle = "ind", 
+                                                          times = n)), # permute community matrices
+           data = map(data, function(x) return(x$perm))) %>% # extract permutations from permat objects
+    unnest(data) %>% # unnest
+    mutate(data = map(data, function(x) vegdist(x, method = "horn")), # convert each permutation into distance matrix
+           data = map(data, tidy)) %>% # convert distance matrices to tidy arrays
+    group_by(site) %>%
+    mutate(iter = row_number()) %>% # add index to denote iterations
+    unnest(cols = data) %>% # unnest again
+    rename(bb.sp1 = item1, bb.sp2 = item2) %>%
+    unite(sp.pair, c(bb.sp1, bb.sp2), sep = ":") %>% # create a single species pair column...
+    mutate(sp.pair = factor(sp.pair), # ...and make it a factor so that mgcv can handle it
+           niche.overlap = 1-distance) %>% # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+    select(site, sp.pair, iter, niche.overlap.sim = niche.overlap)
+}
+
+# Null model generator
+nullify2 <- function(x, n, criterion){
+  
+  criterion <- enquo(criterion) # plant.sp or k.type.s
+
+  x %>%
+    filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+    select(site, bb.sp, !!criterion) %>% 
+    group_by(site, bb.sp, !!criterion) %>%
+    summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair
+    group_by(site) %>%
+    nest() %>% # nest data into list-column grouped by pollen, site, date
+    mutate(data = map(data, function(x) pivot_wider(x, 
+                                                    names_from = !!criterion, 
+                                                    values_from = freq, 
+                                                    values_fill = 0) %>% column_to_rownames("bb.sp")), # turn table into community matrix
+           data = map(data, function(x) vegan::permatfull(x, 
+                                                          fixedmar = "both", 
+                                                          shuffle = "ind", 
+                                                          times = n)), # permute community matrices
+           data = map(data, function(x) return(x$perm))) %>% # extract permutations from permat objects
+    unnest(data) %>% # unnest
+    mutate(data = map(data, function(x) vegdist(x, method = "horn")), # convert each permutation into distance matrix
+           data = map(data, tidy)) %>% # convert distance matrices to tidy arrays
+    group_by(site) %>%
+    mutate(iter = row_number()) %>% # add index to denote iterations
+    unnest(cols = data) %>% # unnest again
+    rename(bb.sp1 = item1, bb.sp2 = item2) %>%
+    unite(sp.pair, c(bb.sp1, bb.sp2), sep = ":") %>% # create a single species pair column...
+    mutate(sp.pair = factor(sp.pair), # ...and make it a factor so that mgcv can handle it
+           niche.overlap = 1-distance) %>% # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+    select(site, sp.pair, iter, niche.overlap.sim = niche.overlap)
+}
+```
+
+# 1. What is the logic of niche partitioning between core species, and does it change through elevation and time?
+
+For ordination-based analyses, I have opted to pool across years to emphasize species relationships rather than interannual differences. To aid interpretation, I have classified BB species by tongue length. The two "true" long-tongued species are *B. pascuorum* and *B. hortorum*, with the latter having a considerably longer tongue than the former, but I have opted to consider *B. wurflenii* as "behaviorally long-tongued" because it characteristically forages as a robber, and evidently converges in flower choice with *B. pascuorum* and *B. hortorum*. This decision was made *post-hoc* after noting the clustering patterns.
+
+I have also opted to not distinguish between putative pollen and putative nectar foragers. First, the classification of nectar vs. pollen foragers based on whether they are carrying pollen at the time of observation is imperfect (though probably still informative). Second, and more importantly in my opinion, the more I break the data up, the more difficult it becomes to visualize and interpret the data. Finally, when I ran the analysis parsing by pollen vs. nectar foraging, the patterns tended to be similar between the two. 
+
+Note that in this version of the analysis, I am not excluding observations that were unclassified with respect to pollen carrying. A closer inspection of the data revealed that this is simply how Kalli handled males and Psithyrus queens, since they never collect pollen. I am omitting Psithyrus from my analysis, but I am not including the males of the focal specis. I suppose an argument could be made that parsing by caste would be informative, but again, there are so many ways these data could be parsed, and I can't use all of them without whittling the data down to something intractable. 
+
+Kugler classes are coded in the form of number.decimal.letter.letter. I have chosen to simplify to the level of number.decimal.
+
+To avoid overplotting plant species / Kugler classes, I have only plotted plant species scoring above a given threshold on either the first or second axis. Thus, the plotted species are those that contribute most to the separation, not necessarily those that contribute most to diet. A species that is visited heavily by all BB species will fall close to (0,0) and will therefore not be plotted. This is because they are added based on weighted averaging. i.e. they get "pulled" toward BB species in proportion to their (relative) abundance (i.e. visitation rate) for each species. 
+
+## 1.1 Ordination by species with post-hoc fitting of tongue length  
+### Script
+```{r message=FALSE, warning=FALSE, echo = FALSE}
+# By plant.sp
+niche.tax <- niche_analysis(net, bb_traits, criterion = plant.sp.abb)
+niche.tax.plot <- niche.tax$pcoa.plot[[1]]
+
+# By ktype
+niche.morph <- niche_analysis(net, bb_traits, criterion = k.type.s)
+niche.morph.plot <- niche.morph$pcoa.plot[[1]]
+
+## Taxonomic and morphological together
+pdf("../analyses/output/niche_pcoa.pdf", height = 8.5, width = 11)
+(niche.tax.plot + ggtitle("Taxonomic") | niche.morph.plot + ggtitle("Morphological")) + plot_layout(guides = 'collect') 
+dev.off()
+```
+
+### Results
+
+In parentheses following the initial mention of each MDS axis, the variance explained is shown for the taxonomic (T:) and morphological (M:) ordinations.  
+
+1. MDS1 (T:48%, M:86%) separates long-tongued from short--tongued species. This mirrors the findings of Goulson et al. (2008). MDS2 (T:27%, M:12%) mainly accounts for the divergent foraging behavior of *B. sensu-stricto*. I wonder if this has been described before? A caveat to the interpretation of this pattern, though, is that *B. sensu-stricto* exhibited some weird temporal abundance patterns, particularly in 2012. It's possible that this biased its foraging in a way that could account for some of its apparent deviance. 
+
+2. LT species cluster around the lip flowers *Salvia glutinosa* and *Rhinanthus glacialis* (Kugler 5.1) and the flag flower *Anthyllis vulneraria* (Kugler 6.1). ST species *B. soroensis* and *B. pratorum* cluster around the bell flower *Campanula scheuchzeri* (Kugler 3.2) and flower heads *Carduus defloratus* and *Centaurea jacea* (Kugler 7.2). The short-tongued *B. sensu-stricto* seems to be especially associated with the bell flower *Erica carnea* (Kugler 3.1), which scores near 0 on MDS1 (i.e. not accounting for the separation of tongue-legnth guilds) but strongly negative on MDS2, mirroring the scoring *B. sensu-stricto*. The lip flower *Stachys alopecuros* (Kugler 5.1) also scores near 0 on MDS1 but high on MDS2, and together with *Erica carnea* seems to contribute to the separation of *B. sensu-strictu* from the other species of both tongue classes.
+
+## 1.2 Ordination by species with post-hoc fitting of tongue length, broken down by elevation class
+### Script
+```{r message=FALSE, warning=FALSE, echo = FALSE}
+# Taxonomic
+niche_x_elev.tax <- niche_analysis(net, bb_traits, criterion = plant.sp.abb, elev.class)
+
+## Extract and name plots
+niche_oben.tax.plot <- filter(niche_x_elev.tax, elev.class == "oben")$pcoa.plot[[1]] + ggtitle("Oben/Tax")
+niche_mitte.tax.plot <- filter(niche_x_elev.tax, elev.class == "mitte")$pcoa.plot[[1]] + ggtitle("Mitte/Tax")
+niche_unten.tax.plot <- filter(niche_x_elev.tax, elev.class == "unten")$pcoa.plot[[1]] + ggtitle("Unten/Tax")
+
+# Morphological
+niche_x_elev.morph <- niche_analysis(net, bb_traits, criterion = k.type.s, elev.class)
+
+## Extract and name plots
+niche_oben.morph.plot <- filter(niche_x_elev.morph, elev.class == "oben")$pcoa.plot[[1]] + ggtitle("Oben/morph")
+niche_mitte.morph.plot <- filter(niche_x_elev.morph, elev.class == "mitte")$pcoa.plot[[1]] + ggtitle("Mitte/morph")
+niche_unten.morph.plot <- filter(niche_x_elev.morph, elev.class == "unten")$pcoa.plot[[1]] + ggtitle("Unten/morph")
+
+## Display plots on grid
+pdf("../analyses/output/niche_x_elev_pcoa.pdf", height = 8.5, width = 11)
+(niche_oben.tax.plot | niche_oben.morph.plot) /
+(niche_mitte.tax.plot | niche_mitte.morph.plot) /
+(niche_unten.tax.plot | niche_unten.morph.plot) + plot_layout(guides = 'collect') 
+dev.off()
+```
+
+### Results  
+1. At low elevation, MDS1 (T:63%, M:64%) does *not* clearly separate LT from ST species; instead, it seems to be driven by the strong association between *B. soroensis* and the flower head *Centaurea jacea* (Kugler 7.2), which score high on MDS1. MDS2 (T:34%. M:35%) seems to be driven by the associated of *B. pratorum* and *B. hortorum* with the stalk-disc flower *Primula elatior* (Kugler 4.1). In general, though, the BB species at low elevation do not seem to cluster into clear groups. 
+
+2. At mid elevation, MDS1 (T:48%, M:79%) seems to be strongly driven by tongue-length. LT species are associated with the lip flowers *Salvia glutinosa* and *Rhinanthus glacialis* (Kugler 5.1) and the flag flower *Anthyllis vulneraria* (Kugler 6.1). ST species are associated with the flower head *Centaurea jacea* (Kugler 7.2). MDS2 (T:25%, M:16%) seems to be driven by the divergent foraging of *B. sensu-stricto*, particularly its association with the bell flower *Erica carnea* (Kugler 3.1), though *E. carnea* plots centrally because it was also visited by other BB species.
+
+3. At high elevation, MDS1(T:52%, M:79%) again separates LT and ST species (though not as strongly as at mid elevation) while MDS2 (T:38%, M:18%) separates *B. sensu-stricto*. In this case, though, *B. sensu-stricto* seems to be especially associated with the disk flower *Helianthemum nummularium* (Kugler 1.1). LT species are associated with the lip flower *Stachys alopecuros* (Kugler 5.1) and the flag flower *Anthyllis vulneraria* (Kugler 6.1), while the ST species *B. pratorum* and *B. soroensis* are associated with the bell flower *Campanula scheuchzeri* (Kugler 3.2) and flower head *Carduus defloratus* (Kugler 7.2).
+
+
+## 1.3 Ordination by BB species * elev.class * period, pooling across years
+### Script
+```{r message=FALSE, warning=FALSE, echo = FALSE}
+# Taxonomic
+niche_x_elevperiod.tax <- niche_analysis(net, bb_traits, criterion = plant.sp.abb, elev.class, period)
+
+## Extract and name plots
+niche_oben_early.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "oben" & period == "early")$pcoa.plot[[1]] +
+  ggtitle("Oben/Early/Tax")
+niche_oben_mid.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "oben" & period == "mid")$pcoa.plot[[1]] +
+  ggtitle("Oben/Mid/Tax")
+niche_oben_late.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "oben" & period == "late")$pcoa.plot[[1]] +
+  ggtitle("Oben/Late/Tax")
+
+niche_mitte_early.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "mitte" & period == "early")$pcoa.plot[[1]] +
+  ggtitle("Mitte/Early/Tax")
+niche_mitte_mid.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "mitte" & period == "mid")$pcoa.plot[[1]] +
+  ggtitle("Mitte/Mid/Tax")
+niche_mitte_late.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "mitte" & period == "late")$pcoa.plot[[1]] +
+  ggtitle("Mitte/Late/Tax")
+
+niche_unten_early.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "unten" & period == "early")$pcoa.plot[[1]] +
+  ggtitle("Unten/Early/Tax")
+niche_unten_mid.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "unten" & period == "mid")$pcoa.plot[[1]] +
+  ggtitle("Unten/Mid/Tax")
+niche_unten_late.tax.plot <- filter(niche_x_elevperiod.tax, elev.class == "unten" & period == "late")$pcoa.plot[[1]] +
+  ggtitle("Unten/Late/Tax")
+
+# Morphological
+niche_x_elevperiod.morph <- niche_analysis(net, bb_traits, criterion = k.type.s, elev.class, period)
+
+## Extract and name plots
+niche_oben_early.morph.plot <- filter(niche_x_elevperiod.morph, elev.class == "oben" & period == "early")$pcoa.plot[[1]] +
+  ggtitle("Oben/Early/Morph")
+niche_oben_mid.morph.plot <- filter(niche_x_elevperiod.morph, elev.class == "oben" & period == "mid")$pcoa.plot[[1]] +
+  ggtitle("Oben/Mid/Morph")
+niche_oben_late.morph.plot <- filter(niche_x_elevperiod.morph, elev.class == "oben" & period == "late")$pcoa.plot[[1]] +
+  ggtitle("Oben/Late/Morph")
+
+niche_mitte_early.morph.plot <- filter(niche_x_elevperiod.morph, elev.class == "mitte" & period == "early")$pcoa.plot[[1]] +
+  ggtitle("Mitte/Early/Morph")
+niche_mitte_mid.morph.plot <- filter(niche_x_elevperiod.morph, elev.class == "mitte" & period == "mid")$pcoa.plot[[1]] +
+  ggtitle("Mitte/Mid/Morph")
+niche_mitte_late.morph.plot <- filter(niche_x_elevperiod.morph, elev.class == "mitte" & period == "late")$pcoa.plot[[1]] +
+  ggtitle("Mitte/Late/Morph")
+
+niche_unten_early.morph.plot <- filter(niche_x_elevperiod.morph, elev.class == "unten" & period == "early")$pcoa.plot[[1]] +
+  ggtitle("Unten/Early/Morph")
+niche_unten_mid.morph.plot <- filter(niche_x_elevperiod.morph, elev.class == "unten" & period == "mid")$pcoa.plot[[1]] +
+  ggtitle("Unten/Mid/Morph")
+niche_unten_late.morph.plot <- filter(niche_x_elevperiod.morph, elev.class == "unten" & period == "late")$pcoa.plot[[1]] +
+  ggtitle("Unten/Late/Morph")
+
+## Display plots on grid
+#pdf("../analyses/output/niche_x_elevperiod_pcoa_tax.pdf", height = 8.5, width = 11)
+(niche_oben_early.tax.plot | niche_oben_mid.tax.plot  | niche_oben_late.tax.plot) /
+(niche_mitte_early.tax.plot | niche_mitte_mid.tax.plot | niche_mitte_late.tax.plot) /
+(niche_unten_early.tax.plot | niche_unten_mid.tax.plot  | niche_unten_late.tax.plot)  + plot_layout(guides = 'collect') 
+#dev.off()
+
+#pdf("../analyses/output/niche_x_elevperiod_pcoa_morph.pdf", height = 8.5, width = 11)
+(niche_oben_early.morph.plot | niche_oben_mid.morph.plot  | niche_oben_late.morph.plot) /
+(niche_mitte_early.morph.plot | niche_mitte_mid.morph.plot | niche_mitte_late.morph.plot) /
+(niche_unten_early.morph.plot | niche_unten_mid.morph.plot  | niche_unten_late.morph.plot)  + plot_layout(guides = 'collect') 
+#dev.off()
+```
+
+### Results
+
+This is probably the most interpretable analysis. One thing I like about it is how it reveals important floral species that didn't score highly in the aggregate analysis. But there is also a lot to say.
+
+1. *Low elevation*: The most salient pattern is a lack of one -- tongue length does not seem to be important at low elevation *until late in the season*, when all the short ST bees agree that *Centaurea jacea* is the only game in town. 
+
+  - *Early*: MDS1 (T:98%, M:97%) dominates the ordination and mainly separates *B. soroensis*, associated with the bell flower *Geum rivale* (Kugler 3.2) from the other BB species, associated with the stalk-disc flower *Primula elatior* (Kugler 4.1). MDS2 (T:2%, M:2%) accounted  for almost no variation.
+  
+  - *Mid*: MDS1 (T:90%, M:94%) again dominates the ordination, apparently representing a gradient of association ranging from the lip flower *Rhinanthus alectorolophus* (Kugler 5.1) and the flag blossom *Trifolium pratense* (Kugler 6.1) on the  low end of the axis to the flower head *Knautia arvensis* (Kugler 7.1). BB species are spread fairly evenly along this gradient, with *B. sensu-stricto* and *B. wurflenii* leaning hardest in the *Rhinanthus/Trifolium* direction and *B. pratorum* and *B. pascuorum* leaning hardest in the *Knautia* direction. Interestingly, the little variance MDS2 (T:9%, M:6%) explains seems to be associated with tongue length, though because MDS2 accounts for so little variance, we must conclude that tongue length is of little importance in structuring the visitation network in this elevation-time slice. 
+  
+  - *Late*: MDS1 (T:51%, M:70%) mainly separates *B. wurflenii* from the rest of the BB species, apparently due to its strong association with the flag blossom *Lotus corniculatus* (Kugler 6.1) and the funnel flower *Gentiana aspera* (Kugler 2.1). MDS2 (T:41%, M:27%), which matters again, seems to separate LT ans ST species, though the pattern is not so much one of separation as of dispersion. All the ST species are huddled tightly around the flower head *Centaurea jacea* (Kugler 7.2), while the LT species are rather spread out, with *B. wurflenii* as described, *B. hortorum* expressing a distinct taste for the lip flower *Stachys officinalis* (Kugler 5.1), and *B. pascuorum* middling as usual. 
+  
+2. *Mid elevation*:
+
+  - *Early*: MDS1 (T:52%, M:68%) is clearly the tongue-length axis. ST species are all clustered around the bell flower *Erica carnea* (Kugler 3.1), while the LT species are more spread out, with *B. wurflenii* committed to the flag blossom *Polygala chamaebuxus*, *B. hortorum* more interested in the stalk-disk flower *Gentiana verna* (Kugler 4.1), and *B. pascuorum* falls in between (though a lot closer to *B. wurflenii*), evidentally pulled a bit toward the the stalk-disc flower *Primula elatior* (Kugler 4.1). MDS2 (T:32%, M:29%) seems to be driven strongly by *B. hortorum* divergence from the other two LT species.
+  
+  - *Mid*: MDS1 (T:49%, M:68%) separates *B. soroensis* and *B. pratorum* from the other BB species. The former are associated with the flower head *Phyteuma orbiculare* (Kugler 7.1) and the bell flower *Geum rivale* (Kugler 3.2). The latter consist of a fairly tight cluster of *B. hortorum*, *B. pascuorum*, and *B. wurflenii* around the flag flowers *Anthyllis vulneraria* and *Lotus corniculatus* (Kugler 6.1) and the lip flower *Ajuga reptans* (Kugler 5.1). MDS2 (T:26%, M:17%), together with MDS1, accounts for the uniqueness of *B. sensu-strictu* foraging, with that species plotting both very low on MDS1 and very high on MDS2. Interestingly, none of the plant species plot close to it, so it must exceptional not because it forages on something unique but because it forages a little bit on everything. That's the  only explanation I can come up with, anyway, for why the weighted-average plotting pulls plants away from *B. sensu-stricto*. The apparent exceptionality of *B. sensu-stricto* is a theme in this analysis.
+  
+  - *Late*: MDS1 (T:67%, M:98%) sort of separates LT and ST species, except that *B. pratorum* and *B. pascuorum* fall close to each other on this axis (but are separated widely on MDS2). The LT species are fairly well-clustered around the funnel flower *Gentiana aspera* (Kugler 2.1), the lip flowers *Salvia glutinosa* and *Rhinanthus glacialis*. The ST species are spreadwidely along MDS2(T:18%, M:1%), with *B. sensu-stricto* and *B. pratorum* associated with the lip flower *Origanum vulgare* and *B. soroensis* (Kugler 5.1) favoring the flower head *Centaurea jacea* (Kugler 7.2). 
+  
+3. *High elevation*:
+  - *Early*: MDS1 (T:54%, M:74%) is sort of tongue-length axis, but not perfectly, again because *B. sensu-stricto* is so abberant. In general, the species are fairly widespread with distincntfloral associations -- consistent with the observed decline in overall niche overlap at high elevation -- with the exception of *B. soroensis* and *B. pratorum*, which cluster tightly around the bell flower *Rhododendron hirsutum* (Kugler 3.1). *B. hortorum* likes the flag flower *Anthyllis vulneraria* (Kugler 6.1), *B. wurflenii* like the flag flower *Lotus corniculatus* (Kugler 6.1), *B. pascuorum* (middling as usual) seems to be associated with both the flag flower *Trifolium pratense* (Kugler 6.1) and the bell flower *Rhododendron hirsutum* (Kugler 3.1), and *B. sensu-stricto* seems slightly partial to disk flower *Trollius europaeus* (Kugler 1.2), though again its position suggests that it is exceptional in its generalism. MDS2 (T:28%, M:23%) is mostly about accounting for the deviance of *B. sensu-stricto*. 
+  
+  - *Mid*: By mid-season at high elevation, the LT species are tightly clustered with each other and associated with the flag blossom *Trifolium pratense* (Kugler 6.1) and the lip flower *Stachys alopecuros* (Kugler 5.1). The ST species are widely spread, with *B. soroensis* and *B. pratorum* suggetsing some affinity for the flower head *Carduus defloratus* (Kugler 7.2) and the bell flower *Campanula scheuchzeri* (Kugler 3.2). *B. pratorum* plots similarly close to *T. pratense*. Again, *B. sensu-stricto* is off on its own with no defining floral association. MDS1 (T:64%, M:91%), MDS2(T:35%, M:9%).
+  
+  - *Late*: Finally, late in the season at high elevation, LT and ST species are separated diagonally with respect to MDS1 (T:75%, M:79%) and MDS2(T:20%, M:18%), with LT species falling high on one or both axes and ST species falling low on one or both axes. LT species are loosely associated with the flag blossom *Trifolium pratense* (Kugler 6.1), the funnel flowers *Gentiana asclepiadea* and congener *Gentiana aspera* (Kugler 2.1) and the flower head **(unusual for LT to be associated with flower head!)** *Carlina acaulus* (Kugler 7.2). *B. soroensis* and *B. pratorum* are associated with the flower heads *Carduus defloratus* (Kugler 7.2) and *Scabiosa lucida* (Kugler 7.1) and the bell flower *Campanula scheuchzeri* (Kugler 3.2). *B. sensu-stricto*, ever off on its own, was most closely associated with the lip flower *Thymus pulegioides* (Kugler 5.1).  
+
+## 1.4 A follow up to the question of diet breadth in long- vs. short-tongued BB species
+The question is which guild -- long-tongued or short-tongued species -- uses greater proportion of available floral species. We will keep this really, really simple, and calculate the normalized degree for each guild. That is just the number of floral species visited divided by the total number of floral species in the network. It ranges between 0 and 1, and 0 and 1 mean exactly what you would expect them to mean. I guess we'll go ahead and calculate the raw degree, too, just so that we can see the absolute diet breadth.
+
+For starters, I'm going to use diet_breit2, which does not parse by period.
+
+**This dovetails with Goulson's hypothesis that long-tongued bees are more specialized than short-tongued bees.** I can test this. 
+
+### Script
+```{r}
+# Calculate die breadth metrics
+diet_breadth.tax <- diet_breit2(net, bb_traits, site_data, criterion = plant.sp,
+                               indices = c("degree", "normalised degree")) %>%
+  mutate(normalised.degree.abundnorm = normalised.degree/abund,
+         normalised.degree.propnorm = normalised.degree/prop,
+         degree.abundnorm = degree/abund,
+         degree.propnorm = degree/prop) 
+
+diet_breadth.morph <- diet_breit2(net, bb_traits, site_data, criterion = k.type.s,
+                               indices = c("degree", "normalised degree")) %>%
+  mutate(normalised.degree.abundnorm = normalised.degree/abund,
+         normalised.degree.propnorm = normalised.degree/prop,
+         degree.abundnorm = degree/abund,
+         degree.propnorm = degree/prop) 
+
+# Relative diet breadth ~ elevation
+ggplot(diet_breadth.tax, aes(elev.mean, normalised.degree, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+ggplot(diet_breadth.morph, aes(elev.mean, normalised.degree, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+# Absolute diet breadth ~ elevation
+ggplot(diet_breadth.tax, aes(elev.mean, degree, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+ggplot(diet_breadth.morph, aes(elev.mean, degree, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+# Relative diet breadth / abundance
+ggplot(diet_breadth.tax, aes(elev.mean, normalised.degree.abundnorm, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+ggplot(diet_breadth.morph, aes(elev.mean, normalised.degree.abundnorm, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+# Relative diet breadth / proportional abundance
+ggplot(diet_breadth.tax, aes(elev.mean, normalised.degree.propnorm, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) 
+
+ggplot(diet_breadth.morph, aes(elev.mean, normalised.degree.propnorm, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) 
+
+# Absolute diet breadth / abundance
+ggplot(diet_breadth.tax, aes(elev.mean, degree.abundnorm, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+ggplot(diet_breadth.morph, aes(elev.mean, degree.abundnorm, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+# Absolute diet breadth / proportional abundance
+ggplot(diet_breadth.tax, aes(elev.mean, degree.propnorm, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) 
+
+ggplot(diet_breadth.morph, aes(elev.mean, degree.propnorm, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) 
+
+# BB abundance ~ elevation
+ggplot(diet_breadth.tax, aes(elev.mean, abund, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) 
+
+# BB proportional abundance ~ elevation
+ggplot(diet_breadth.tax, aes(elev.mean, prop, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) 
+
+# Absolute diet breadth ~ abundance
+ggplot(diet_breadth.tax, aes(abund, degree, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+# Relative diet breadth ~ abundance
+ggplot(diet_breadth.tax, aes(abund, normalised.degree, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+# Relative diet breadth ~ proportional abundance
+ggplot(diet_breadth.tax, aes(prop, normalised.degree, color = pbl.fac)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+### Results
+In a nutshell, proportional diet breadth is extremely tightly correlated with proportional anbundance. The story here is that LT species are more abundant than ST species at lower elevations, and ST species are more abundant than LT species at higher elevations. This relationship is strong and basically linear, with the relative abundances "crossing" at   
+
+## 1.5 Another follow-up. How does the morphological composition of the plant community change with elevation? 
+To make the graphs readable, we'll simplify Kugler classes to integers.
+
+### Script
+```{r}
+# Define periods based on the network data
+periods <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
+  group_by(elev.class) %>%
+  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+  ungroup() %>%
+  select(site, date, period) %>%
+  distinct()
+
+
+# Calculate the absolute and relative abundance of each Kugler class ~ site * period
+
+## Floral survey (constrained to visited species)
+survey_morph_abund <- survey %>%
+  left_join(periods) %>%
+  fill(period, .direction = "downup") %>%
+  mutate(k.type.ss = factor(k.type.ss)) %>%
+  group_by(site, period, k.type.ss) %>%
+  summarize(abund = sum(flower.cover)) %>%
+  group_by(site, period) %>%
+  mutate(prop = abund/sum(abund)) %>%
+  left_join(site_data)
+
+## Visitation network
+### Aggregate
+visitation_morph_abund <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
+  group_by(elev.class) %>%
+  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+  mutate(k.type.ss = factor(k.type.ss)) %>%
+  group_by(site, period, k.type.ss) %>%
+  summarize(abund = n()) %>%
+  group_by(site, period) %>%
+  mutate(prop = abund/sum(abund)) %>%
+  left_join(site_data)
+
+### By BB species
+visitation_morph_abund.sp <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
+  group_by(elev.class) %>%
+  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+  mutate(k.type.ss = factor(k.type.ss)) %>%
+  group_by(site, period, k.type.ss, bb.sp) %>%
+  summarize(abund = n()) %>%
+  group_by(site, period, bb.sp) %>%
+  mutate(prop = abund/sum(abund)) %>%
+  left_join(site_data)
+
+### Taxonomic by BB species
+visitation_tax_abund.sp <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
+  group_by(elev.class) %>%
+  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+  mutate(k.type.ss = factor(k.type.ss),
+         bb.sp = factor(bb.sp, levels = c("hort", "pasc", "wurf", "bss", "prat", "soro"))) %>%
+  group_by(period, elev.class, plant.genus, k.type.ss, plant.family, bb.sp) %>%
+  summarize(abund = n()) %>%
+  group_by(elev.class, period, bb.sp) %>%
+  mutate(prop = abund/sum(abund)) %>%
+  arrange(elev.class, period, bb.sp, -prop) 
+
+# Morphological composition ~ elevation (survey)
+## Relative abundance
+ggplot(survey_morph_abund, aes(factor(elev.mean), prop, fill = k.type.ss)) +
+  geom_col() +
+  facet_wrap(~period)
+
+## Absolute abundance
+ggplot(survey_morph_abund, aes(factor(elev.mean), abund, fill = k.type.ss)) +
+  geom_col() +
+  facet_wrap(~period)
+
+# Morphological composition ~ elevation (visitation)
+## Relative abundance 
+ggplot(visitation_morph_abund, aes(factor(elev.mean), prop, fill = k.type.ss)) +
+  geom_col() +
+  facet_wrap(~period)
+
+## Relative abundance ~ species
+ggplot(visitation_morph_abund.sp, aes(factor(elev.mean), prop, fill = k.type.ss)) +
+  geom_col() +
+  facet_grid(bb.sp ~ period)
+
+## Absolute abundance ~ species
+ggplot(visitation_morph_abund.sp, aes(factor(elev.mean), abund, fill = k.type.ss)) +
+  geom_col() +
+  facet_grid(bb.sp ~ period)
+
+
+## Relative abundance ~ species
+ggplot(filter(visitation_tax_abund.sp, period == "early"), aes(factor(elev.mean), prop, fill = names)) +
+  geom_col() +
+  facet_wrap(~bb.sp)
+
+ggplot(filter(visitation_tax_abund.sp, period == "mid"), aes(factor(elev.mean), prop, fill = names)) +
+  geom_col() +
+  facet_wrap(~bb.sp)
+
+ggplot(filter(visitation_tax_abund.sp, period == "late"), aes(factor(elev.mean), prop, fill = names)) +
+  geom_col() +
+  facet_wrap(~bb.sp)
+
+## Absolute abundance ~ species
+ggplot(visitation_tax_abund.sp, aes(factor(elev.mean), abund, fill = names)) +
+  geom_col() +
+  facet_grid(bb.sp ~ period)
+```
+
+### Results
+
+## 1.6 Tree plots
+This visualization deserves to be pulled out as a stand-alone chunk. It's so good.
+```{r}
+### Visitation by BB species, parsed by elev.class and period
+visitation_abund.sp <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
+  group_by(elev.class) %>%
+  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+  mutate(k.type.ss = factor(k.type.ss),
+         bb.sp = factor(bb.sp, levels = c("hort", "pasc", "wurf", "bss", "prat", "soro"))) %>%
+  group_by(period, elev.class, plant.genus, k.type.ss, plant.family, bb.sp) %>%
+  summarize(abund = n()) %>%
+  group_by(elev.class, period, bb.sp) %>%
+  mutate(prop = abund/sum(abund)) %>%
+  arrange(elev.class, period, bb.sp, -prop) 
+
+# Color palette
+cols = c("0" = "gray60", "1" = "#8DD3C7", "2" = "#FFFFB3", "3" = "#BEBADA",
+         "4" = "#FB8072", "5" = "#80B1D3", "6" = "#FDB462", "7" = "#B3DE69",
+         "8" = "#FCCDE5", "9" = "#D9D9D9")
+
+# Early
+ggplot(filter(visitation_abund.sp, period == "early"), 
+       aes(area = prop, fill = k.type.ss, label = plant.genus)) +
+  geom_treemap(color = "black") +
+  geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
+  scale_fill_manual(values = cols) + 
+  facet_grid(fct_rev(elev.class)~bb.sp)
+
+# Mid
+ggplot(filter(visitation_abund.sp, period == "mid"), 
+       aes(area = prop, fill = k.type.ss, label = plant.genus)) +
+  geom_treemap(color = "black") +
+  geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
+  scale_fill_manual(values = cols) + 
+  facet_grid(fct_rev(elev.class)~bb.sp)
+
+# Late
+ggplot(filter(visitation_abund.sp, period == "late"), 
+       aes(area = prop, fill = k.type.ss, label = plant.genus)) +
+  geom_treemap(color = "black") +
+  geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
+  scale_fill_manual(values = cols) + 
+  facet_grid(fct_rev(elev.class)~bb.sp)
+
+```
+
+## 1.7 How do abundant generalist bumble bees deal with a dynamic floral community? Based on the ordination analysis, it looks like they maintain fairly steady morphological preferences, but they are taxonomically flexible. Let's take a closer look at that.
+
+A question to consider is whether the shallower slope of morphological turnover is caused by the "reluctance" of BBs to switch morphotypes or lag in the floristic turnover of morphotypes relative to species. Morphotypes might be less "sensitive" than species to elevational change, so you first get species turnover within morphotypes, then with enough elevational chnage you start to see the morphotypes turning over. **I can freaking test this with my floral survey data!**
+
+### Aggregate analysis
+```{r}
+## Binary
+### Taxonomic
+#### BB species
+beta.tax.sp.bin <- beta_func(net, traits = bb_traits, sitedata = site_data, level = bb.sp, 
+                             criterion = plant.sp, binary = TRUE) %>%
+  mutate(criterion = rep("tax", n()))
+
+#### Tongnue length guild
+beta.tax.guild.bin <- beta_func(net, traits = bb_traits, sitedata = site_data, level = pbl.fac,
+                                criterion = plant.sp, binary = TRUE) %>%
+  mutate(criterion = rep("tax", n()))
+
+#### Plants
+betaFL_tax.bin <- beta_func_fl(survey, sitedata = site_data, criterion = plant.sp, binary = TRUE) %>%
+  mutate(criterion = rep("tax", n()))
+
+### Morphological
+#### BB species
+beta.morph.sp.bin <- beta_func(net, traits = bb_traits, sitedata = site_data, level = bb.sp,
+                               criterion = k.type.s, binary = TRUE) %>%
+  mutate(criterion = rep("morph", n()))
+
+#### Tongue length guild
+beta.morph.guild.bin <- beta_func(net, traits = bb_traits, sitedata = site_data, level = pbl.fac,
+                                  criterion = k.type.s, binary = TRUE) %>%
+  mutate(criterion = rep("morph", n()))
+
+#### Plants
+betaFL_morph.bin <- beta_func_fl(survey, sitedata = site_data, criterion = k.type.s, binary = TRUE) %>%
+  mutate(criterion = rep("morph", n()))
+
+#### Collated
+beta.guild.bin <- bind_rows(beta.tax.guild.bin, beta.morph.guild.bin)
+beta.sp.bin <- bind_rows(beta.tax.sp.bin, beta.morph.sp.bin)
+beta.fl.bin <- bind_rows(betaFL_tax.bin, betaFL_morph.bin)
+
+## Not binary (i.e. abundance-weighted)
+### Taxonomic
+#### BB species
+beta.tax.sp.wt <- beta_func(net,  traits = bb_traits, sitedata = site_data, level = bb.sp,
+                         criterion = plant.sp, binary = FALSE) %>%
+  mutate(criterion = rep("tax", n()))
+
+beta.tax.guild.wt <- beta_func(net,  traits = bb_traits, sitedata = site_data, level = pbl.fac,
+                            criterion = plant.sp, binary = FALSE) %>%
+  mutate(criterion = rep("tax", n()))
+
+beta.morph.sp.wt <- beta_func(net,  traits = bb_traits, sitedata = site_data, level = bb.sp,
+                           criterion = k.type.s, binary = FALSE) %>%
+  mutate(criterion = rep("morph", n()))
+
+beta.morph.guild.wt <- beta_func(net,  traits = bb_traits, sitedata = site_data, level = pbl.fac, 
+                              criterion = k.type.s, binary = FALSE) %>%
+  mutate(criterion = rep("morph", n()))
+
+beta.sp.wt <- bind_rows(beta.tax.sp.wt, beta.morph.sp.wt)
+beta.guild.wt <- bind_rows(beta.tax.guild.wt, beta.morph.guild.wt)
+
+#### Plants
+betaFL_tax.wt <- beta_func_fl(survey, sitedata = site_data, criterion = plant.sp, binary = FALSE) %>%
+  mutate(criterion = rep("tax", n()))
+betaFL_morph.wt <- beta_func_fl(survey, sitedata = site_data, criterion = k.type.s, binary = FALSE) %>%
+  mutate(criterion = rep("morph", n()))
+beta.fl.wt <- bind_rows(betaFL_tax.wt, betaFL_morph.wt)
+
+# Pull out ADONIS results
+## Binary
+beta.tax.sp.adonis.bin <- beta.tax.sp.bin %>%
+  select(bb.sp, adonis.r2, adonis.p) %>%
+  distinct()
+
+beta.morph.sp.adonis.bin <- beta.morph.sp.bin %>%
+  select(bb.sp, adonis.r2, adonis.p) %>%
+  distinct()
+
+beta.tax.guild.adonis.bin <- beta.tax.guild.bin %>%
+  select(pbl.fac, adonis.r2, adonis.p) %>%
+  distinct()
+
+beta.morph.guild.adonis.bin <- beta.morph.guild.bin %>%
+  select(pbl.fac, adonis.r2, adonis.p) %>%
+  distinct()
+
+## Not binary
+beta.tax.sp.adonis <- beta.tax.sp.wt %>%
+  select(bb.sp, adonis.r2, adonis.p) %>%
+  distinct()
+
+beta.morph.sp.adonis <- beta.morph.sp.wt %>%
+  select(bb.sp, adonis.r2, adonis.p) %>%
+  distinct()
+
+beta.tax.guild.adonis <- beta.tax.guild.wt %>%
+  select(pbl.fac, adonis.r2, adonis.p) %>%
+  distinct()
+
+beta.morph.guild.adonis <- beta.morph.guild.wt %>%
+  select(pbl.fac, adonis.r2, adonis.p) %>%
+  distinct()
+
+# Plot
+## Binary
+beta.sp.plot.bin <- ggplot(beta.sp.bin, aes(elev.diff, distance, color = criterion)) +
+  geom_point(alpha = 0.05) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = FALSE) +
+  facet_wrap(~bb.sp) + 
+  ggtitle("Species")
+
+beta.guild.plot.bin <- ggplot(beta.guild.bin, aes(elev.diff, distance, color = criterion)) +
+  geom_point(alpha = 0.05) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = FALSE) +
+  facet_wrap(~pbl.fac) + 
+  ggtitle("Tongue guild")
+
+(beta.sp.plot.bin | beta.guild.plot.bin) + plot_layout(guides = 'collect')
+
+## Not binary
+beta.sp.plot.wt <- ggplot(beta.sp.wt, aes(elev.diff, distance, color = criterion)) +
+  geom_point(alpha = 0.05) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = FALSE) +
+  facet_wrap(~bb.sp) + 
+  ggtitle("Species")
+
+beta.guild.plot.wt <- ggplot(beta.guild.wt, aes(elev.diff, distance, color = criterion)) +
+  geom_point(alpha = 0.125) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = FALSE) +
+  facet_wrap(~pbl.fac) + 
+  ggtitle("Tongue guild")
+
+(beta.sp.plot.wt | beta.guild.plot.wt) + plot_layout(guides = 'collect')
+
+# Plants
+ggplot(beta.fl.bin, aes(elev.diff, distance, color = criterion)) +
+  geom_point(alpha = 0.125) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = FALSE) 
+
+ggplot(beta.fl.wt, aes(elev.diff, distance, color = criterion)) +
+  geom_point(alpha = 0.125) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = FALSE) 
+
+# Plotting visitation beta-diversity with floral survey beta-diversity
+
+beta.sp.plot.bin2 <- ggplot(beta.sp.bin, aes(elev.diff, distance, color = criterion)) +
+  #geom_point(alpha = 0.05) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = TRUE) +
+  geom_smooth(inherit.aes = FALSE, data = beta.fl.wt, 
+              aes(elev.diff, distance, color = criterion), 
+              linetype = "dashed", se = TRUE,
+              method = "gam", formula = y ~ s(x, k = 4)) +
+  facet_wrap(~bb.sp) + 
+  ggtitle("Species") +
+  theme_light()
+
+beta.guild.plot.bin2 <- ggplot(beta.guild.bin, aes(elev.diff, distance, color = criterion)) +
+  #geom_point(alpha = 0.125) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = TRUE) +
+  geom_smooth(inherit.aes = FALSE, data = beta.fl.wt, 
+              aes(elev.diff, distance, color = criterion), 
+              linetype = "dashed", se = TRUE,
+              method = "gam", formula = y ~ s(x, k = 4)) +
+  facet_wrap(~pbl.fac) + 
+  ggtitle("Tongue guild") +
+  theme_light()
+
+(beta.sp.plot.bin2 | beta.guild.plot.bin2) + plot_layout(guides = 'collect')
+
+beta.sp.plot.wt2 <- ggplot(beta.sp.wt, aes(elev.diff, distance, color = criterion)) +
+  #geom_point(alpha = 0.05) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = TRUE) +
+  geom_smooth(inherit.aes = FALSE, data = beta.fl.wt, 
+              aes(elev.diff, distance, color = criterion), 
+              linetype = "dashed", se = TRUE,
+              method = "gam", formula = y ~ s(x, k = 4)) +
+  facet_wrap(~bb.sp) + 
+  ggtitle("Species") +
+  theme_light()
+
+beta.guild.plot.wt2 <- ggplot(beta.guild.wt, aes(elev.diff, distance, color = criterion)) +
+  #geom_point(alpha = 0.125) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = TRUE) +
+  geom_smooth(inherit.aes = FALSE, data = beta.fl.wt, 
+              aes(elev.diff, distance, color = criterion), 
+              linetype = "dashed", se = TRUE,
+              method = "gam", formula = y ~ s(x, k = 4)) +
+  facet_wrap(~pbl.fac) + 
+  ggtitle("Tongue guild") +
+  theme_light()
+
+(beta.sp.plot.wt2 | beta.guild.plot.wt2) + plot_layout(guides = 'collect')
+
+# Plotting visitation beta-diversity against floral survey beta-diversity
+beta.sp.bin2 <- beta.sp.bin %>%
+  full_join(beta.fl.bin, by = c("site1", "site2", "elev1", "elev2", "elev.diff")) %>%
+  rename(distance.vis = distance.x, distance.surv = distance.y, 
+         criterion.vis = criterion.x, criterion.surv = criterion.y)
+
+beta.guild.bin2 <- beta.guild.bin %>%
+  full_join(beta.fl.bin, by = c("site1", "site2", "elev1", "elev2", "elev.diff")) %>%
+  rename(distance.vis = distance.x, distance.surv = distance.y, 
+         criterion.vis = criterion.x, criterion.surv = criterion.y)
+
+beta.sp.wt2 <- beta.sp.wt %>%
+  full_join(beta.fl.wt, by = c("site1", "site2", "elev1", "elev2", "elev.diff")) %>%
+  rename(distance.vis = distance.x, distance.surv = distance.y, 
+         criterion.vis = criterion.x, criterion.surv = criterion.y)
+
+beta.guild.wt2 <- beta.guild.wt %>%
+  full_join(beta.fl.wt, by = c("site1", "site2", "elev1", "elev2", "elev.diff")) %>%
+  rename(distance.vis = distance.x, distance.surv = distance.y, 
+         criterion.vis = criterion.x, criterion.surv = criterion.y)
+
+ggplot(beta.sp.bin2, aes(distance.surv, distance.vis, color = criterion.vis)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  facet_wrap(~bb.sp)
+
+ggplot(beta.sp.wt2, aes(distance.surv, distance.vis, color = criterion.vis)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  facet_wrap(~bb.sp)
+
+ggplot(beta.guild.bin2, aes(distance.surv, distance.vis, color = criterion.vis)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  facet_wrap(~pbl.fac)
+
+ggplot(beta.guild.wt2, aes(distance.surv, distance.vis, color = criterion.vis)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  facet_wrap(~bb.guild)
+
+```
+
+### Parsed by period
+```{r}
+# Binary
+## Taxonomic
+### BB species
+beta_x_period.tax.sp.bin <- beta_func(net, traits = bb_traits, sitedata = site_data, level = bb.sp, criterion = plant.sp, 
+                                    binary = TRUE, period) %>%
+  mutate(criterion = rep("tax", n()))
+
+### Tongue length guild
+beta_x_period.tax.guild.bin <- beta_func(net, traits = bb_traits, sitedata = site_data, level = pbl.fac, criterion = plant.sp, 
+                                       binary = TRUE, period) %>%
+  mutate(criterion = rep("tax", n()))
+
+## Morphological
+### BB species
+beta_x_period.morph.sp.bin <- beta_func(net, traits = bb_traits, sitedata = site_data, level = bb.sp, criterion = k.type.s, 
+                                    binary = TRUE, period) %>%
+  mutate(criterion = rep("morph", n()))
+
+### Tongue length guild
+beta_x_period.morph.guild.bin <- beta_func(net, traits = bb_traits, sitedata = site_data, level = pbl.fac, criterion = k.type.s, 
+                                       binary = TRUE, period) %>%
+  mutate(criterion = rep("morph", n()))
+
+### Collated
+beta_x_period.sp.bin <- bind_rows(beta_x_period.tax.sp.bin, beta_x_period.morph.sp.bin)
+beta_x_period.guild.bin <- bind_rows(beta_x_period.tax.guild.bin, beta_x_period.morph.guild.bin)
+
+
+
+# Not binary
+## Taxonomic
+### BB species
+beta_x_period.tax.sp.wt <- beta_func(net, traits = bb_traits, sitedata = site_data, level = bb.sp, criterion = plant.sp, 
+                                    binary = FALSE, period) %>%
+  mutate(criterion = rep("tax", n()))
+
+### Tongue length guild
+beta_x_period.tax.guild.wt <- beta_func(net, traits = bb_traits, sitedata = site_data, level = pbl.fac, criterion = plant.sp, 
+                                       binary = FALSE, period) %>%
+  mutate(criterion = rep("tax", n()))
+
+## Morphological
+### BB species
+beta_x_period.morph.sp.wt <- beta_func(net, traits = bb_traits, sitedata = site_data, level = bb.sp, criterion = k.type.s, 
+                                    binary = FALSE, period) %>%
+  mutate(criterion = rep("morph", n()))
+
+### Tongue length guild
+beta_x_period.morph.guild.wt <- beta_func(net, traits = bb_traits, sitedata = site_data, level = pbl.fac, criterion = k.type.s, 
+                                       binary = FALSE, period) %>%
+  mutate(criterion = rep("morph", n()))
+
+### Collated
+beta_x_period.sp.wt <- bind_rows(beta_x_period.tax.sp.wt, beta_x_period.morph.sp.wt)
+beta_x_period.guild.wt <- bind_rows(beta_x_period.tax.guild.wt, beta_x_period.morph.guild.wt)
+
+
+# Pull out ADONIS results
+## Binary
+beta_x_period.tax.sp.adonis.bin <- beta_x_period.tax.sp.bin %>%
+  select(bb.sp, period, adonis.r2, adonis.p) %>%
+  distinct()
+
+beta_x_period.morph.sp.adonis.bin <- beta_x_period.morph.sp.bin %>%
+  select(bb.sp, period, adonis.r2, adonis.p) %>%
+  distinct()
+
+beta_x_period.tax.guild.adonis.bin <- beta_x_period.tax.guild.bin %>%
+  select(pbl.fac, period, adonis.r2, adonis.p) %>%
+  distinct()
+
+beta_x_period.morph.guild.adonis.bin <- beta_x_period.morph.guild.bin %>%
+  select(pbl.fac, period, adonis.r2, adonis.p) %>%
+  distinct()
+
+## Not binary
+beta_x_period.tax.sp.adonis <- beta_x_period.tax.sp.wt %>%
+  select(bb.sp, adonis.r2, adonis.p) %>%
+  distinct()
+
+beta_x_period.morph.sp.adonis <- beta_x_period.morph.sp.wt %>%
+  select(bb.sp, adonis.r2, adonis.p) %>%
+  distinct()
+
+beta_x_period.tax.guild.adonis <- beta_x_period.tax.guild.wt %>%
+  select(pbl.fac, adonis.r2, adonis.p) %>%
+  distinct()
+
+beta_x_period.morph.guild.adonis <- beta_x_period.morph.guild.wt %>%
+  select(pbl.fac, adonis.r2, adonis.p) %>%
+  distinct()
+
+# Plot
+## Binary
+beta_x_period.sp.plot.bin <- ggplot(beta_x_period.sp.bin, aes(elev.diff, distance, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = FALSE) +
+  facet_grid(bb.sp ~ period) + 
+  ggtitle("Species")
+
+beta_x_period.guild.plot.bin <- ggplot(beta_x_period.guild.bin, aes(elev.diff, distance, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = FALSE) +
+  facet_grid(pbl.fac ~ period) + 
+  ggtitle("Tongue guild")
+
+(beta_x_period.sp.plot.bin | beta_x_period.guild.plot.bin) + plot_layout(guides = 'collect')
+
+## Not binary
+beta_x_period.sp.plot.wt <- ggplot(beta_x_period.sp.wt, aes(elev.diff, distance, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = FALSE) +
+  facet_grid(bb.sp ~ period) + 
+  ggtitle("Species")
+
+beta_x_period.guild.plot.wt <- ggplot(beta_x_period.guild.wt, aes(elev.diff, distance, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), se = FALSE) +
+  facet_grid(pbl.fac ~ period) + 
+  ggtitle("Tongue guild")
+
+(beta_x_period.sp.plot.wt | beta_x_period.guild.plot.wt) + plot_layout(guides = 'collect')
+
+########## A different way to look at this
+ggplot(beta_x_period.guild.wt, aes(pbl.fac, distance, color = criterion)) +
+  geom_boxplot() +
+  facet_wrap( ~ period) 
+
+ggplot(beta_x_period.sp.wt, aes(bb.sp, distance, color = criterion)) +
+  geom_boxplot() +
+  facet_wrap( ~ period) 
+```
+
+## 1.8 Does the influence of tongue length on niche partitioning vary with elevation or time?
+```{r, echo = FALSE}
+# By plant.sp
+ggplot(niche_x_elevperiod.tax, aes(elev.class, adonis.r2)) +
+  geom_boxplot() 
+
+ggplot(niche_x_elevperiod.tax, aes(period, adonis.r2)) +
+  geom_boxplot() 
+
+# By ktype
+ggplot(niche_x_elevperiod.morph, aes(elev.class, adonis.r2)) +
+  geom_boxplot()
+
+ggplot(niche_x_elevperiod.morph, aes(period, adonis.r2)) +
+  geom_boxplot()
+```
+
+# 2. Testing the stress-gradient hypothesis and the Ranta and Vepsäläinen heterogeneity hypothesis
+
+**Stress-gradient hypothesis:** Is there any evidence that niche partitioning amongst generalist core bumble bee species is governed by an inverse relationship between elevation and competition, broadly consistent with the stress-gradient hypothesis (Bertness and Callaway 1994). This mechanism has been inferred from trait patterns in the whole bee community of the Berchtesgadener Alps (Hoiss et al. 2012) and from interaction specialization patterns in the plant-pollinator community of Mt. Kilimanjaro (Classen et al. 2020). It predicts that niche overlap will increase with elevation, reflecting competitive pressures at low elevations and reduced competition but increased need for opportunism at high elevations.
+
+**Ranta/Vepsäläinen heterogeneity hypothesis :** Ranta and Vepsäläinen (1981) proposed that bumble bees communities are governed by a spatiotemporally heterogeneous mosaic of competitive conditions, such that competitive inequalities between species are sufficiently variable to allow more species to coexist than predicted by trait-based competition models.
+
+## 2.1: Testing the stress-gradient hypothesis
+### 2.1.1 Face-value analysis  
+
+*Results:*  
+
+```{r message=FALSE, warning=FALSE, echo = FALSE}
+# Pairwise (bb.sp:bb.sp) niche overlap by site, pooled across years
+
+niche_overlap.tax <- niche_overlapper(net, criterion = plant.sp.abb)
+niche_overlap.morph <- niche_overlapper(net, criterion = k.type.s)
+
+# All spp pairs
+sg1 <- ggplot(niche_overlap.tax, aes(elev.mean, niche.overlap)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) 
+
+sg2 <- ggplot(niche_overlap.morph, aes(elev.mean, niche.overlap)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) 
+
+(sg1 + ggtitle("Taxonomic") | sg2 + ggtitle("Morphological")) + plot_layout(guides = 'collect')
+
+
+## Within LT spp
+sg3 <- ggplot(filter(niche_overlap.tax, pbl.fac1 == "long" & pbl.fac2 == "long"), 
+       aes(elev.mean, niche.overlap)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) 
+
+sg4 <- ggplot(filter(niche_overlap.morph, pbl.fac1 == "long" & pbl.fac2 == "long"), 
+       aes(elev.mean, niche.overlap)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) 
+
+(sg3 + ggtitle("Taxonomic") | sg4 + ggtitle("Morphological")) + plot_layout(guides = 'collect')
+
+
+## Within ST spp
+sg5 <- ggplot(filter(niche_overlap.tax, pbl.fac1 == "short" & pbl.fac2 == "short"), 
+       aes(elev.mean, niche.overlap)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) 
+
+sg6 <- ggplot(filter(niche_overlap.morph, pbl.fac1 == "short" & pbl.fac2 == "short"), 
+       aes(elev.mean, niche.overlap)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10))
+
+(sg5 + ggtitle("Taxonomic") | sg6 + ggtitle("Morphological")) + plot_layout(guides = 'collect')
+
+## Between ST and LT
+sg7 <- ggplot(filter(niche_overlap.tax, pbl.fac.diff == "different"), 
+       aes(elev.mean, niche.overlap)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) 
+
+sg8 <- ggplot(filter(niche_overlap.morph, pbl.fac.diff == "different"), 
+       aes(elev.mean, niche.overlap)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 8)) 
+
+(sg7 + ggtitle("Taxonomic") | sg8 + ggtitle("Morphological")) + plot_layout(guides = 'collect')
+
+
+# GAMs
+glob_GAM.tax <- gam(niche.overlap ~ 
+                      s(year, bs  = "re") + # random intercept effect for year
+                      s(elev.mean, k = 8, m = 2) + # global smooth ~ elevation
+                      s(elev.mean, sp.pair, bs = "fs", k = 8, m = 1), # group-level smooth ~ elevation*sp.pair
+                    method = "REML",
+                    family = "gaussian",
+                    data = niche_overlap.tax) %>% getViz()
+
+check.gamViz(glob_GAM.tax)
+summary(glob_GAM.tax)
+print(plot(glob_GAM.tax, allTerms = TRUE), pages = 1)
+
+glob_GAM.morph <- gam(niche.overlap ~ 
+                      s(year, bs  = "re") + # random intercept effect for year
+                      s(elev.mean, k = 8, m = 2) + # global smooth ~ elevation
+                      s(elev.mean, sp.pair, bs = "fs", k = 8, m = 1), # group-level smooth ~ elevation*sp.pair
+                    method = "REML",
+                    family = "gaussian",
+                    data = niche_overlap.morph) %>% getViz()
+
+check.gamViz(glob_GAM.morph)
+summary(glob_GAM.morph)
+print(plot(glob_GAM.morph, allTerms = TRUE), pages = 1)
+
+# Within LT class
+LT_GAM.tax <- gam(niche.overlap ~ 
+                      s(year, bs  = "re") + # random intercept effect for year
+                      s(elev.mean, k = 8, m = 2) + # global smooth ~ elevation
+                      s(elev.mean, sp.pair, bs = "fs", k = 8, m = 1), # group-level smooth ~ elevation*sp.pair
+                  method = "REML",
+                  family = "gaussian",
+                  data = filter(niche_overlap.tax, pbl.fac1 == "long" & pbl.fac2 == "long")) %>% getViz()
+
+check.gamViz(LT_GAM.tax)
+summary(LT_GAM.tax)
+print(plot(LT_GAM.tax, allTerms = TRUE), pages = 1)
+
+LT_GAM.morph <- gam(niche.overlap ~ 
+                      s(year, bs  = "re") + # random intercept effect for year
+                      s(elev.mean, k = 8, m = 2) + # global smooth ~ elevation
+                      s(elev.mean, sp.pair, bs = "fs", k = 8, m = 1), # group-level smooth ~ elevation*sp.pair
+                  method = "REML",
+                  family = "gaussian",
+                  data = filter(niche_overlap.morph, pbl.fac1 == "long" & pbl.fac2 == "long")) %>% getViz()
+
+check.gamViz(LT_GAM.morph)
+summary(LT_GAM.morph)
+print(plot(LT_GAM.morph, allTerms = TRUE), pages = 1)
+
+# Within ST class
+ST_GAM.tax <- gam(niche.overlap ~ 
+                      s(year, bs  = "re") + # random intercept effect for year
+                      s(elev.mean, k = 8, m = 2) + # global smooth ~ elevation
+                      s(elev.mean, sp.pair, bs = "fs", k = 8, m = 1), # group-level smooth ~ elevation*sp.pair
+                  method = "REML",
+                  family = "gaussian",
+                  data = filter(niche_overlap.tax, pbl.fac1 == "short" & pbl.fac2 == "short")) %>% getViz()
+
+check.gamViz(ST_GAM.tax)
+summary(ST_GAM.tax)
+print(plot(ST_GAM.tax, allTerms = TRUE), pages = 1)
+
+ST_GAM.morph <- gam(niche.overlap ~ 
+                      s(year, bs  = "re") + # random intercept effect for year
+                      s(elev.mean, k = 8, m = 2) + # global smooth ~ elevation
+                      s(elev.mean, sp.pair, bs = "fs", k = 8, m = 1), # group-level smooth ~ elevation*sp.pair
+                  method = "REML",
+                  family = "gaussian",
+                  data = filter(niche_overlap.morph, pbl.fac1 == "short" & pbl.fac2 == "short")) %>% getViz()
+
+check.gamViz(ST_GAM.morph)
+summary(ST_GAM.morph)
+print(plot(ST_GAM.morph, allTerms = TRUE), pages = 1)
+
+
+# Between ST and LT
+STxLT_GAM.tax <- gam(niche.overlap ~ 
+                      s(year, bs  = "re") + # random intercept effect for year
+                      s(elev.mean, k = 8, m = 2) + # global smooth ~ elevation
+                      s(elev.mean, sp.pair, bs = "fs", k = 8, m = 1), # group-level smooth ~ elevation*sp.pair
+                  method = "REML",
+                  family = "gaussian",
+                  data = filter(niche_overlap.tax, pbl.fac.diff == "different")) %>% getViz()
+
+check.gamViz(STxLT_GAM.tax)
+summary(STxLT_GAM.tax)
+print(plot(STxLT_GAM.tax, allTerms = TRUE), pages = 1)
+
+STxLT_GAM.morph <- gam(niche.overlap ~ 
+                      s(year, bs  = "re") + # random intercept effect for year
+                      s(elev.mean, k = 8, m = 2) + # global smooth ~ elevation
+                      s(elev.mean, sp.pair, bs = "fs", k = 8, m = 1), # group-level smooth ~ elevation*sp.pair
+                  method = "REML",
+                  family = "gaussian",
+                  data = filter(niche_overlap.morph, pbl.fac.diff == "different")) %>% getViz()
+
+check.gamViz(STxLT_GAM.morph)
+summary(STxLT_GAM.morph)
+print(plot(STxLT_GAM.morph, allTerms = TRUE), pages = 1)
+```
+
+### 2.1.2 Null-model residual analysis  
+
+Arguably the most rigorous way to tease out the effect of elevation while controlling for community composition (abundance and richness patterns) is to compare the observed niche overlap at each site to that predicted by a random null model, then see how the residuals vary with elevation.
+
+I'll be the first to admit that I'm new to null models, so I want to be extremely clear about the logic of how I'm setting this up. Step-by-step:  
+1. Generate community matrices by site and pollen/nectar
+2. Permute each matrix *n* times by randomly redistributing the visits of each bumble bee species while holding the total visits for each bumble bee species constant. This is, therefore, a random selection model constrained to the set of flora visited for a given site-pollen/nectar matrix. Importantly, I am opting not to hold the floral marginal totals constant, i.e. the total number of visits that each plant receives will vary with each permutation. My gut feeling is that this is the right place to start, but this is a decision that requires scrutiny.
+3. Calculate niche overlap for each permuted matrix and store as tidy arrays; this mirrors the workflow for calculating empirical niche overlap, the only difference being that I had to deal with some tricky nested lists; I'm pretty sure I did this correctly.
+4. Take the mean niche overlap for each permuted community.
+5. Join null model mean niche overlap table to empirical niche overlap table, joining by site and pollen/nectar. Thus, for each site-pollen/nectar combo in the empirical niche overlap table, we have *n* iterations of random niche overlap.
+6. Calculate the difference between empirical niche overlap and null niche overlap for each iteration; we'll call this "residual niche overlap".
+7. Calculate mean residual niche overlap for each site-pollen/nectar combo. This can then be regressed against elevation to see how the deviation from null expectations varies along the elevation gradient, with the interpretation that this represents the "pure" influence of elevation on niche overlap whle controlling for community differences. We could also use the raw differences without collapsing them to a mean. But that's not what I did this first time through. 
+
+There are surely a lot of other ways a null model could be constructed and analyzed, but this seems to me a good place to start.
+
+*Results*
+ 
+```{r message=FALSE, warning=TRUE, echo = FALSE}
+# Holding BB marginal totals constant
+random_niche.tax <- nullify1(net, 50, plant.sp)
+random_niche.morph <- nullify1(net, 50, k.type.s)
+
+# Holding both BB and plant marginal totals constant
+# random_niche.tax <- nullify2(net, 50, plant.sp)
+# random_niche.morph <- nullify2(net, 50, k.type.s)
+
+## Join null model to empirical niche overlap
+# Taxonomic niche overlap
+comparison.tax <- niche_overlap.tax %>%
+  left_join(random_niche.tax, by = c("site", "sp.pair")) %>%
+  mutate(niche.overlap.resid = niche.overlap - niche.overlap.sim) %>%
+  group_by(site, elev.mean, sp.pair, pbl.fac1, pbl.fac2, pbl.fac.diff) %>%
+  summarize(niche.overlap.resid = mean(niche.overlap.resid)) 
+
+# Morphological niche overlap
+comparison.morph <- niche_overlap.morph %>%
+  left_join(random_niche.morph, by = c("site", "sp.pair")) %>%
+  mutate(niche.overlap.resid = niche.overlap - niche.overlap.sim) %>%
+  group_by(site, elev.mean, sp.pair, pbl.fac1, pbl.fac2, pbl.fac.diff) %>%
+  summarize(niche.overlap.resid = mean(niche.overlap.resid)) 
+
+# Plot
+# All spp pairs
+sgn1 <- ggplot(comparison.tax, aes(elev.mean, niche.overlap.resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) 
+
+sgn2 <- ggplot(comparison.morph, aes(elev.mean, niche.overlap.resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) 
+
+(sgn1 + ggtitle("Taxonomic") | sgn2 + ggtitle("Morphological")) + plot_layout(guides = 'collect')
+
+
+## Within LT spp
+sgn3 <- ggplot(filter(comparison.tax, pbl.fac1 == "long" & pbl.fac2 == "long"), 
+       aes(elev.mean, niche.overlap.resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) 
+
+sgn4 <- ggplot(filter(comparison.morph, pbl.fac1 == "long" & pbl.fac2 == "long"), 
+       aes(elev.mean, niche.overlap.resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) 
+
+(sgn3 + ggtitle("Taxonomic") | sgn4 + ggtitle("Morphological")) + plot_layout(guides = 'collect')
+
+## Within ST spp
+sgn5 <- ggplot(filter(comparison.tax, pbl.fac1 == "short" & pbl.fac2 == "short"), 
+       aes(elev.mean, niche.overlap.resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) 
+
+sgn6 <- ggplot(filter(comparison.morph, pbl.fac1 == "short" & pbl.fac2 == "short"), 
+       aes(elev.mean, niche.overlap.resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10))
+
+(sgn5 + ggtitle("Taxonomic") | sgn6 + ggtitle("Morphological")) + plot_layout(guides = 'collect')
+
+## Between ST and LT
+sgn7 <- ggplot(filter(comparison.tax, pbl.fac.diff == "different"), 
+       aes(elev.mean, niche.overlap.resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10)) 
+
+sgn8 <- ggplot(filter(comparison.morph, pbl.fac.diff == "different"), 
+       aes(elev.mean, niche.overlap.resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 8)) 
+
+(sgn7 + ggtitle("Taxonomic") | sgn8 + ggtitle("Morphological")) + plot_layout(guides = 'collect')
+
+# GAMs
+glob_nullmodel_GAM.tax <- gam(niche.overlap.resid ~ 
+                      s(elev.mean, k = 10, m = 2),
+                    method = "REML",
+                    family = "gaussian",
+                    data = comparison.tax) %>% getViz()
+
+check.gamViz(glob_nullmodel_GAM.tax)
+summary(glob_nullmodel_GAM.tax)
+print(plot(glob_nullmodel_GAM.tax, allTerms = TRUE), pages = 1)
+
+glob_nullmodel_GAM.morph <- gam(niche.overlap.resid ~ 
+                      s(elev.mean, k = 10, m = 2),
+                    method = "REML",
+                    family = "gaussian",
+                    data = comparison.morph) %>% getViz()
+
+check.gamViz(glob_nullmodel_GAM.morph)
+summary(glob_nullmodel_GAM.morph)
+print(plot(glob_nullmodel_GAM.morph, allTerms = TRUE), pages = 1)
+
+# Within LT class
+LT_nullmodel_GAM.tax <- gam(niche.overlap.resid ~ 
+                    s(elev.mean, k = 10, m = 2),
+                  method = "REML",
+                  family = "gaussian",
+                  data = filter(comparison.tax, pbl.fac1 == "long" & pbl.fac2 == "long")) %>% getViz()
+
+check.gamViz(LT_nullmodel_GAM.tax)
+summary(LT_nullmodel_GAM.tax)
+print(plot(LT_nullmodel_GAM.tax, allTerms = TRUE), pages = 1)
+
+LT_nullmodel_GAM.morph <- gam(niche.overlap.resid ~ 
+                    s(elev.mean, k = 10, m = 2),
+                  method = "REML",
+                  family = "gaussian",
+                  data = filter(comparison.morph, pbl.fac1 == "long" & pbl.fac2 == "long")) %>% getViz()
+
+check.gamViz(LT_nullmodel_GAM.morph)
+summary(LT_nullmodel_GAM.morph)
+print(plot(LT_nullmodel_GAM.morph, allTerms = TRUE), pages = 1)
+
+# Within ST class
+ST_nullmodel_GAM.tax <- gam(niche.overlap.resid ~ 
+                    s(elev.mean, k = 10, m = 2),
+                  method = "REML",
+                  family = "gaussian",
+                  data = filter(comparison.tax, pbl.fac1 == "short" & pbl.fac2 == "short")) %>% getViz()
+
+check.gamViz(ST_nullmodel_GAM.tax)
+summary(ST_nullmodel_GAM.tax)
+print(plot(ST_nullmodel_GAM.tax, allTerms = TRUE), pages = 1)
+
+ST_nullmodel_GAM.morph <- gam(niche.overlap.resid ~ 
+                    s(elev.mean, k = 10, m = 2),
+                  method = "REML",
+                  family = "gaussian",
+                  data = filter(comparison.morph, pbl.fac1 == "short" & pbl.fac2 == "short")) %>% getViz()
+
+check.gamViz(ST_nullmodel_GAM.morph)
+summary(ST_nullmodel_GAM.morph)
+print(plot(ST_nullmodel_GAM.morph, allTerms = TRUE), pages = 1)
+
+
+# Between ST and LT
+STxLT_nullmodel_GAM.tax <- gam(niche.overlap.resid ~ 
+                    s(elev.mean, k = 10, m = 2),
+                  method = "REML",
+                  family = "gaussian",
+                  data = filter(comparison.tax, pbl.fac.diff == "different")) %>% getViz()
+
+check.gamViz(STxLT_nullmodel_GAM.tax)
+summary(STxLT_nullmodel_GAM.tax)
+print(plot(STxLT_nullmodel_GAM.tax, allTerms = TRUE), pages = 1)
+
+STxLT_nullmodel_GAM.morph <- gam(niche.overlap.resid ~ 
+                    s(elev.mean, k = 10, m = 2),
+                  method = "REML",
+                  family = "gaussian",
+                  data = filter(comparison.morph, pbl.fac.diff == "different")) %>% getViz()
+
+check.gamViz(STxLT_nullmodel_GAM.morph)
+summary(STxLT_nullmodel_GAM.morph)
+print(plot(STxLT_nullmodel_GAM.morph, allTerms = TRUE), pages = 1)
+```
+
+### 2.1.3. Parsing niche contraction and niche separation
+
+Contrary to the predictions of H1, niche overlap decreases sharply at high elevation. This is true for both taxonomic and morphological niche overlap, and it holds in both the face-value and null-residual approaches. This decrease in niche overlap might be explained by two modest, proximate hypotheses:  
+
+1.  **H1:** The decrease of niche overlap at high elevations is due to *niche contraction*, i.e. BB spp. visiting a smaller proportion of available (and "eligible", i.e. visited at least once by a bumble bee) flora. 
+  *Prediction:* "resource range" (Poisot et al. 2012) will decrease with elevation (as Dormann notes, resource range is a "backward" metric insofar as a large resource range means a small proportional niche breadth; I will calculate the inverse of resource range so that it makes more sense)
+2.  **H2:** The decrease of niche overlap at high elevations is due to *niche separation*, i.e. BB spp. avoiding one another's niches but not contracting their own.
+  *Predictions:* C score will increase with elevation
+  
+*Results:* I haven't run formal stats on this analysis yet, but from the visualization, it looks like the overall story is that niche overlap is driven mainly by niche separation, not so much but niche contraction. My first impression is that this suggests a behavior response to competition.
+
+```{r, echo = FALSE}
+resource_range.sp <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+  filter(!is.na(pollen)) %>%
+  group_by(site, year, pollen, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
+  summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+  unite(webID, c(site, year, pollen), sep = "_") %>%
+  ungroup() %>%
+  dplyr::select(higher = bb.sp, lower = plant.sp, webID, freq) %>% # rename columns to match bipartite's expectations
+  data.frame() %>% # convert to data frame
+  frame2webs() %>% # convert to to bipartite web
+  map(specieslevel, level = "higher", index = "resource range") %>%
+  map(rownames_to_column) %>%
+  map(as_tibble) %>%
+  bind_rows(.id = "webID") %>% # Collapse list into big data frame
+  rename(bb.sp = rowname) %>%
+  separate(webID, c("site", "year", "pollen"), sep =  "_") %>%
+  left_join(site_data) %>%
+  mutate(site = factor(site),
+         year = factor(year),
+         pollen = factor(pollen)) %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # for some reason, one row has a "1" for bb.sp, and I don't know where this comes from; this gets rid of it, but I would still like to know why
+  mutate(resource.range = 1-resource.range) %>%
+  left_join(BB_covars.splevel) %>%
+  filter(bb.sp.abund > 1)
+
+resource_range.sp.mean <- resource_range.sp %>%
+  group_by(site, year, elev.mean, pollen) %>%
+  summarize(mean.resource.range = mean(resource.range))
+  
+ggplot(resource_range.sp, aes(elev.mean, resource.range, color = pollen)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(bb.sp ~ year) +
+  ylim(c(0,1))
+
+ggplot(resource_range.sp.mean, aes(elev.mean, mean.resource.range, color = pollen)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~year) +
+  ylim(c(0,1))
+
+resource_range.ktype <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+  filter(!is.na(pollen)) %>%
+  group_by(site, year, pollen, bb.sp, k.type.s) %>% # group by site, date, bee species, plant species
+  summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+  unite(webID, c(site, year, pollen), sep = "_") %>%
+  ungroup() %>%
+  dplyr::select(higher = bb.sp, lower = k.type.s, webID, freq) %>% # rename columns to match bipartite's expectations
+  data.frame() %>% # convert to data frame
+  frame2webs() %>% # convert to to bipartite web
+  map(specieslevel, level = "higher", index = "resource range") %>%
+  map(rownames_to_column) %>%
+  map(as_tibble) %>%
+  bind_rows(.id = "webID") %>% # Collapse list into big data frame
+  rename(bb.sp = rowname) %>%
+  separate(webID, c("site", "year", "pollen"), sep =  "_") %>%
+  left_join(site_data) %>%
+  mutate(site = factor(site),
+         year = factor(year),
+         pollen = factor(pollen)) %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # for some reason, one row has a "1" for bb.sp, and I don't know where this comes from; this gets rid of it, but I would still like to know why
+  mutate(resource.range = 1-resource.range) %>%
+  left_join(BB_covars.splevel) %>%
+  filter(bb.sp.abund > 1)
+
+resource_range.ktype.mean <- resource_range.ktype %>%
+  group_by(site, year, elev.mean, pollen) %>%
+  summarize(mean.resource.range = mean(resource.range))
+  
+ggplot(resource_range.ktype, aes(elev.mean, resource.range, color = pollen)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(bb.sp ~ year) +
+  ylim(c(0,1))
+
+ggplot(resource_range.ktype.mean, aes(elev.mean, mean.resource.range, color = pollen)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~year) +
+  ylim(c(0,1))
+
+cscore.sp <- net %>%
+    filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+    filter(!is.na(pollen)) %>%
+    group_by(site, year, pollen, bb.sp, plant.sp) %>% # group by site, date, bee species, plant species
+    summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+    group_by(site, year, pollen) %>%
+    unite(webID, c(site, year, pollen), sep = "_") %>%
+    ungroup() %>%
+    dplyr::select(higher = bb.sp, lower = plant.sp, webID, freq) %>% # rename columns to match bipartite's expectations
+    data.frame() %>% # convert to data frame
+    frame2webs() %>% # convert to to bipartite web
+    map(grouplevel, level = "higher", weighted = TRUE, index = c("C score")) %>% 
+    data.frame() %>%
+    t() %>%
+    data.frame() %>%
+    rownames_to_column() %>%
+    dplyr::select(webID = rowname, everything()) %>%
+    as_tibble() %>%
+    separate(webID, c("site", "year", "pollen"), sep =  "_") %>%
+    left_join(site_data) %>%
+    mutate(site = factor(site),
+           year = factor(year),
+           pollen = factor(pollen))
+
+ggplot(cscore.sp, aes(elev.mean, C.score.HL, color = pollen)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~year)
+
+cscore.ktype <- net %>%
+    filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+    filter(!is.na(pollen)) %>%
+    group_by(site, year, pollen, bb.sp, k.type.s) %>% # group by site, date, bee species, plant species
+    summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
+    group_by(site, year, pollen) %>%
+    unite(webID, c(site, year, pollen), sep = "_") %>%
+    ungroup() %>%
+    dplyr::select(higher = bb.sp, lower = k.type.s, webID, freq) %>% # rename columns to match bipartite's expectations
+    data.frame() %>% # convert to data frame
+    frame2webs() %>% # convert to to bipartite web
+    map(grouplevel, level = "higher", weighted = TRUE, index = c("C score")) %>% 
+    data.frame() %>%
+    t() %>%
+    data.frame() %>%
+    rownames_to_column() %>%
+    dplyr::select(webID = rowname, everything()) %>%
+    as_tibble() %>%
+    separate(webID, c("site", "year", "pollen"), sep =  "_") %>%
+    left_join(site_data) %>%
+    mutate(site = factor(site),
+           year = factor(year),
+           pollen = factor(pollen))
+
+ggplot(cscore.ktype, aes(elev.mean, C.score.HL, color = pollen)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~year)
+```
+

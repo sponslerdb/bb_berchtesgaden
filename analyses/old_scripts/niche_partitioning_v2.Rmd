@@ -1,0 +1,1291 @@
+---
+title: "Flexibility and constraints in resource selection within a generalist pollinator guild"
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(bipartite)
+library(mgcv)
+library(mgcViz)
+library(ggbipart)
+library(GGally)
+library(vegan)
+library(ggvegan)
+library(tidyverse)
+library(lubridate)
+library(patchwork)
+library(tidymodels)
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+### Load data
+
+# Site data
+site_data <- read_csv("../processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, 
+                   elev.max, temp.mean)) %>% # drop these variables
+  mutate(elev.class = factor(elev.class, 
+                             levels = c("oben", "mitte", "unten")),
+         elev.class2 = factor(elev.class2, 
+                             levels = c("high", "mid", "low"))) # turn elav.class into an ordered factor
+
+# Climate data
+gdd <- read_csv("../processed_data/climate.csv") %>%
+  mutate(year = factor(year)) %>%
+  dplyr::select(site, date, gdd.cum)
+
+total_gdd <- gdd %>%
+  mutate(year = factor(year(date))) %>%
+  group_by(site, year) %>%
+  summarize(total.gdd = max(gdd.cum))
+
+# BB traits
+bb_traits <- read_csv("../processed_data/bb_traits.csv") %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf"))
+
+# FL traits
+fl_tax <- read_csv("../processed_data/floral_tax.csv")
+  
+fl_ktype <- read_csv("../processed_data/floral_k_type.csv") 
+
+fl_morph <- read_csv("../processed_data/flower_morphology_GitaBenadi.csv") %>%
+  select(SampleID, plant.family = Family, plant.sp = Species, 
+         Unit, Flowers_per_unit, diam = Diameter, LN) %>%
+  group_by(plant.sp) %>%
+  summarize(diam = mean(diam),
+            LN = mean(LN))
+
+fl_ktype_key <- read_delim("../processed_data/kugler_key.tsv", delim = "\t", col_names = FALSE) %>%
+  select(k.type = 1, description = 2)
+
+fl_traits <- fl_tax %>%
+  full_join(fl_ktype) %>%
+  full_join(fl_morph) %>%
+  select(plant.sp, plant.genus, plant.family, 
+         k.type, k.type.s, k.type.ss, diam, LN)
+
+# Network
+net <- read_csv("../processed_data/network.csv") %>%
+  unite(site.year, site, year, sep = "_", remove = FALSE) %>% # create site.year field that can later be split back up
+  mutate(year = factor(year)) %>% # convert year to factor
+  left_join(site_data, by = "site") %>%
+  left_join(gdd, by = c("site", "date")) %>%
+  ungroup() %>%
+  arrange(site, date) %>%
+  left_join(fl_traits) %>%
+  mutate(k.type.s = if_else(plant.genus == "Phyteuma", 7.1, k.type.s),
+         k.type.ss = if_else(plant.genus == "Phyteuma", 7, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Aconitum", 5.2, k.type.s),
+         k.type.ss = if_else(plant.genus == "Aconitum", 5, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Cardamine", 1.2, k.type.s),
+         k.type.ss = if_else(plant.genus == "Cardamine", 1, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Euphrasia", 5.1, k.type.s),
+         k.type.ss = if_else(plant.genus == "Euphrasia", 5, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Lamium", 5.1, k.type.s),
+         k.type.ss = if_else(plant.genus == "Lamium", 5, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Mentha", 2.2, k.type.s),
+         k.type.ss = if_else(plant.genus == "Mentha", 2, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Rumex", 0.0, k.type.s),
+         k.type.ss = if_else(plant.genus == "Rumex", 0, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Salix", 9.0, k.type.s),
+         k.type.ss = if_else(plant.genus == "Salix", 9, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Silene", 4.2, k.type.s),
+         k.type.ss = if_else(plant.genus == "Silene", 4, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Stachys", 5.1, k.type.s),
+         k.type.ss = if_else(plant.genus == "Stachys", 5, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Taraxacum", 7.2, k.type.s),
+         k.type.ss = if_else(plant.genus == "Taraxacum", 7, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.sp == "Gentiana aspera", 2.1, k.type.s),
+         k.type.ss = if_else(plant.sp == "Gentiana aspera", 2, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.sp == "Gentiana ciliata", 4.1, k.type.s),
+         k.type.ss = if_else(plant.sp == "Gentiana ciliata", 4, k.type.ss))
+
+ggplot(net, aes(bb.sp, fill = pollen)) +
+  geom_bar(position = "fill")
+
+# Floral survey
+survey <- read_csv("../processed_data/floral_survey.csv") %>%
+  semi_join(net, by = "plant.sp") %>% # Consider only plants visited (anytime anywhere, not specifically for a given site*date)
+  dplyr::select(site, date, plant.sp, flower.cover) %>%
+  left_join(fl_traits) %>%
+  mutate(k.type.s = if_else(plant.genus == "Phyteuma", 7.1, k.type.s),
+         k.type.ss = if_else(plant.genus == "Phyteuma", 7, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Aconitum", 5.2, k.type.s),
+         k.type.ss = if_else(plant.genus == "Aconitum", 5, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Cardamine", 1.2, k.type.s),
+         k.type.ss = if_else(plant.genus == "Cardamine", 1, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Euphrasia", 5.1, k.type.s),
+         k.type.ss = if_else(plant.genus == "Euphrasia", 5, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Lamium", 5.1, k.type.s),
+         k.type.ss = if_else(plant.genus == "Lamium", 5, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Mentha", 2.2, k.type.s),
+         k.type.ss = if_else(plant.genus == "Mentha", 2, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Rumex", 0.0, k.type.s),
+         k.type.ss = if_else(plant.genus == "Rumex", 0, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Salix", 9.0, k.type.s),
+         k.type.ss = if_else(plant.genus == "Salix", 9, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Silene", 4.2, k.type.s),
+         k.type.ss = if_else(plant.genus == "Silene", 4, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Stachys", 5.1, k.type.s),
+         k.type.ss = if_else(plant.genus == "Stachys", 5, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.genus == "Taraxacum", 7.2, k.type.s),
+         k.type.ss = if_else(plant.genus == "Taraxacum", 7, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.sp == "Gentiana aspera", 2.1, k.type.s),
+         k.type.ss = if_else(plant.sp == "Gentiana aspera", 2, k.type.ss)) %>%
+  mutate(k.type.s = if_else(plant.sp == "Gentiana ciliata", 4.1, k.type.s),
+         k.type.ss = if_else(plant.sp == "Gentiana ciliata", 4, k.type.ss))
+
+# Figure out which major species are scored NA for ktype
+missing_ktype <- net %>%
+  filter(is.na(k.type.s)) %>%
+  group_by(plant.sp, plant.genus) %>%
+  summarize(freq = n())
+
+### Auxiliary data, i.e. all the covariates we need to control for
+BB_covars <- net %>%
+  group_by(site, year) %>%
+  summarize(bb.rich = length(unique(bb.sp)),
+            sqrt.bb.abund = sqrt(n()))
+
+FL_covars <- survey %>%
+  mutate(year = factor(year(date))) %>%
+  filter(flower.cover > 0) %>%
+  group_by(site, year) %>%
+  summarize(fl.rich = length(unique(plant.sp)),
+            log.fl.abund = log(sum(flower.cover))) 
+
+### Species names and such for plotting
+species_names <- cbind(c("bss", "pasc", "prat", 
+                         "soro", "wurf", "hort", 
+                         "pyre", "mend", "mont", 
+                         "gers", "hypn","jone", 
+                         "lapi", "muci", "psit", 
+                         "humi"),
+                       c("B. sensu-strictu", "B. pascuorum", "B. pratorum", 
+                         "B. soroensis", "B. wurflenii", "B. hortorum",
+                         "B. pyrenaeus", "B. mendax", "B. monticola",
+                         "B. gerstaeckeri", "B. hypnorum", "B. jonellus", 
+                         "B. lapidarius", "B. mucidus", "B. psithyrus", 
+                         "B. humilis"),
+                       c("B. ss.", "B. pasc.", "B. prat.", 
+                         "B. soro.", "B. wurf.", "B. hort.",
+                         "B. pyre.", "B. mend.", "B. mont.",
+                         "B. gers.", "B. hypn.", "B. jone.", 
+                         "B. lapi.", "B. muci.", "B. psit.", 
+                         "B. humi"),
+                       c("major", "major", "major", 
+                         "major", "major", "common", 
+                         "high elev.", "high elev.", "high elev.",
+                         "minor", "minor", "common", 
+                         "minor", "minor", "common", 
+                         "minor")
+                       ) %>%
+  as.data.frame() %>%
+  as_tibble() %>%
+  dplyr::select(bb.sp = 1, species.name = 2, species.abb = 3, abund.class = 4) %>%
+  mutate(focal = if_else(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf"), TRUE, FALSE))
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+### Species-level by site
+bb_abund.site <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  group_by(bb.sp, site, year) %>%
+  summarize(bb.sp.abund = n())
+  
+# Pairwise niche overlap by site
+niche_overlap.sp <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+  filter(!is.na(pollen)) %>% # drop observations with no pollen/nectar classification
+  group_by(bb.sp, pollen, plant.sp, site, year) %>% # group by site-year and BB-FL pair
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-year
+  group_by(bb.sp, pollen, site, year) %>% # group by site-year and BB species
+  mutate(prop = freq/sum(freq)) %>% # get proportional interaction frequency for each BB-FL pair
+  select(-freq) %>% # drop freq variable
+  pivot_wider(names_from = plant.sp, values_from = prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  group_by(pollen, site, year) %>%
+  nest() %>% # nest into list-column
+  mutate(data2 = map(data, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
+         dist = map(data2, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
+         tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
+  select(pollen, site, year, tidy_dist) %>% # drop intermediate list-columns
+  unnest(cols = c(tidy_dist)) %>% # unnest back into a single data frame
+  left_join(site_data) %>% # add site data
+  select(site, year, pollen, bb.sp1 = item1, bb.sp2 = item2, distance, elev.mean) %>% # select and rename vars
+  left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>% # add traits for bb.sp1
+  rename(subgenus1 = subgenus, pbl.w1 = pbl.w, pbl.w.class1 = pbl.w.class) %>%
+  left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>% # add traits for bb.sp2
+  rename(subgenus2 = subgenus, pbl.w2 = pbl.w, pbl.w.class2 = pbl.w.class) %>%
+  select(site, year, pollen, bb.sp1, bb.sp2, subgenus1, subgenus2, distance, 
+         pbl.w1, pbl.w2, pbl.w.class1, pbl.w.class2, elev.mean) %>%
+  left_join(bb_abund.site, by = c("bb.sp1" = "bb.sp", "site", "year")) %>%
+  rename(bb.sp1.abund = bb.sp.abund) %>%
+  select(site, year, pollen, bb.sp1, bb.sp2, bb.sp1.abund, subgenus1, subgenus2, distance, 
+         pbl.w1, pbl.w2, pbl.w.class1, pbl.w.class2, elev.mean) %>%
+  left_join(bb_abund.site, by = c("bb.sp2" = "bb.sp", "site", "year")) %>%
+  rename(bb.sp2.abund = bb.sp.abund) %>%
+  select(site, year, pollen, bb.sp1, bb.sp2, bb.sp1.abund, bb.sp2.abund, subgenus1, subgenus2, distance, 
+         pbl.w1, pbl.w2, pbl.w.class1, pbl.w.class2, elev.mean) %>%
+  mutate(pbl.diff = abs(pbl.w1 - pbl.w2), # tongue length differences
+         abund.diff = abs(bb.sp1.abund - bb.sp2.abund),
+         subgenus.diff = if_else(subgenus1 == subgenus2, "same", "different"), # binary: same or different subgenus
+         
+         # Logical columns indicating whether a given species belongs to a given species pair
+         # This is handy for extracting data for individual species across all their counterparts
+         bss = if_else(bb.sp1 == "bss" | bb.sp2 == "bss", TRUE, FALSE),
+         pasc = if_else(bb.sp1 == "pasc" | bb.sp2 == "pasc", TRUE, FALSE),
+         wurf = if_else(bb.sp1 == "wurf" | bb.sp2 == "wurf", TRUE, FALSE),
+         prat = if_else(bb.sp1 == "prat" | bb.sp2 == "prat", TRUE, FALSE),
+         soro = if_else(bb.sp1 == "soro" | bb.sp2 == "soro", TRUE, FALSE),
+         hort = if_else(bb.sp1 == "hort" | bb.sp2 == "hort", TRUE, FALSE)) %>%
+  
+  unite(sp.pair, c(bb.sp1, bb.sp2), sep = ":") %>% # create a single species pair column...
+  mutate(sp.pair = factor(sp.pair)) %>% # ...and make it a factor so that mgcv can handle it
+  left_join(BB_covars.site) %>% # add BB covars
+  left_join(FL_covars.site) %>% # add floral covars
+  mutate(niche.overlap = 1-distance) # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+
+niche_overlap.ktype <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+  filter(!is.na(pollen)) %>% # drop observations with no pollen/nectar classification
+  group_by(bb.sp, pollen, k.type.s, site, year) %>% # group by site-year and BB-FL pair
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-year
+  group_by(bb.sp, pollen, site, year) %>% # group by site-year and BB species
+  mutate(prop = freq/sum(freq)) %>% # get proportional interaction frequency for each BB-FL pair
+  select(-freq) %>% # drop freq variable
+  pivot_wider(names_from = k.type.s, values_from = prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  group_by(pollen, site, year) %>%
+  nest() %>% # nest into list-column
+  mutate(data2 = map(data, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
+         dist = map(data2, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
+         tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
+  select(pollen, site, year, tidy_dist) %>% # drop intermediate list-columns
+  unnest(cols = c(tidy_dist)) %>% # unnest back into a single data frame
+  left_join(site_data) %>% # add site data
+  select(site, year, pollen, bb.sp1 = item1, bb.sp2 = item2, distance, elev.mean) %>% # select and rename vars
+  left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>% # add traits for bb.sp1
+  rename(subgenus1 = subgenus, pbl.w1 = pbl.w, pbl.w.class1 = pbl.w.class) %>%
+  left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>% # add traits for bb.sp2
+  rename(subgenus2 = subgenus, pbl.w2 = pbl.w, pbl.w.class2 = pbl.w.class) %>%
+  select(site, year, pollen, bb.sp1, bb.sp2, subgenus1, subgenus2, distance, 
+         pbl.w1, pbl.w2, pbl.w.class1, pbl.w.class2, elev.mean) %>%
+  left_join(bb_abund.site, by = c("bb.sp1" = "bb.sp", "site", "year")) %>%
+  rename(bb.sp1.abund = bb.sp.abund) %>%
+  select(site, year, pollen, bb.sp1, bb.sp2, bb.sp1.abund, subgenus1, subgenus2, distance, 
+         pbl.w1, pbl.w2, pbl.w.class1, pbl.w.class2, elev.mean) %>%
+  left_join(bb_abund.site, by = c("bb.sp2" = "bb.sp", "site", "year")) %>%
+  rename(bb.sp2.abund = bb.sp.abund) %>%
+  select(site, year, pollen, bb.sp1, bb.sp2, bb.sp1.abund, bb.sp2.abund, subgenus1, subgenus2, distance, 
+         pbl.w1, pbl.w2, pbl.w.class1, pbl.w.class2, elev.mean) %>%
+  mutate(pbl.diff = abs(pbl.w1 - pbl.w2), # tongue length differences
+         abund.diff = abs(bb.sp1.abund - bb.sp2.abund),
+         subgenus.diff = if_else(subgenus1 == subgenus2, "same", "different"), # binary: same or different subgenus
+         
+         # Logical columns indicating whether a given species belongs to a given species pair
+         # This is handy for extracting data for individual species across all their counterparts
+         bss = if_else(bb.sp1 == "bss" | bb.sp2 == "bss", TRUE, FALSE),
+         pasc = if_else(bb.sp1 == "pasc" | bb.sp2 == "pasc", TRUE, FALSE),
+         wurf = if_else(bb.sp1 == "wurf" | bb.sp2 == "wurf", TRUE, FALSE),
+         prat = if_else(bb.sp1 == "prat" | bb.sp2 == "prat", TRUE, FALSE),
+         soro = if_else(bb.sp1 == "soro" | bb.sp2 == "soro", TRUE, FALSE),
+         hort = if_else(bb.sp1 == "hort" | bb.sp2 == "hort", TRUE, FALSE)) %>%
+  
+  unite(sp.pair, c(bb.sp1, bb.sp2), sep = ":") %>% # create a single species pair column...
+  mutate(sp.pair = factor(sp.pair)) %>% # ...and make it a factor so that mgcv can handle it
+  left_join(BB_covars.site) %>% # add BB covars
+  left_join(FL_covars.site) %>% # add floral covars
+  mutate(niche.overlap = 1-distance) # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+```
+
+### This story starts with three observations arising from my first set of analyses.  
+
+  1. The bumble bee species in the Berchtesgaden system -- even the abundant and widespread ones -- exhibit substantial non-overlap in resource use (Figure 1).
+  2. The bumble bee community exhibits little turnover in space/elevation and time.
+  3. The floral community exhibits dramatic turnover in space/elevation and time.
+  
+### We will focus on six species that are abundant and widespread:  
+  1. *B. sensu-strictu*
+  2. *B. pascuorum*
+  3. *B. pratorum*
+  4. *B. hortorum*
+  5. *B. soroensis*
+  6. *B. wurflenii*
+
+```{r fig.cap="**Figure 1: Focal species**", message=FALSE, warning=FALSE, echo=FALSE}
+bb_range.year <- net %>%
+  left_join(site_data) %>%
+  group_by(site, date, elev.mean, bb.sp, year) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, bb.sp, year) %>%
+  summarize(abund = mean(abund)) %>%
+  group_by(bb.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2)) %>%
+  left_join(species_names) 
+
+ggplot(bb_range.year, aes(reorder(bb.sp, elev.med), elev.mean, color = focal)) +
+  geom_line(size = 2, alpha = 0.25) +
+  geom_point(aes(size = abund), alpha = 0.5) +
+  facet_wrap(~year, ncol = 1) +
+  theme_light(12) +
+  scale_size_continuous(name = "Abundance") +
+  scale_color_discrete(name = "Focal species") +
+  xlab("BB species") +
+  ylab("Elevation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+  
+### To improve readability, we will bin our floral taxa to family level. 
+```{r fig.cap="**Figure 2: Metaweb diagram**", message=FALSE, warning=FALSE, echo=FALSE}
+# Species level
+## All
+metaweb.sp <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  group_by(bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>%
+  pivot_wider(names_from = bb.sp, values_from = freq) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("plant.sp")
+
+## Nectar
+metaweb.sp.n <- net %>%
+  filter(pollen == "nopollen") %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  group_by(bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>%
+  pivot_wider(names_from = bb.sp, values_from = freq) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("plant.sp")
+
+## Pollen
+metaweb.sp.p <- net %>%
+  filter(pollen == "pollen") %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  group_by(bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>%
+  pivot_wider(names_from = bb.sp, values_from = freq) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("plant.sp")
+
+# Family level
+## All
+metaweb.fam <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  separate(plant.sp, c("plant.genus", "species"), sep = " ") %>%
+  group_by(bb.sp, plant.family) %>%
+  summarize(freq = n()) %>%
+  pivot_wider(names_from = bb.sp, values_from = freq) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("plant.family")
+
+## Nectar
+metaweb.fam.n <- net %>%
+  filter(pollen == "nopollen") %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  separate(plant.sp, c("plant.genus", "species"), sep = " ") %>%
+  group_by(bb.sp, plant.family) %>%
+  summarize(freq = n()) %>%
+  pivot_wider(names_from = bb.sp, values_from = freq) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("plant.family")
+
+## Pollen
+metaweb.fam.p <- net %>%
+  filter(pollen == "pollen") %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  separate(plant.sp, c("plant.genus", "species"), sep = " ") %>%
+  group_by(bb.sp, plant.family) %>%
+  summarize(freq = n()) %>%
+  pivot_wider(names_from = bb.sp, values_from = freq) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("plant.family")
+
+# K-type
+## All
+metaweb.ktype <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  separate(plant.sp, c("plant.genus", "species"), sep = " ") %>%
+  group_by(bb.sp, k.type.s) %>%
+  summarize(freq = n()) %>%
+  pivot_wider(names_from = bb.sp, values_from = freq) %>%
+  replace_na(replace = list(bss = 0, hort = 0, pasc = 0, prat = 0, soro = 0, wurf = 0)) %>%
+  replace_na(replace = list(k.type.s = "undet")) %>%
+  column_to_rownames("k.type.s")
+
+## Nectar
+metaweb.ktype.n <- net %>%
+  filter(pollen == "nopollen") %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  separate(plant.sp, c("plant.genus", "species"), sep = " ") %>%
+  group_by(bb.sp, k.type.s) %>%
+  summarize(freq = n()) %>%
+  pivot_wider(names_from = bb.sp, values_from = freq) %>%
+  replace_na(replace = list(bss = 0, hort = 0, pasc = 0, prat = 0, soro = 0, wurf = 0)) %>%
+  replace_na(replace = list(k.type.s = "undet")) %>%
+  column_to_rownames("k.type.s")
+
+## Pollen
+metaweb.ktype.p <- net %>%
+  filter(pollen == "pollen") %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  separate(plant.sp, c("plant.genus", "species"), sep = " ") %>%
+  group_by(bb.sp, k.type.s) %>%
+  summarize(freq = n()) %>%
+  pivot_wider(names_from = bb.sp, values_from = freq) %>%
+  replace_na(replace = list(bss = 0, hort = 0, pasc = 0, prat = 0, soro = 0, wurf = 0)) %>%
+  replace_na(replace = list(k.type.s = "undet")) %>%
+  column_to_rownames("k.type.s")
+
+
+#visweb(metaweb.sp, type = "diagonal", labsize = 2, pred.lablength = 5, prey.lablength = 5)
+#visweb(metaweb.gen, type = "diagonal", labsize = 2, pred.lablength = 5, prey.lablength = 5)
+visweb(metaweb.fam, type = "diagonal", labsize = 2, pred.lablength = 5, prey.lablength = 5)
+visweb(metaweb.fam.n, type = "diagonal", labsize = 2, pred.lablength = 5, prey.lablength = 5)
+visweb(metaweb.fam.p, type = "diagonal", labsize = 2, pred.lablength = 5, prey.lablength = 5)
+# visweb(metaweb.ktype.n, type = "diagonal", labsize = 1, pred.lablength = 5, prey.lablength = 5)
+# visweb(metaweb.ktype.p, type = "diagonal", labsize = 1, pred.lablength = 5, prey.lablength = 5)
+# 
+# plotweb(metaweb.sp, text.rot = 90, labsize = 1, low.lablength = 5)
+# plotweb(metaweb.gen, text.rot = 90, labsize = 1, low.lablength = 5)
+plotweb(metaweb.fam, text.rot = 90, labsize = 1, low.lablength = 5)
+plotweb(metaweb.fam.n, text.rot = 90, labsize = 1, low.lablength = 5)
+plotweb(metaweb.fam.p, text.rot = 90, labsize = 1, low.lablength = 5)
+# plotweb(metaweb.ktype.n, text.rot = 90, labsize = 1, low.lablength = 5)
+# plotweb(metaweb.ktype.p, text.rot = 90, labsize = 1, low.lablength = 5)
+```
+  
+### H0: Does niche overlap differ from that predicted by random foraging?
+#### Random null model
+```{r message=FALSE, warning=FALSE}
+### Define function that will be used inside map() calls
+df_to_cmat <- function(x) {
+  pivot_wider(x, names_from = plant.sp, values_from = freq) %>%
+    replace(is.na(.), 0)
+}
+
+permat_set <- function(x){
+  x %>%
+    column_to_rownames("bb.sp") %>%
+    vegan::permatfull(fixedmar = "rows", shuffle = "ind", times = 10)
+}
+
+ret <- function(x){
+  return(x$perm)
+}
+
+tidy_dist <- function(x) {
+  x %>%
+    tidy() %>%
+    mutate(index = seq_along())
+}
+
+### Generate random niche overlap data
+#### Need to look into th the missing value warnings I'm getting from the vegdist() call; I think it's because some plants end up with zero visits in some permutations.
+random_niche <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+  filter(!is.na(pollen)) %>% # drop observations with no pollen/nectar classification
+  select(site, pollen, year, bb.sp, plant.sp) %>% 
+  group_by(site, pollen, year, bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair
+  group_by(site, pollen, year) %>%
+  nest() %>% # nest data into list-column grouped by pollen, site, date
+  mutate(data = map(data, df_to_cmat), # turn table into community matrix
+         data = map(data, permat_set), # permute community matrices
+         data = map(data, ret)) %>% # extract permutations from permat objects
+  unnest(data) %>% # unnest
+  mutate(data = map(data, function(x) vegdist(x, method = "horn")), # convert each permutation into distance matrix
+         data = map(data, tidy)) %>% # convert distance matrices to tidy arrays
+  group_by(site, pollen, year) %>%
+  mutate(iter = row_number()) %>% # add index to denote iterations
+  unnest(cols = data) %>% # unnest again
+  rename(bb.sp1 = item1, bb.sp2 = item2) %>%
+  unite(sp.pair, c(bb.sp1, bb.sp2), sep = ":") %>% # create a single species pair column...
+  mutate(sp.pair = factor(sp.pair), # ...and make it a factor so that mgcv can handle it
+         niche.overlap = 1-distance) %>% # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+  select(site, pollen, year, sp.pair, iter, niche.overlap)
+```
+
+#### Niche overlap by species pair
+```{r}
+# By plant.sp
+ggplot(niche_overlap.sp, aes(sp.pair, niche.overlap)) +
+  geom_boxplot(fill = "gray60") +
+  facet_grid(year~pollen) +
+  theme_light()
+
+# By plant ktype
+ggplot(niche_overlap.ktype, aes(sp.pair, niche.overlap)) +
+  geom_boxplot(fill = "gray60") +
+  facet_grid(year~pollen) +
+  theme_light()
+```
+
+#### Niche overlap: pollen vs. nectar
+```{r}
+# By plant.sp
+ggplot(niche_overlap.sp, aes(pollen, niche.overlap)) +
+  geom_violin(fill = "gray60") +
+  geom_boxplot(fill = "NA") +
+  facet_wrap(~year) +
+  theme_light()
+
+ggplot(niche_overlap.sp, aes(pollen, niche.overlap)) +
+  geom_violin(fill = "gray60") +
+  geom_boxplot(fill = "NA") +
+  facet_grid(year~sp.pair) +
+  theme_light()
+
+# By plant ktype
+ggplot(niche_overlap.ktype, aes(pollen, niche.overlap)) +
+  geom_violin(fill = "gray60") +
+  geom_boxplot(fill = "NA") +
+  facet_wrap(~year) +
+  theme_light()
+
+ggplot(niche_overlap.ktype, aes(pollen, niche.overlap)) +
+  geom_violin(fill = "gray60") +
+  geom_boxplot(fill = "NA") +
+  facet_grid(year~sp.pair) +
+  theme_light()
+```
+  
+### Question 1: Why do these bumble bee species partition the floral community as they do?
+#### **H0: Random null model.** Shuffle network and see if observed niche partitioning differs significantly from random niche partitioning.
+#### **H1: Tongue-length / corolla depth matching.** This is the classic explanation for resource partitioning in BB communities. 
+#### **H2: Competition.** It is also possble that competition could --- perhaps transiently --- drive BB species to partition floral resources according to some criterion other than tongue length matching. For example, several BB species may have very similar tongue lengths and yet show marked resource partitioning. 
+#### Others? Phylogenetic patterns could represent unmeasured floral trait variation, such as nutritional parameters / secondary chemistry / visual or olfactory cues and their corresponding traits in the BBs (physiology, perception). Differences in spatial foraging strategies? Differences in specialization, e.g. maybe some BB species can manage fewer floral species at a time.
+
+### We can do a quick test of H1
+```{r, echo = FALSE}
+# By plant.sp
+## All focal species
+ggplot(niche_overlap.sp, aes(pbl.diff, niche.overlap, color = pollen)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth() +
+  facet_wrap(~year) +
+  labs(title = "transect-wise")
+
+ggplot(niche_overlap.sp, aes(pbl.diff, niche.overlap, color = pollen)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~year) +
+  labs(title = "transect-wise")
+
+## Drop B. wurflenii since  it is a robber
+ggplot(filter(niche_overlap.sp, wurf == FALSE), aes(pbl.diff, niche.overlap, color = pollen)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth() +
+  facet_wrap(~year) +
+  labs(title = "transect-wise")
+
+ggplot(filter(niche_overlap.sp, wurf == FALSE), aes(pbl.diff, niche.overlap, color = pollen)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method  = "lm") +
+  facet_wrap(~year) +
+  labs(title = "transect-wise")
+
+
+# By plant ktype
+## All focal species
+ggplot(niche_overlap.ktype, aes(pbl.diff, niche.overlap, color = pollen)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth() +
+  facet_wrap(~year) +
+  labs(title = "transect-wise")
+
+ggplot(niche_overlap.ktype, aes(pbl.diff, niche.overlap, color = pollen)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~year) +
+  labs(title = "transect-wise")
+
+## Drop B. wurflenii since  it is a robber
+ggplot(filter(niche_overlap.ktype, wurf == FALSE), aes(pbl.diff, niche.overlap, color = pollen)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth() +
+  facet_wrap(~year) +
+  labs(title = "transect-wise")
+
+ggplot(filter(niche_overlap.ktype, wurf == FALSE), aes(pbl.diff, niche.overlap, color = pollen)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method  = "lm") +
+  facet_wrap(~year) +
+  labs(title = "transect-wise")
+```
+
+
+### Niche overlap by elevation
+```{r, echo=FALSE}
+# By plant.sp
+## All sp pairs
+ggplot(niche_overlap.sp, aes(elev.mean, niche.overlap, color = pollen)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~year) +
+  ylim(c(0,1))
+
+## By sp pair
+ggplot(niche_overlap.sp, aes(elev.mean, niche.overlap, color = pollen)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  facet_grid(year~sp.pair) +
+  ylim(c(0,1))
+
+# By plant ktype
+## All sp pairs
+ggplot(niche_overlap.ktype, aes(elev.mean, niche.overlap, color = pollen)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~year) +
+  ylim(c(0,1))
+
+## By sp pair
+ggplot(niche_overlap.ktype, aes(elev.mean, niche.overlap, color = pollen)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  facet_grid(year~sp.pair) +
+  ylim(c(0,1))
+```
+
+### Cluster and ordination analysis by plant.sp
+```{r}
+# Combined
+net.combined <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  group_by(bb.sp, plant.sp, site) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, site) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, plant.sp) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = plant.sp, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.combined_dist <- vegdist(net.combined, method = "horn")
+net.combined_clust <- hclust(net.combined_dist, "ward.D")
+plot(net.combined_clust)
+groups.combined <- cutree(net.combined_clust, 2)
+
+pcoa.combined_dist <- capscale(net.combined ~ 1, distance = "horn", scale = TRUE)
+ordiplot(pcoa.combined_dist, type = "t")
+
+ordiplot(pcoa.combined_dist, type = 'n')
+points(pcoa.combined_dist, pch = groups.combined, col = groups.combined)
+
+# Pollen
+net.pollen <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(pollen == "pollen") %>%
+   group_by(bb.sp, plant.sp, site) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, site) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, plant.sp) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = plant.sp, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.pollen_dist <- vegdist(net.pollen, method = "horn")
+net.pollen_clust <- hclust(net.pollen_dist, "ward.D")
+plot(net.pollen_clust)
+groups.pollen <- cutree(net.pollen_clust, 3)
+
+pcoa.pollen_dist <- capscale(net.pollen ~ 1, distance = "horn", scale = TRUE)
+ordiplot(pcoa.pollen_dist, type = "t")
+
+ordiplot(pcoa.pollen_dist, type = 'n')
+points(pcoa.pollen_dist, pch = groups.pollen, col = groups.pollen)
+
+# Nectar
+net.nectar <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(pollen == "nopollen") %>%
+   group_by(bb.sp, plant.sp, site) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, site) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, plant.sp) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = plant.sp, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.nectar_dist <- vegdist(net.nectar, method = "horn")
+net.nectar_clust <- hclust(net.nectar_dist, "ward.D")
+plot(net.nectar_clust)
+groups.nectar <- cutree(net.nectar_clust, 3)
+
+pcoa.nectar_dist <- capscale(net.nectar ~ 1, distance = "horn")
+ordiplot(pcoa.nectar_dist, type = "t")
+
+ordiplot(pcoa.nectar_dist, type = 'n')
+points(pcoa.nectar_dist, pch = groups.nectar, col = groups.nectar)
+
+# Broken down by elevation class
+## High
+net.nectar.highpool <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(elev.class == "oben") %>%
+  filter(pollen == "nopollen") %>%
+   group_by(bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, plant.sp) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = plant.sp, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.nectar_dist.highpool <- vegdist(net.nectar.highpool, method = "horn")
+net.nectar_clust.highpool <- hclust(net.nectar_dist.highpool, "ward.D")
+plot(net.nectar_clust.highpool)
+groups.nectar.highpool <- cutree(net.nectar_clust.highpool, 2)
+
+pcoa.nectar_dist.highpool <- capscale(net.nectar.highpool ~ 1, distance = "horn")
+ordiplot(pcoa.nectar_dist.highpool, type = "t")
+
+ordiplot(pcoa.nectar_dist.highpool, type = 'n')
+points(pcoa.nectar_dist.highpool, pch = groups.nectar.highpool, col = groups.nectar.highpool)
+
+
+net.pollen.highpool <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(elev.class == "oben") %>%
+  filter(pollen == "pollen") %>%
+   group_by(bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, plant.sp) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = plant.sp, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.pollen_dist.highpool <- vegdist(net.pollen.highpool, method = "horn")
+net.pollen_clust.highpool <- hclust(net.pollen_dist.highpool, "ward.D")
+plot(net.pollen_clust.highpool)
+groups.pollen.highpool <- cutree(net.pollen_clust.highpool, 3)
+
+pcoa.pollen_dist.highpool <- capscale(net.pollen.highpool ~ 1, distance = "horn")
+ordiplot(pcoa.pollen_dist.highpool, type = "t")
+
+ordiplot(pcoa.pollen_dist.highpool, type = 'n')
+points(pcoa.pollen_dist.highpool, pch = groups.pollen.highpool, col = groups.pollen.highpool)
+
+## Low
+net.nectar.lowpool <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(elev.class == "unten") %>%
+  filter(pollen == "nopollen") %>%
+   group_by(bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, plant.sp) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = plant.sp, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.nectar_dist.lowpool <- vegdist(net.nectar.lowpool, method = "horn")
+net.nectar_clust.lowpool <- hclust(net.nectar_dist.lowpool, "ward.D")
+plot(net.nectar_clust.lowpool)
+groups.nectar.lowpool <- cutree(net.nectar_clust.lowpool, 3)
+
+pcoa.nectar_dist.lowpool <- capscale(net.nectar.lowpool ~ 1, distance = "horn")
+ordiplot(pcoa.nectar_dist.lowpool, type = "t")
+
+ordiplot(pcoa.nectar_dist.lowpool, type = 'n')
+points(pcoa.nectar_dist.lowpool, pch = groups.nectar.lowpool, col = groups.nectar.lowpool)
+
+
+net.pollen.lowpool <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(elev.class == "unten") %>%
+  filter(pollen == "pollen") %>%
+   group_by(bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, plant.sp) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = plant.sp, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.pollen_dist.lowpool <- vegdist(net.pollen.lowpool, method = "horn")
+net.pollen_clust.lowpool <- hclust(net.pollen_dist.lowpool, "ward.D")
+plot(net.pollen_clust.lowpool)
+groups.pollen.lowpool <- cutree(net.pollen_clust.lowpool, 3)
+
+pcoa.pollen_dist.lowpool <- capscale(net.pollen.lowpool ~ 1, distance = "horn")
+ordiplot(pcoa.pollen_dist.lowpool, type = "t")
+
+ordiplot(pcoa.pollen_dist.lowpool, type = 'n')
+points(pcoa.pollen_dist.lowpool, pch = groups.pollen.lowpool, col = groups.pollen.lowpool)
+
+## Middle
+net.nectar.midpool <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(elev.class == "mitte") %>%
+  filter(pollen == "nopollen") %>%
+   group_by(bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, plant.sp) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = plant.sp, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.nectar_dist.midpool <- vegdist(net.nectar.midpool, method = "horn")
+net.nectar_clust.midpool <- hclust(net.nectar_dist.midpool, "ward.D")
+plot(net.nectar_clust.midpool)
+groups.nectar.midpool <- cutree(net.nectar_clust.midpool, 4)
+
+pcoa.nectar_dist.midpool <- capscale(net.nectar.midpool ~ 1, distance = "horn")
+ordiplot(pcoa.nectar_dist.midpool, type = "t")
+
+ordiplot(pcoa.nectar_dist.midpool, type = 'n')
+points(pcoa.nectar_dist.midpool, pch = groups.nectar.midpool, col = groups.nectar.midpool)
+
+
+net.pollen.midpool <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(elev.class == "mitte") %>%
+  filter(pollen == "pollen") %>%
+   group_by(bb.sp, plant.sp) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, plant.sp) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = plant.sp, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.pollen_dist.midpool <- vegdist(net.pollen.midpool, method = "horn")
+net.pollen_clust.midpool <- hclust(net.pollen_dist.midpool, "ward.D")
+plot(net.pollen_clust.midpool)
+groups.pollen.midpool <- cutree(net.pollen_clust.midpool, 4)
+
+pcoa.pollen_dist.midpool <- capscale(net.pollen.midpool ~ 1, distance = "horn")
+ordiplot(pcoa.pollen_dist.midpool, type = "t")
+
+ordiplot(pcoa.pollen_dist.midpool, type = 'n')
+points(pcoa.pollen_dist.midpool, pch = groups.pollen.midpool, col = groups.pollen.midpool)
+
+```
+
+### Cluster and ordination analysis by k.type.s
+```{r}
+# Combined
+net.combined.ktype <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  group_by(bb.sp, k.type.s, site) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, site) %>%
+  mutate(prop = freq/sum(freq)) %>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, k.type.s) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = k.type.s, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.combined_dist.ktype <- vegdist(net.combined.ktype, method = "horn")
+net.combined_clust.ktype <- hclust(net.combined_dist.ktype, "ward.D")
+plot(net.combined_clust.ktype)
+groups.combined.ktype <- cutree(net.combined_clust.ktype, 3)
+
+pcoa.combined_dist.ktype <- capscale(net.combined.ktype ~ 1, distance = "horn", scale = TRUE)
+ordiplot(pcoa.combined_dist.ktype, type = "t")
+
+ordiplot(pcoa.combined_dist, type = 'n')
+points(pcoa.combined_dist, pch = groups.combined, col = groups.combined)
+
+# Pollen
+net.pollen.ktype <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(pollen == "pollen") %>%
+  group_by(bb.sp, k.type.s, site) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, site) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, k.type.s) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = k.type.s, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.pollen_dist.ktype <- vegdist(net.pollen.ktype, method = "horn")
+net.pollen_clust.ktype <- hclust(net.pollen_dist.ktype, "ward.D")
+plot(net.pollen_clust.ktype)
+groups.pollen.ktype <- cutree(net.pollen_clust.ktype, 3)
+
+pcoa.pollen_dist.ktype <- capscale(net.pollen.ktype ~ 1, distance = "horn", scale = TRUE)
+ordiplot(pcoa.pollen_dist.ktype, type = "t")
+
+ordiplot(pcoa.pollen_dist, type = 'n')
+points(pcoa.pollen_dist, pch = groups.pollen, col = groups.pollen)
+
+# Nectar
+net.nectar.ktype <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(pollen == "nopollen") %>%
+  group_by(bb.sp, k.type.s, site) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, site) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, k.type.s) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = k.type.s, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.nectar_dist.ktype <- vegdist(net.nectar.ktype, method = "horn")
+net.nectar_clust.ktype <- hclust(net.nectar_dist.ktype, "ward.D")
+plot(net.nectar_clust.ktype)
+groups.nectar.ktype <- cutree(net.nectar_clust.ktype, 3)
+
+pcoa.nectar_dist.ktype <- capscale(net.nectar.ktype ~ 1, distance = "horn", scale = TRUE)
+ordiplot(pcoa.nectar_dist.ktype, type = "t")
+
+ordiplot(pcoa.nectar_dist, type = 'n')
+points(pcoa.nectar_dist, pch = groups.nectar, col = groups.nectar)
+
+# Broken down by elevation class
+## High
+net.nectar.highpool.ktype <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(pollen == "nopollen") %>%
+  filter(elev.class == "oben") %>%
+  group_by(bb.sp, k.type.s, site) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, site) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, k.type.s) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = k.type.s, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.nectar_dist.highpool.ktype <- vegdist(net.nectar.highpool.ktype, method = "horn")
+net.nectar_clust.highpool.ktype <- hclust(net.nectar_dist.highpool.ktype, "ward.D")
+plot(net.nectar_clust.highpool.ktype)
+groups.nectar.highpool.ktype <- cutree(net.nectar_clust.highpool.ktype, 3)
+
+pcoa.nectar_dist.highpool.ktype <- capscale(net.nectar.highpool.ktype ~ 1, distance = "horn", scale = TRUE)
+ordiplot(pcoa.nectar_dist.highpool.ktype, type = "t")
+
+ordiplot(pcoa.nectar_dist, type = 'n')
+points(pcoa.nectar_dist, pch = groups.nectar, col = groups.nectar)
+
+net.pollen.highpool.ktype <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(pollen == "pollen") %>%
+  filter(elev.class == "oben") %>%
+  group_by(bb.sp, k.type.s, site) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, site) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, k.type.s) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = k.type.s, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.pollen_dist.highpool.ktype <- vegdist(net.pollen.highpool.ktype, method = "horn")
+net.pollen_clust.highpool.ktype <- hclust(net.pollen_dist.highpool.ktype, "ward.D")
+plot(net.pollen_clust.highpool.ktype)
+groups.pollen.highpool.ktype <- cutree(net.pollen_clust.highpool.ktype, 2)
+
+pcoa.pollen_dist.highpool.ktype <- capscale(net.pollen.highpool.ktype ~ 1, distance = "horn", scale = TRUE)
+ordiplot(pcoa.pollen_dist.highpool.ktype, type = "t")
+
+ordiplot(pcoa.pollen_dist, type = 'n')
+points(pcoa.pollen_dist, pch = groups.pollen.highpool.ktype, col = groups.pollen.highpool.ktype)
+
+## Low
+net.nectar.lowpool.ktype <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(pollen == "nopollen") %>%
+  filter(elev.class == "unten") %>%
+  group_by(bb.sp, k.type.s, site) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, site) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, k.type.s) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = k.type.s, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.nectar_dist.lowpool.ktype <- vegdist(net.nectar.lowpool.ktype, method = "horn")
+net.nectar_clust.lowpool.ktype <- hclust(net.nectar_dist.lowpool.ktype, "ward.D")
+plot(net.nectar_clust.lowpool.ktype)
+groups.nectar.lowpool.ktype <- cutree(net.nectar_clust.lowpool.ktype, 3)
+
+pcoa.nectar_dist.lowpool.ktype <- capscale(net.nectar.lowpool.ktype ~ 1, distance = "horn", scale = TRUE)
+ordiplot(pcoa.nectar_dist.lowpool.ktype, type = "t")
+
+ordiplot(pcoa.nectar_dist, type = 'n')
+points(pcoa.nectar_dist, pch = groups.nectar, col = groups.nectar)
+
+net.pollen.lowpool.ktype <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(pollen == "pollen") %>%
+  filter(elev.class == "unten") %>%
+  group_by(bb.sp, k.type.s, site) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, site) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, k.type.s) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = k.type.s, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.pollen_dist.lowpool.ktype <- vegdist(net.pollen.lowpool.ktype, method = "horn")
+net.pollen_clust.lowpool.ktype <- hclust(net.pollen_dist.lowpool.ktype, "ward.D")
+plot(net.pollen_clust.lowpool.ktype)
+groups.pollen.lowpool.ktype <- cutree(net.pollen_clust.lowpool.ktype, 2)
+
+pcoa.pollen_dist.lowpool.ktype <- capscale(net.pollen.lowpool.ktype ~ 1, distance = "horn", scale = TRUE)
+ordiplot(pcoa.pollen_dist.lowpool.ktype, type = "t")
+
+ordiplot(pcoa.pollen_dist, type = 'n')
+points(pcoa.pollen_dist, pch = groups.pollen.lowpool.ktype, col = groups.pollen.lowpool.ktype)
+
+## Middle
+net.nectar.midpool.ktype <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(pollen == "nopollen") %>%
+  filter(elev.class == "mitte") %>%
+  group_by(bb.sp, k.type.s, site) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, site) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, k.type.s) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = k.type.s, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.nectar_dist.midpool.ktype <- vegdist(net.nectar.midpool.ktype, method = "horn")
+net.nectar_clust.midpool.ktype <- hclust(net.nectar_dist.midpool.ktype, "ward.D")
+plot(net.nectar_clust.midpool.ktype)
+groups.nectar.midpool.ktype <- cutree(net.nectar_clust.midpool.ktype, 3)
+
+pcoa.nectar_dist.midpool.ktype <- capscale(net.nectar.midpool.ktype ~ 1, distance = "horn", scale = TRUE)
+ordiplot(pcoa.nectar_dist.midpool.ktype, type = "t")
+
+ordiplot(pcoa.nectar_dist, type = 'n')
+points(pcoa.nectar_dist, pch = groups.nectar, col = groups.nectar)
+
+net.pollen.midpool.ktype <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(pollen == "pollen") %>%
+  filter(elev.class == "mitte") %>%
+  group_by(bb.sp, k.type.s, site) %>%
+  summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, site) %>%
+  mutate(prop = freq/sum(freq))%>% # get proportional interaction frequency for each BB-FL pair per site-date
+  group_by(bb.sp, k.type.s) %>%
+  summarize(mean.prop = mean(prop)) %>% # get mean proportional interaction frequency for each BB-FL pair across site-dates
+  pivot_wider(names_from = k.type.s, values_from = mean.prop) %>% # spread into the kind of array vegan likes
+  replace(is.na(.), 0) %>% # replace NAs with zeros
+  column_to_rownames("bb.sp")
+
+net.pollen_dist.midpool.ktype <- vegdist(net.pollen.midpool.ktype, method = "horn")
+net.pollen_clust.midpool.ktype <- hclust(net.pollen_dist.midpool.ktype, "ward.D")
+plot(net.pollen_clust.midpool.ktype)
+groups.pollen.midpool.ktype <- cutree(net.pollen_clust.midpool.ktype, 2)
+
+pcoa.pollen_dist.midpool.ktype <- capscale(net.pollen.midpool.ktype ~ 1, distance = "horn", scale = TRUE)
+ordiplot(pcoa.pollen_dist.midpool.ktype, type = "t")
+
+ordiplot(pcoa.pollen_dist, type = 'n')
+points(pcoa.pollen_dist, pch = groups.pollen.midpool.ktype, col = groups.pollen.midpool.ktype)
+```
+
+# Taxonomic vs. morphological beta-diversity
+```{r}
+library(gdm)
+library(sf)
+
+# A function for converting a geometry column back to x and y columns
+# https://github.com/r-spatial/sf/issues/231
+sfc_as_cols <- function(x, names = c("x","y")) {
+  stopifnot(inherits(x,"sf") && inherits(sf::st_geometry(x),"sfc_POINT"))
+  ret <- sf::st_coordinates(x)
+  ret <- tibble::as_tibble(ret)
+  stopifnot(length(names) == ncol(ret))
+  x <- x[ , !names(x) %in% names]
+  ret <- setNames(ret,names)
+  dplyr::bind_cols(x,ret)
+}
+
+site_data_xy <- site_data %>% # turn elav.class into an ordered factor
+  semi_join(read_csv("../processed_data/network.csv"), by = "site") %>% # drop sites that were not sampled
+  st_as_sf(coords = c("lon", "lat")) %>%
+  st_set_crs(4326) %>%
+  st_transform(5684) %>%
+  sfc_as_cols() %>%
+  as_tibble() %>%
+  dplyr::select(-geometry)
+
+# Create functions for prepping data
+biodata_prep_ktype <- function(surv, y) {
+  surv %>%
+    mutate(year = year(date)) %>%
+    filter(flower.cover > 0 & year == y) %>%
+    group_by(site, k.type.s) %>%
+    summarize(cover = sum(flower.cover)) %>%
+    #mutate(cover = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
+    spread(k.type.s, cover) %>%
+    replace(is.na(.), 0) %>%
+    arrange(site)
+}
+
+biodata_prep_sp <- function(surv, y) {
+  surv %>%
+    mutate(year = year(date)) %>%
+    filter(flower.cover > 0 & year == y) %>%
+    group_by(site, plant.sp) %>%
+    summarize(cover = sum(flower.cover)) %>%
+    #mutate(cover = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
+    spread(plant.sp, cover) %>%
+    replace(is.na(.), 0) %>%
+    arrange(site)
+}
+
+predData_prep_survey <- function(surv, y) {
+  surv %>%
+    mutate(year = year(date)) %>%
+    filter(flower.cover > 0 & year == y) %>%
+    dplyr::select(site) %>%
+    left_join(site_data_xy) %>%
+    ungroup() %>%
+    dplyr::select(site, elev.mean, x, y) %>%
+    unique() %>%
+    arrange(site) 
+}
+
+format_set <- function(bio, pred) {
+  formatsitepair(bio, bioFormat = 1, siteColumn = "site", 
+                 dist = "jaccard", predData = pred, XColumn = "x", YColumn = "y",
+                 abundance = TRUE) %>%
+  filter(s1.elev.mean != s2.elev.mean) # this avoids comparing repeated measures of the same site (taking advantage of the fact that each site has a unique elevation in our dataset)
+}
+
+bio2012.ktype <- biodata_prep_ktype(survey, 2012)
+bio2012.sp <- biodata_prep_sp(survey, 2012)
+pred2012 <- predData_prep_survey(survey, 2012)
+set2012.ktype <- format_set(bio2012.ktype, pred2012)
+set2012.sp <- format_set(bio2012.sp, pred2012)
+
+gdm2012.ktype <- gdm(set2012.ktype, geo = TRUE)
+plot(gdm2012.ktype)
+summary(gdm2012.ktype)
+
+gdm2012.sp <- gdm(set2012.sp, geo = TRUE)
+plot(gdm2012.sp)
+```
+
+### Taxonomic vs. morphological diversity
+```{r}
+diversity <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(!is.na(pollen)) %>%
+  group_by(site, year, bb.sp, elev.mean, pollen) %>%
+  summarize(taxon.rich = length(unique(plant.sp)),
+            morpho.rich = length(unique(k.type.s))) 
+
+diversity_long <- net %>%
+  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>%
+  filter(!is.na(pollen)) %>%
+  group_by(site, year, bb.sp, elev.mean, pollen) %>%
+  summarize(taxon.rich = length(unique(plant.sp)),
+            morpho.rich = length(unique(k.type.s))) %>%
+  pivot_longer(cols = c(taxon.rich, morpho.rich))
+
+ggplot(diversity, aes(taxon.rich, morpho.rich, color = bb.sp)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_grid(year~pollen)
+
+ggplot(diversity_long, aes(elev.mean, value, color = name)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_grid(bb.sp~pollen + year, scales = "free")
+
+ggplot(diversity_long, aes(bb.sp, value, fill = name, color = name)) +
+  geom_violin(alpha = 0.5, draw_quantiles = c(0.25, 0.5, 0.75)) +
+  facet_wrap(~year)
+```
+
+```
+library(ggordiplots)
+
+global_ordiplot <- gg_ordiplot(pcoa.nectar_dist, groups = groups, 
+                               spiders = FALSE, hull = TRUE, 
+                               ellipse = FALSE, label = FALSE)
+
+ordiplot(pcoa.nectar_dist, type = "t")
+plot(envfit(pcoa.nectar_dist, env = c(6.9, 12.7, 8.4, 7.3, 6.2, 7.5)))
+
+str(pcoa.nectar_dist)
+
+library(ggvegan)
+fortify(pcoa.nectar_dist)
+
+autoplot(pcoa.nectar_dist)
+```
+
+### GAMS
+```{r, echo = FALSE}
+pollen.gam.2010 <- bam(niche.overlap ~ 
+                         s(sp.pair, bs = "re") +
+                         te(yday, elev.mean, by = sp.pair, bs = c("gp", "tp"), k = 5),
+                       data = filter(niche_overlap.sp, year == 2010),
+                       method = "fREML",
+                       discrete= TRUE,
+                       family = "scat") %>% getViz()
+
+check.gamViz(pollen.gam.2010)
+pollen.gam.2010.sum <- summary(pollen.gam.2010)
+print(plot(pollen.gam.2010, allTerms = TRUE), pages = 1)
+
+pollen.gam.2011 <- bam(niche.overlap ~ 
+                         s(sp.pair, bs = "re") +
+                         te(yday, elev.mean, by = sp.pair, bs = c("gp", "tp"), k = 5),
+                       data = filter(niche_overlap.sp, year == 2011),
+                       method = "fREML",
+                       discrete= TRUE,
+                       family = "scat") %>% getViz()
+
+check.gamViz(pollen.gam.2011)
+pollen.gam.2011.sum <- summary(pollen.gam.2011)
+print(plot(pollen.gam.2011, allTerms = TRUE), pages = 1)
+
+pollen.gam.2012 <- bam(niche.overlap ~ 
+                         s(sp.pair, bs = "re") +
+                         te(yday, elev.mean, by = sp.pair, bs = c("gp", "tp"), k = 5),
+                       data = filter(niche_overlap.sp, year == 2012),
+                       method = "fREML",
+                       discrete= TRUE,
+                       family = "scat") %>% getViz()
+
+check.gamViz(pollen.gam.2012)
+pollen.gam.2012.sum <- summary(pollen.gam.2012)
+print(plot(pollen.gam.2012, allTerms = TRUE), pages = 1)
+```

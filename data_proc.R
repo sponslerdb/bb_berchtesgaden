@@ -98,9 +98,9 @@ site_data <- read_tsv("./raw_data/SiteLocationFabriceUpdate2020.tsv",
                 elev.min = Min_altitude, elev.max  = Max_altitude, lat = Lat, lon = Long) %>%
   mutate(elev.class = factor(elev.class, ordered = TRUE, levels = c("unten", "mitte", "oben"))) %>%
   mutate(elev.class2 = case_when(
-    elev.mean < 1000 ~ "low",
-    elev.mean >= 1000 & elev.mean < 1705 ~ "mid",
-    elev.mean >= 1750 ~ "high"
+    elev.class == "unten" ~ "low",
+    elev.class == "mitte" ~ "mid",
+    elev.class == "oben" ~ "high"
   ))
 
 write_csv(site_data, "./processed_data/site_data.csv")
@@ -111,9 +111,64 @@ floral_k_type <-  read_delim("./BioFlor_traits/BioFlor_Kugler_classification.csv
   na.omit() %>%
   mutate(taxon = str_replace_all(taxon, c(" x " = " x"))) %>%
   separate(taxon, c("genus", "species"), sep = " ") %>%
-  unite(plant.sp, genus, species, sep = " ", remove = FALSE)
+  unite(plant.sp, genus, species, sep = " ", remove = FALSE) %>%
+  select(plant.sp, plant.genus = genus, k.type) %>%
+  mutate(k.type.s = str_extract(k.type, "[-+]?[0-9]*\\.?[0-9]+"), # make simplified (and more simplified) k types
+         k.type.ss = str_extract(k.type, "[-+]?[0-9]*")) %>%
   
+  # Fill in ktype data for plants present in my samples but missing from the Bioflor database
+  # In most cases
+  add_row(plant.sp = "Phyteuma orbiculare", plant.genus = "Phyteuma", 
+          k.type = "NA", k.type.s = "7.1", k.type.ss = "7") %>% # Following Neumayer and Paulus (1999)
+  add_row(plant.sp = "Phyteuma spicatum", plant.genus = "Phyteuma",
+          k.type = "NA", k.type.s = "7.1", k.type.ss = "7") %>% # Following Neumayer and Paulus (1999)
+  add_row(plant.sp = "Aconitum vulparia", plant.genus = "Aconitum",
+          k.type = "NA", k.type.s = "5.2", k.type.ss = "5") %>% # All scored Aconitum were classified as 5.2
+  add_row(plant.sp = "Cardamine enneaphyllos", plant.genus = "Cardamine", 
+          k.type = "NA", k.type.s = "1.2", k.type.ss = "1") %>% # All scored Cardamine were classified as 1.2
+  add_row(plant.sp = "Euphrasia picta", plant.genus = "Euphrasia", 
+          k.type = "NA", k.type.s = "5.1", k.type.ss = "5") %>% # All scored Euphrasia were classified as 5.1
+  add_row(plant.sp = "Euphrasia rostkoviana", plant.genus = "Euphrasia", 
+          k.type = "NA", k.type.s = "5.1", k.type.ss = "5") %>% # All scored Euphrasia were classified as 5.1
+  add_row(plant.sp = "Lamium galeobdolon", plant.genus = "Lamium", 
+          k.type = "NA", k.type.s = "5.1", k.type.ss = "5") %>% # All scored Lamium were classified as 5.1
+  add_row(plant.sp = "Mentha aquatilis", plant.genus = "Mentha", 
+          k.type = "NA", k.type.s = "2.2", k.type.ss = "2") %>% # All scored Mentha were classified as 2.2
+  add_row(plant.sp = "Rumex alpestris", plant.genus = "Rumex", 
+          k.type = "NA", k.type.s = "0.0", k.type.ss = "0") %>% # All scored Rumex were classified as 0
+  add_row(plant.sp = "Rheum barbarum", plant.genus = "Rheum", 
+          k.type = "NA", k.type.s = "7.1", k.type.ss = "7") %>% # My fiat declaration
+  add_row(plant.sp = "Salix sp", plant.genus = "Salix", 
+          k.type = "NA", k.type.s = "9.0", k.type.ss = "9") %>% # All scored Salix were classified as 9
+  add_row(plant.sp = "Salix spec.", plant.genus = "Salix", 
+          k.type = "NA", k.type.s = "9.0", k.type.ss = "9") %>% # All scored Salix were classified as 9
+  add_row(plant.sp = "Silene flos-cuculi", plant.genus = "Silene", 
+          k.type = "NA", k.type.s = "4.2", k.type.ss = "4") %>% # All scored Silene were classified as 4.2
+  add_row(plant.sp = "Stachys alopecuros", plant.genus = "Stachys", 
+          k.type = "NA", k.type.s = "5.1", k.type.ss = "5") %>% # All scored Stachys were classified as 5.1
+  add_row(plant.sp = "Stachys officinalis", plant.genus = "Stachys", 
+          k.type = "NA", k.type.s = "5.1", k.type.ss = "5") %>% # All scored Stachys were classified as 5.1
+  add_row(plant.sp = "Taraxacum officinale", plant.genus = "Taraxacum", 
+          k.type = "NA", k.type.s = "7.2", k.type.ss = "7") %>% # All scored Taraxacum (treated as a species group by Kugler) belong to 7.2
+  
+  # Scored Gentiana spp. belonged to either 2.1 or 4.1. 
+  # The unscored Gentiana aspera and Gentiana ciliata were classified as 2.1 and 4.1, respectively, by comparing them to scored Gentian spp.
+  add_row(plant.sp = "Gentiana aspera", plant.genus = "Gentiana", 
+          k.type = "NA", k.type.s = "2.1", k.type.ss = "2") %>%  
+  add_row(plant.sp = "Gentiana ciliata", plant.genus = "Gentiana", 
+          k.type = "NA", k.type.s = "4.1", k.type.ss = "4")  
+
 write_csv(floral_k_type, "./processed_data/floral_k_type.csv")
+
+floral_m_type <-  read_delim("./BioFlor_traits/BioFlor_Mueller_classification.csv", delim = ";") %>%
+  dplyr::select(taxon = 1, m.type = 2) %>% 
+  na.omit() %>%
+  mutate(taxon = str_replace_all(taxon, c(" x " = " x"))) %>%
+  separate(taxon, c("genus", "species"), sep = " ") %>%
+  unite(plant.sp, genus, species, sep = " ", remove = FALSE) %>%
+  select(plant.sp, plant.genus = genus, m.type) 
+
+#write_csv(floral_k_type, "./processed_data/floral_m_type.csv")
 
 ### Climate data
 climate <- read_delim("./raw_data/climate2.txt", delim = "\t") %>%
