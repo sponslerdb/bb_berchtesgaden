@@ -40,6 +40,9 @@ fl_tax <- read_csv("../processed_data/floral_tax.csv")
 ## Kugler morphotypes (accessed through Bioflor)
 fl_ktype <- read_csv("../processed_data/floral_k_type.csv") 
 
+## Flower colors
+fl_color <- read_csv("../processed_data/floral_color.csv")
+
 ## diameter and corolla depth data from Gita Benadi
 fl_morph <- read_csv("../processed_data/flower_morphology_GitaBenadi.csv") %>% 
   dplyr::select(SampleID, plant.family = Family, plant.sp = Species, 
@@ -54,8 +57,9 @@ fl_ktype_key <- read_delim("../processed_data/kugler_key.tsv", delim = "\t", col
 ## join all trait tables
 fl_traits <- fl_tax %>%
   full_join(fl_ktype) %>%
+  full_join(fl_color) %>%
   full_join(fl_morph) %>%
-  dplyr::select(plant.sp, plant.genus, plant.family, k.type, k.type.s, k.type.ss, diam, LN)
+  dplyr::select(plant.sp, plant.genus, plant.family, k.type, k.type.s, k.type.ss, color, diam, LN)
 
 # Network
 net <- read_csv("../processed_data/network.csv") %>%
@@ -64,8 +68,9 @@ net <- read_csv("../processed_data/network.csv") %>%
   ungroup() %>%
   arrange(site, date) %>%
   left_join(fl_traits) %>% # add floral traits
-  group_by(elev.class2) %>%
-  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) # divide each elev.class2 into 3 equal time slices
+  #group_by(elev.class2) %>%
+  group_by(site) %>%
+  mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) # divide each elev.class2 into 3 equal time slices
 
 # Floral survey
 survey <- read_csv("../processed_data/floral_survey.csv") %>%
@@ -73,6 +78,13 @@ survey <- read_csv("../processed_data/floral_survey.csv") %>%
   semi_join(net, by = "plant.sp") %>% # Consider only plants visited (anytime anywhere, not specifically for a given site*date)
   dplyr::select(site, date, plant.sp, flower.cover) %>%
   left_join(fl_traits) # add floral traits
+
+missing_colors <- net %>%
+  bind_rows(survey) %>%
+  ungroup() %>%
+  select(plant.sp, color) %>%
+  filter(is.na(color)) %>%
+  distinct()
 ```
 
 We will focus on six species that are abundant and widespread:  
@@ -108,21 +120,29 @@ ggplot(bb_range.year, aes(reorder(bb.sp, elev.med), elev.mean, color = focal)) +
   ylab("Elevation") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ggsave("./output/bb_range_year.pdf", height = 6, width = 6)
+
+# Do we see the bimodal abundance pattern predicted by the core-satellite hypothesis? Well, sort of.
+bb_abund <- net %>%
+  group_by(bb.sp) %>%
+  summarize(abund = n())
+
+ggplot(bb_abund, aes(abund)) +
+  geom_histogram(binwidth = 250)
 ```
 
-And we will parse the samples by elevation class and season, dividing the samples from each elevation class into equal-interval thirds
+And we will parse the samples by elevation class and season, dividing the samples from each site into equal-interval thirds
 ```{r}
 samples <- net %>%
   filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
   #group_by(elev.class2) %>%
   group_by(site) %>%
-  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+  mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) %>%
   group_by(site, period, dayofyear) %>%
   summarize(obs = n()) %>%
   left_join(site_data) %>%
   mutate(date = as_date(dayofyear))
 
-ggplot(samples, aes(as_date(yday(date)), elev.mean, color = period, pch = elev.class2)) +
+ggplot(samples, aes(as_date(yday(date)), elev.mean, color = period)) +
   #geom_point(size = 1, aes(alpha = obs)) +
   geom_point(size = 2, alpha = 0.75) +
   #facet_wrap(~year) +
@@ -150,7 +170,9 @@ pcoa_fort <- function(x){
   fortify(x, axes = 1:2) %>% 
   mutate(Score = case_when( # rename default scores to match my data
     Score == "species" ~ "flora",
-    Label %in% c("hort", "pasc", "wurf") ~ "LT spp.",
+    #Label %in% c("hort", "pasc", "wurf") ~ "LT spp.",
+    Label %in% c("hort", "pasc") ~ "LT spp.",
+    Label == "wurf" ~ "robber",
     Label %in% c("bss", "soro", "prat") ~ "ST spp."))
 }
 
@@ -165,9 +187,9 @@ pcoa_plot <- function(x, min_score = 0.25) {
   #     )
   
   
-  cols <- c("flora" = "gray40", "LT spp." = "#F8766D", "ST spp." = "#00BFC4")
+  cols <- c("flora" = "gray40", "LT spp." = "#F8766D", "ST spp." = "#00BA38", "robber" = "#619CFF")
   
-  ggplot(filter(x, (abs(MDS1) > min_score | abs(MDS2) > min_score) | (Score %in% c("LT spp.", "ST spp."))), 
+  ggplot(filter(x, (abs(MDS1) > min_score | abs(MDS2) > min_score) | (Score %in% c("LT spp.", "ST spp.", "robber"))), 
          aes(MDS1, MDS2, color = Score)) + # no threshold for BB spp
     #geom_polygon(data = t.class, aes(MDS1, MDS2, linetype = T.class), # draw polygons around T classes
      #            color = "gray70", fill = NA, size = 1.25, key_glyph = "abline") +
@@ -215,36 +237,38 @@ niche_analysis <- function(x, y, criterion, ...) {
                           column_to_rownames(var = "bb.sp") %>% 
                           select(pbl.fac) # pbl.fac is the variable I'm interested in
                         ),
-           adonis = map2(comm2, traits, # run adonis permuatation test for distance ~ tongue class
-                         function(x, y) adonis(x ~ pbl.fac, data = y, method = "horn")
-                         ),
-           betadis = map2(comm2, traits, # betadisper to test for difference in dispersion between tongue classes
-                         function(x, y) x %>%
-                           vegdist(method = "horn") %>% # betadisper runs a PCoA under the hood; match method to my PCoA
-                           betadisper(group = y$pbl.fac) 
-                         ),
-           betadis.permutest = map(betadis, permutest), # perumutation test
-           betadis.p = map(betadis.permutest, # extract betadisper p-value
-                           function(x) x$tab$'Pr(>F)'[[1]]
-                           ),
-           betadis.boxplot = map(betadis, boxplot), # boxplot of betadisper
+           # adonis = map2(comm2, traits, # run adonis permuatation test for distance ~ tongue class
+           #               function(x, y) adonis(x ~ pbl.fac, data = y, method = "horn")
+           #               ),
+           # betadis = map2(comm2, traits, # betadisper to test for difference in dispersion between tongue classes
+           #               function(x, y) x %>%
+           #                 vegdist(method = "horn") %>% # betadisper runs a PCoA under the hood; match method to my PCoA
+           #                 betadisper(group = y$pbl.fac) 
+           #               ),
+           # betadis.permutest = map(betadis, permutest), # perumutation test
+           # betadis.p = map(betadis.permutest, # extract betadisper p-value
+           #                 function(x) x$tab$'Pr(>F)'[[1]]
+           #                 ),
+           # betadis.boxplot = map(betadis, boxplot), # boxplot of betadisper
            pcoa.fort = map(pcoa, pcoa_fort), 
            pcoa.plot = map(pcoa.fort, pcoa_plot),
-           adonis.r2 = map(adonis, # extract adonis r2
-                           function(x) x$aov.tab$R2[[1]]
-                           ),
-           adonis.p = map(adonis, # extract adonis p-value
-                          function(x) x$aov.tab$'Pr(>F)'[[1]]
-                          ),
+           # adonis.r2 = map(adonis, # extract adonis r2
+           #                 function(x) x$aov.tab$R2[[1]]
+           #                 ),
+           # adonis.p = map(adonis, # extract adonis p-value
+           #                function(x) x$aov.tab$'Pr(>F)'[[1]]
+           #                ),
            MDS1 = map(pcoa, # extract variance explained by MDS1
                       function(x) x$CA$eig[[1]] / sum(x$CA$eig)
                       ), 
            MDS2 = map(pcoa, # extract variance explained by MDS2
                       function(x) x$CA$eig[[2]] / sum(x$CA$eig)
                       )) %>%
-    unnest(cols = c(adonis.r2, adonis.p, betadis.p, MDS1, MDS2)) %>% # these are lists of length = 1, so unnesting them simply displays the value
-    select(..., comm2, pcoa, betadis, betadis.permutest, betadis.p, adonis, 
-           adonis.r2, adonis.p, betadis.boxplot, pcoa.plot, MDS1, MDS2) 
+    #unnest(cols = c(adonis.r2, adonis.p, betadis.p, MDS1, MDS2)) %>% # these are lists of length = 1, so unnesting them simply displays the value
+    unnest(cols = c(MDS1, MDS2)) %>% # these are lists of length = 1, so unnesting them simply displays the value
+    # select(..., comm2, pcoa, betadis, betadis.permutest, betadis.p, adonis, 
+    #        adonis.r2, adonis.p, betadis.boxplot, pcoa.plot, MDS1, MDS2) 
+    select(..., comm2, pcoa, pcoa.plot, MDS1, MDS2)
 }
 
 beta_func <- function(x, traits, sitedata, level, criterion, binary, ...) {
@@ -358,8 +382,9 @@ diet_breit <- function(x, y, z, criterion, indices = c("normalised degree")) {
   a <- x %>%
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
     left_join(y) %>%
-    group_by(elev.class2) %>%
-    mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+    #group_by(elev.class2) %>%
+    group_by(site) %>%
+    mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) %>%
     group_by(site, period, pbl.fac, !!criterion) %>% # group by site, date, bee species, plant species
     summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
     unite(webID, c(site, period), sep = "_") %>%
@@ -380,8 +405,9 @@ diet_breit <- function(x, y, z, criterion, indices = c("normalised degree")) {
   
   b <- x %>%
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
-    group_by(elev.class2) %>%
-    mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+    #group_by(elev.class2) %>%
+    group_by(site) %>%
+    mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) %>%
     left_join(bb_traits) %>%
     group_by(site, period, pbl.fac) %>% # group by site, date, bee species, plant species
     summarize(abund = n()) %>%
@@ -399,7 +425,7 @@ diet_breit2 <- function(x, y, z, criterion, indices = c("normalised degree")) {
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
     left_join(y) %>%
     # group_by(elev.class2) %>%
-    # mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+    # mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) %>%
     #group_by(site, period, pbl.fac, !!criterion) %>% # group by site, date, bee species, plant species
     group_by(site, pbl.fac, !!criterion) %>% # group by site, date, bee species, plant species
     summarize(freq = n()) %>% # calculate interaction frequency per species pair within each site
@@ -427,7 +453,7 @@ diet_breit2 <- function(x, y, z, criterion, indices = c("normalised degree")) {
   b <- x %>%
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
     # group_by(elev.class2) %>%
-    # mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+    # mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) %>%
     left_join(bb_traits) %>%
    # group_by(site, period, pbl.fac) %>% # group by site, date, bee species, plant species
     group_by(site, pbl.fac) %>% # group by site, date, bee species, plant species
@@ -589,53 +615,52 @@ niche_x_elevperiod.tax <- niche_analysis(net, bb_traits, criterion = plant.sp.ab
 
 ## Extract and name plots
 niche_high_early.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "high" & period == "early")$pcoa.plot[[1]] 
-niche_high_mid.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "high" & period == "mid")$pcoa.plot[[1]] 
+niche_high_mid1.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "high" & period == "mid1")$pcoa.plot[[1]] 
+niche_high_mid2.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "high" & period == "mid2")$pcoa.plot[[1]] 
 niche_high_late.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "high" & period == "late")$pcoa.plot[[1]]
 
 niche_mid_early.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "mid" & period == "early")$pcoa.plot[[1]]
-niche_mid_mid.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "mid" & period == "mid")$pcoa.plot[[1]] 
+niche_mid_mid1.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "mid" & period == "mid1")$pcoa.plot[[1]] 
+niche_mid_mid2.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "mid" & period == "mid2")$pcoa.plot[[1]]
 niche_mid_late.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "mid" & period == "late")$pcoa.plot[[1]]
 
 niche_low_early.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "low" & period == "early")$pcoa.plot[[1]]
-niche_low_mid.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "low" & period == "mid")$pcoa.plot[[1]]
+niche_low_mid1.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "low" & period == "mid1")$pcoa.plot[[1]]
+niche_low_mid2.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "low" & period == "mid2")$pcoa.plot[[1]]
 niche_low_late.tax.plot <- filter(niche_x_elevperiod.tax, elev.class2 == "low" & period == "late")$pcoa.plot[[1]]
 
 # Morphological
 niche_x_elevperiod.morph <- niche_analysis(net, bb_traits, criterion = k.type.s, elev.class2, period)
 
 ## Extract and name plots
-niche_high_early.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "high" & period == "early")$pcoa.plot[[1]] +
-  ggtitle("high/Early/Morph")
-niche_high_mid.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "high" & period == "mid")$pcoa.plot[[1]] +
-  ggtitle("high/Mid/Morph")
-niche_high_late.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "high" & period == "late")$pcoa.plot[[1]] +
-  ggtitle("high/Late/Morph")
+niche_high_early.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "high" & period == "early")$pcoa.plot[[1]]
+niche_high_mid1.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "high" & period == "mid1")$pcoa.plot[[1]] 
+niche_high_mid2.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "high" & period == "mid2")$pcoa.plot[[1]] 
+niche_high_late.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "high" & period == "late")$pcoa.plot[[1]] 
 
-niche_mid_early.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "mid" & period == "early")$pcoa.plot[[1]] +
-  ggtitle("mid/Early/Morph")
-niche_mid_mid.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "mid" & period == "mid")$pcoa.plot[[1]] +
-  ggtitle("mid/Mid/Morph")
-niche_mid_late.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "mid" & period == "late")$pcoa.plot[[1]] +
-  ggtitle("mid/Late/Morph")
+niche_mid_early.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "mid" & period == "early")$pcoa.plot[[1]]
+niche_mid_mid1.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "mid" & period == "mid1")$pcoa.plot[[1]]
+niche_mid_mid2.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "mid" & period == "mid2")$pcoa.plot[[1]] 
+niche_mid_late.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "mid" & period == "late")$pcoa.plot[[1]] 
 
-niche_low_early.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "low" & period == "early")$pcoa.plot[[1]] +
-  ggtitle("low/Early/Morph")
-niche_low_mid.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "low" & period == "mid")$pcoa.plot[[1]] +
-  ggtitle("low/Mid/Morph")
-niche_low_late.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "low" & period == "late")$pcoa.plot[[1]] +
-  ggtitle("low/Late/Morph")
+niche_low_early.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "low" & period == "early")$pcoa.plot[[1]]
+niche_low_mid1.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "low" & period == "mid1")$pcoa.plot[[1]] 
+niche_low_mid2.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "low" & period == "mid2")$pcoa.plot[[1]] 
+niche_low_late.morph.plot <- filter(niche_x_elevperiod.morph, elev.class2 == "low" & period == "late")$pcoa.plot[[1]] 
 
 ## Display plots on grid
 #pdf("../analyses/output/niche_x_elevperiod_pcoa_tax.pdf", height = 8.5, width = 11)
-(niche_high_early.tax.plot | niche_high_mid.tax.plot  | niche_high_late.tax.plot) /
-(niche_mid_early.tax.plot | niche_mid_mid.tax.plot | niche_mid_late.tax.plot) /
-(niche_low_early.tax.plot | niche_low_mid.tax.plot  | niche_low_late.tax.plot)  + plot_layout(guides = 'collect') 
+(niche_high_early.tax.plot | niche_high_mid1.tax.plot  | niche_high_mid2.tax.plot | niche_high_late.tax.plot) /
+(niche_mid_early.tax.plot | niche_mid_mid1.tax.plot | niche_mid_mid2.tax.plot | niche_mid_late.tax.plot) /
+(niche_low_early.tax.plot | niche_low_mid1.tax.plot  | niche_low_mid2.tax.plot  | niche_low_late.tax.plot)  + 
+  plot_layout(guides = 'collect') 
 #dev.off()
 
 #pdf("../analyses/output/niche_x_elevperiod_pcoa_morph.pdf", height = 8.5, width = 11)
-(niche_high_early.morph.plot | niche_high_mid.morph.plot  | niche_high_late.morph.plot) /
-(niche_mid_early.morph.plot | niche_mid_mid.morph.plot | niche_mid_late.morph.plot) /
-(niche_low_early.morph.plot | niche_low_mid.morph.plot  | niche_low_late.morph.plot)  + plot_layout(guides = 'collect') 
+(niche_high_early.morph.plot | niche_high_mid1.morph.plot  | niche_high_mid2.morph.plot | niche_high_late.morph.plot) /
+(niche_mid_early.morph.plot | niche_mid_mid1.morph.plot | niche_mid_mid2.morph.plot | niche_mid_late.morph.plot) /
+(niche_low_early.morph.plot | niche_low_mid1.morph.plot  | niche_low_mid2.morph.plot  | niche_low_late.morph.plot)  + 
+  plot_layout(guides = 'collect') 
 #dev.off()
 ```
 
@@ -780,8 +805,9 @@ To make the graphs readable, we'll simplify Kugler classes to integers.
 # Define periods based on the network data
 periods <- net %>%
   filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
-  group_by(elev.class2) %>%
-  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+  #group_by(elev.class2) %>%
+  group_by(site) %>%
+  mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) %>%
   ungroup() %>%
   select(site, date, period) %>%
   distinct()
@@ -804,8 +830,9 @@ survey_morph_abund <- survey %>%
 ### Aggregate
 visitation_morph_abund <- net %>%
   filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
-  group_by(elev.class2) %>%
-  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+  #group_by(elev.class2) %>%
+  group_by(site) %>%
+  mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) %>%
   mutate(k.type.ss = factor(k.type.ss)) %>%
   group_by(site, period, k.type.ss) %>%
   summarize(abund = n()) %>%
@@ -816,8 +843,9 @@ visitation_morph_abund <- net %>%
 ### By BB species
 visitation_morph_abund.sp <- net %>%
   filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
-  group_by(elev.class2) %>%
-  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+  #group_by(elev.class2) %>%
+  group_by(site) %>%
+  mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) %>%
   mutate(k.type.ss = factor(k.type.ss)) %>%
   group_by(site, period, k.type.ss, bb.sp) %>%
   summarize(abund = n()) %>%
@@ -828,8 +856,9 @@ visitation_morph_abund.sp <- net %>%
 ### Taxonomic by BB species
 visitation_tax_abund.sp <- net %>%
   filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
-  group_by(elev.class2) %>%
-  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+  #group_by(elev.class2) %>%
+  group_by(site) %>%
+  mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) %>%
   mutate(k.type.ss = factor(k.type.ss),
          bb.sp = factor(bb.sp, levels = c("hort", "pasc", "wurf", "bss", "prat", "soro"))) %>%
   group_by(period, elev.class2, plant.genus, k.type.ss, plant.family, bb.sp) %>%
@@ -893,8 +922,9 @@ This visualization deserves to be pulled out as a stand-alone chunk. It's so goo
 ### Visitation by BB species, parsed by elev.class2 and period
 visitation_abund.sp <- net %>%
   filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
-  group_by(elev.class2) %>%
-  mutate(period = cut_interval(dayofyear, 3, labels = c("early", "mid", "late"))) %>%
+  #group_by(elev.class2) %>%
+  group_by(site) %>%
+  mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) %>%
   mutate(k.type.ss = factor(k.type.ss),
          bb.sp = factor(bb.sp, levels = c("hort", "pasc", "wurf", "bss", "prat", "soro"))) %>%
   group_by(period, elev.class2, plant.sp.abb, plant.genus, k.type.ss, plant.family, bb.sp) %>%
@@ -919,7 +949,16 @@ tp.early <- ggplot(filter(visitation_abund.sp, period == "early"),
   theme(strip.text = element_text(size = 14))
 
 # Mid
-tp.mid <- ggplot(filter(visitation_abund.sp, period == "mid"), 
+tp.mid1 <- ggplot(filter(visitation_abund.sp, period == "mid1"), 
+                 aes(area = prop, fill = k.type.ss, label = plant.sp.abb)) +
+  geom_treemap(color = "white") +
+  geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
+  scale_fill_manual(values = cols) + 
+  labs(fill = "Morphotype") +
+  facet_grid(fct_rev(elev.class2)~bb.sp) +
+  theme(strip.text = element_text(size = 14))
+
+tp.mid2 <- ggplot(filter(visitation_abund.sp, period == "mid2"), 
                  aes(area = prop, fill = k.type.ss, label = plant.sp.abb)) +
   geom_treemap(color = "white") +
   geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
@@ -938,6 +977,7 @@ tp.late <- ggplot(filter(visitation_abund.sp, period == "late"),
   facet_grid(fct_rev(elev.class2)~bb.sp) +
   theme(strip.text = element_text(size = 14))
 
+# Pair with ordination plots
 tp_ord1 <- (
   tp.early | (
     niche_high_early.tax.plot / 
@@ -949,18 +989,29 @@ tp_ord1 <- (
   plot_layout(widths = c(5, 1))
 ggsave("./output/tree_ord_early.png", tp_ord1, width = 14, height = 8)
 
-tp_ord1 <- (
-  tp.mid | (
-    niche_high_mid.tax.plot / 
-    niche_mid_mid.tax.plot / 
-    niche_low_mid.tax.plot
+tp_ord2 <- (
+  tp.mid1 | (
+    niche_high_mid1.tax.plot / 
+    niche_mid_mid1.tax.plot / 
+    niche_low_mid1.tax.plot
     ) + 
     plot_layout(guides = 'collect')
   ) + 
   plot_layout(widths = c(5, 1))
-ggsave("./output/tree_ord_mid.png", tp_ord1, width = 14, height = 8)
+ggsave("./output/tree_ord_mid1.png", tp_ord2, width = 14, height = 8)
 
-tp_ord1 <- (
+tp_ord3 <- (
+  tp.mid2 | (
+    niche_high_mid2.tax.plot / 
+    niche_mid_mid2.tax.plot / 
+    niche_low_mid2.tax.plot
+    ) + 
+    plot_layout(guides = 'collect')
+  ) + 
+  plot_layout(widths = c(5, 1))
+ggsave("./output/tree_ord_mid2.png", tp_ord3, width = 14, height = 8)
+
+tp_ord4 <- (
   tp.late | (
     niche_high_late.tax.plot / 
     niche_mid_late.tax.plot / 
@@ -969,7 +1020,7 @@ tp_ord1 <- (
     plot_layout(guides = 'collect')
   ) + 
   plot_layout(widths = c(5, 1))
-ggsave("./output/tree_ord_late.png", tp_ord1, width = 14, height = 8)
+ggsave("./output/tree_ord_late.png", tp_ord4, width = 14, height = 8)
 ```
 
 ## 1.7 How do abundant generalist bumble bees deal with a dynamic floral community? Based on the ordination analysis, it looks like they maintain fairly steady morphological preferences, but they are taxonomically flexible. Let's take a closer look at that.
