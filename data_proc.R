@@ -179,22 +179,32 @@ floral_color <-  read_delim("./BioFlor_traits/BioFlor_flower_color.csv", delim =
   
   # Fill in ktype data for plants present in my samples but missing from the Bioflor database
   # Colors based on review of iNaturalist "research-grade" observations. Where color is too variable to classify, "various_colors". 
-  # Where essentially absent as in conifers, "undet".
+  # Where essentially absent as in conifers, "NA".
   add_row(plant.sp = "Euphrasia rostkoviana", plant.genus = "Euphrasia", color = "various colors") %>%
   add_row(plant.sp = "Euphrasia officinalis", plant.genus = "Euphrasia", color = "various colors") %>%
   add_row(plant.sp = "Taraxacum officinale", plant.genus = "Taraxacum", color = "yellow") %>%
-  add_row(plant.sp = "Juniperus communis", plant.genus = "Juniperus", color = "undet") %>%
+  add_row(plant.sp = "Juniperus communis", plant.genus = "Juniperus", color = "NA") %>%
   add_row(plant.sp = "Gentiana aspera", plant.genus = "Gentiana", color = "purple") %>%
   add_row(plant.sp = "Gentianella aspera", plant.genus = "Gentianella", color = "purple") %>%
-  add_row(plant.sp = "Carex ericetorum", plant.genus = "Carex", color = "undet") %>%
+  add_row(plant.sp = "Carex ericetorum", plant.genus = "Carex", color = "NA") %>%
   add_row(plant.sp = "Euphrasia picta", plant.genus = "Euphrasia", color = "various colors") %>%
   add_row(plant.sp = "Gentiana ciliata", plant.genus = "Gentiana", color = "violet") %>%
   add_row(plant.sp = "Gentianopsis ciliata", plant.genus = "Gentiana", color = "violet") %>%
   add_row(plant.sp = "Stachys alopecuros", plant.genus = "Stachys", color = "yellow") %>%
   add_row(plant.sp = "Betonica alopecuros", plant.genus = "Betonica", color = "yellow") %>%
-  
-  
-  
+  add_row(plant.sp = "Cardamine enneaphyllos", plant.genus = "Cardamine", color = "yellow") %>%
+  add_row(plant.sp = "Lamium galeobdolon", plant.genus = "Lamium", color = "yellow") %>%
+  add_row(plant.sp = "Larix decidua", plant.genus = "Larix", color = "NA") %>%
+  add_row(plant.sp = "Silene flos-cuculi", plant.genus = "Silene", color = "pink") %>%
+  add_row(plant.sp = "Aconitum vulparia", plant.genus = "Aconitum", color = "yellow") %>%
+  add_row(plant.sp = "Rumex alpestris", plant.genus = "Rumex", color = "NA") %>%
+  add_row(plant.sp = "Mentha aquatilis", plant.genus = "Mentha", color = "lilac") %>%
+  add_row(plant.sp = "Mentha aquatica", plant.genus = "Mentha", color = "lilac") %>%
+  add_row(plant.sp = "Salix spec.", plant.genus = "Salix", color = "NA") %>%
+  add_row(plant.sp = "Stachys officinalis", plant.genus = "Stachys", color = "pink") %>%
+  add_row(plant.sp = "Betonica officinalis", plant.genus = "Betonica", color = "pink") %>%
+  add_row(plant.sp = "Rheum barbarum", plant.genus = "Rheum", color = "yellow") %>%
+  add_row(plant.sp = "Rheum rhabarbarum", plant.genus = "Rheum", color = "yellow")
   
 
 write_csv(floral_color, "./processed_data/floral_color.csv")

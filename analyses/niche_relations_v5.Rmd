@@ -213,6 +213,7 @@ niche_analysis <- function(x, y, criterion, ...) {
   criterion <- enquo(criterion) # this argument toggles taxonomic (plant.sp) vs. morphological (k.type.s) analysis
 
   x %>%
+    filter(caste != "male") %>%
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
     group_by(..., bb.sp, !!criterion) %>% # pooling all sites and years
     summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair
@@ -277,6 +278,7 @@ beta_func <- function(x, traits, sitedata, level, criterion, binary, ...) {
   level <- enquo(level) # bb.sp or pbl.fac (i.e. tongue length  guild)
 
   x %>% 
+    filter(caste != "male") %>%
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
     left_join(traits) %>% # add BB traits
     group_by(site, !!level, !!criterion, ...) %>% # in addition to grouping by level (bb.sp/pbl.fac) and criterion (plant.sp/k.type.s), the ... argument will also group by any variables supplied in the function call, e.g. elev.class2, period, year.
@@ -334,6 +336,7 @@ niche_overlapper <- function(x, criterion) {
   criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
   
   x %>%
+    filter(caste != "male") %>%
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
     group_by(bb.sp, !!criterion, site, year) %>% # group by site-year and BB-FL pair
     summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair per site-year
@@ -380,6 +383,7 @@ diet_breit <- function(x, y, z, criterion, indices = c("normalised degree")) {
   criterion <- enquo(criterion) # plant.sp or k.type.s
   
   a <- x %>%
+    filter(caste != "male") %>%
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
     left_join(y) %>%
     #group_by(elev.class2) %>%
@@ -404,6 +408,7 @@ diet_breit <- function(x, y, z, criterion, indices = c("normalised degree")) {
            period = factor(period, levels = c("early", "mid", "late")))
   
   b <- x %>%
+    filter(caste != "male") %>%
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
     #group_by(elev.class2) %>%
     group_by(site) %>%
@@ -422,6 +427,7 @@ diet_breit2 <- function(x, y, z, criterion, indices = c("normalised degree")) {
   criterion <- enquo(criterion) # plant.sp or k.type.s
   
   a <- x %>%
+    filter(caste != "male") %>%
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
     left_join(y) %>%
     # group_by(elev.class2) %>%
@@ -451,6 +457,7 @@ diet_breit2 <- function(x, y, z, criterion, indices = c("normalised degree")) {
   
   
   b <- x %>%
+    filter(caste != "male") %>%
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
     # group_by(elev.class2) %>%
     # mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) %>%
@@ -462,7 +469,7 @@ diet_breit2 <- function(x, y, z, criterion, indices = c("normalised degree")) {
     group_by(site) %>%
     mutate(prop = abund/sum(abund))
   
-  out <- left_join(a, b)
+  filter(caste != "male") %>%out <- left_join(a, b)
 }
 
 
@@ -472,6 +479,7 @@ nullify1 <- function(x, n, criterion){
   criterion <- enquo(criterion) # plant.sp or k.type.s
 
   x %>%
+    filter(caste != "male") %>%
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
     select(site, bb.sp, !!criterion) %>% 
     group_by(site, bb.sp, !!criterion) %>%
@@ -506,6 +514,7 @@ nullify2 <- function(x, n, criterion){
   criterion <- enquo(criterion) # plant.sp or k.type.s
 
   x %>%
+    filter(caste != "male") %>%
     filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
     select(site, bb.sp, !!criterion) %>% 
     group_by(site, bb.sp, !!criterion) %>%
@@ -921,22 +930,42 @@ This visualization deserves to be pulled out as a stand-alone chunk. It's so goo
 ```{r}
 ### Visitation by BB species, parsed by elev.class2 and period
 visitation_abund.sp <- net %>%
-  filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
+  filter(caste != "male") %>%
+  #filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # only focal species
   #group_by(elev.class2) %>%
   group_by(site) %>%
   mutate(period = cut_interval(dayofyear, 4, labels = c("early", "mid1", "mid2", "late"))) %>%
+  # mutate(k.type.ss = factor(k.type.ss),
+  #        color = factor(color),
+  #        bb.sp = factor(bb.sp, levels = c("hort", "pasc", "wurf", "bss", "prat", "soro"))) %>%
   mutate(k.type.ss = factor(k.type.ss),
-         bb.sp = factor(bb.sp, levels = c("hort", "pasc", "wurf", "bss", "prat", "soro"))) %>%
-  group_by(period, elev.class2, plant.sp.abb, plant.genus, k.type.ss, plant.family, bb.sp) %>%
+         color = factor(color),
+         bb.sp = factor(bb.sp)) %>%
+  group_by(period, elev.class2, plant.sp.abb, plant.genus, k.type.ss, color, plant.family, bb.sp) %>%
   summarize(abund = n()) %>%
   group_by(elev.class2, period, bb.sp) %>%
   mutate(prop = abund/sum(abund)) %>%
   arrange(elev.class2, period, bb.sp, -prop) 
 
 # Color palette
+
 cols = c("0" = "gray60", "1" = "#8DD3C7", "2" = "#FFFFB3", "3" = "#BEBADA",
          "4" = "#FB8072", "5" = "#80B1D3", "6" = "#FDB462", "7" = "#B3DE69",
          "8" = "#FCCDE5", "9" = "#D9D9D9")
+
+cols2 = c("blue" = "cornflowerblue", 
+          "yellow" = "gold1", 
+          "pink" = "orchid2", 
+          "red" = "firebrick1",
+         "violet" = "mediumpurple2", 
+         "purple" = "purple", 
+         "white" = "white", 
+         "various colors" = "black",
+         "brown" = "sienna",
+         "undet" = "gray40", 
+         "green" = "olivedrab1", 
+         "orange" = "orange", 
+         "lilac" = "mediumorchid")
 
 # Early
 tp.early <- ggplot(filter(visitation_abund.sp, period == "early"), 
@@ -944,6 +973,15 @@ tp.early <- ggplot(filter(visitation_abund.sp, period == "early"),
   geom_treemap(color = "white") +
   geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
   scale_fill_manual(values = cols) + 
+  labs(fill = "Morphotype") +
+  facet_grid(fct_rev(elev.class2)~bb.sp) +
+  theme(strip.text = element_text(size = 14))
+
+tp.early.col <- ggplot(filter(visitation_abund.sp, period == "early"), 
+                aes(area = prop, fill = color, label = plant.sp.abb)) +
+  geom_treemap(color = "white") +
+  geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
+  scale_fill_manual(values = cols2) + 
   labs(fill = "Morphotype") +
   facet_grid(fct_rev(elev.class2)~bb.sp) +
   theme(strip.text = element_text(size = 14))
@@ -958,11 +996,29 @@ tp.mid1 <- ggplot(filter(visitation_abund.sp, period == "mid1"),
   facet_grid(fct_rev(elev.class2)~bb.sp) +
   theme(strip.text = element_text(size = 14))
 
+tp.mid1.col <- ggplot(filter(visitation_abund.sp, period == "mid1"), 
+                 aes(area = prop, fill = color, label = plant.sp.abb)) +
+  geom_treemap(color = "white") +
+  geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
+  scale_fill_manual(values = cols2) + 
+  labs(fill = "Morphotype") +
+  facet_grid(fct_rev(elev.class2)~bb.sp) +
+  theme(strip.text = element_text(size = 14))
+
 tp.mid2 <- ggplot(filter(visitation_abund.sp, period == "mid2"), 
                  aes(area = prop, fill = k.type.ss, label = plant.sp.abb)) +
   geom_treemap(color = "white") +
   geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
   scale_fill_manual(values = cols) + 
+  labs(fill = "Morphotype") +
+  facet_grid(fct_rev(elev.class2)~bb.sp) +
+  theme(strip.text = element_text(size = 14))
+
+tp.mid2.col <- ggplot(filter(visitation_abund.sp, period == "mid2"), 
+                 aes(area = prop, fill = color, label = plant.sp.abb)) +
+  geom_treemap(color = "white") +
+  geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
+  scale_fill_manual(values = cols2) + 
   labs(fill = "Morphotype") +
   facet_grid(fct_rev(elev.class2)~bb.sp) +
   theme(strip.text = element_text(size = 14))
@@ -973,6 +1029,15 @@ tp.late <- ggplot(filter(visitation_abund.sp, period == "late"),
   geom_treemap(color = "white") +
   geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
   scale_fill_manual(values = cols) + 
+  labs(fill = "Morphotype") +
+  facet_grid(fct_rev(elev.class2)~bb.sp) +
+  theme(strip.text = element_text(size = 14))
+
+tp.late.col <- ggplot(filter(visitation_abund.sp, period == "late"), 
+                  aes(area = prop, fill = color, label = plant.sp.abb)) +
+  geom_treemap(color = "white") +
+  geom_treemap_text(fontface = "italic", color = "black", place = "centre", "grow" = TRUE, alpha = 0.5) +
+  scale_fill_manual(values = cols2) + 
   labs(fill = "Morphotype") +
   facet_grid(fct_rev(elev.class2)~bb.sp) +
   theme(strip.text = element_text(size = 14))
