@@ -147,6 +147,33 @@ ggplot(samples, aes(as_date(yday(date)), elev.mean, color = period)) +
 
 ## Define functions
 ```{r, echo = FALSE}
+# Plot ordisurf
+## Based on https://oliviarata.wordpress.com/2014/07/17/ordinations-in-ggplot2-v2-ordisurf/
+surfplot <- function(x, y, min_score = 0.25) {
+  
+  grid <- x$grid # extracts the ordisurf object
+  grid_exp <- expand.grid(x = grid$x, y = grid$y) # get x and ys
+  grid_exp$z <- as.vector(grid$z) # unravel the matrix for the z scores
+  
+  contours <- data.frame(na.omit(grid_exp)) %>% # gets rid of the nas
+    as_tibble() %>%
+    rename(MDS1 = x, MDS2 = y)
+  
+  scores <- y %>% 
+    filter(Score != "T.len") %>%
+    filter((abs(MDS1) > 0.25 | abs(MDS2) > 0.25) | Score == "BB.sp")
+    
+  ggplot(scores, aes(MDS1, MDS2, pch = Score)) +
+    geom_contour(data = contours, aes(MDS1, MDS2, z = z, color = stat(level)), size = 1.5, alpha = 0.75, inherit.aes = FALSE) +
+    geom_point(size = 2) +
+    geom_text_repel(aes(MDS1, MDS2, label = Label), key_glyph = "rect") +
+    theme_light() +
+    scale_color_viridis_c(name = "Tongue length") +
+    scale_shape_manual(values = c(16, 1), name = "Level") +
+    coord_fixed() # Gavin Simpson says this is **really** important
+}
+
+
 # Fortify envfit() object fitted to BB tongue length data
 envfit_fort <- function(x){
   fortify(x) %>%
@@ -166,8 +193,8 @@ pcoa_fort <- function(x, y){
 }
 
 # Plot PCoA ordination with arrow for tongue length envfit()
-pcoa_plot <- function(x, y, min_load = 0.25) {
-  ggplot(filter(x, (abs(MDS1) > min_load | abs(MDS2) > min_load) | (Score %in% c("BB.sp", "T.len")))) + # to avoid overplotting, we can filter to include only floral species > loading threshold
+pcoa_plot <- function(x, y, min_score = 0.25) {
+  ggplot(filter(x, (abs(MDS1) > min_score | abs(MDS2) > min_score) | (Score %in% c("BB.sp", "T.len")))) + # to avoid overplotting, we can filter to include only floral species > loading threshold
     geom_point(aes(MDS1, MDS2, color = Score)) +
     geom_text_repel(aes(MDS1, MDS2, color = Score, label = Label), key_glyph = "rect") +
     geom_segment(data = y, 
@@ -231,6 +258,7 @@ niche_analysis <- function(x, y, criterion, ...) {
            ordisurf = map2(pcoa, traits, function(x, y) ordisurf(x ~ pbl.w, data = y, k = 8)),
            ordisurf.dev_exp = map(ordisurf, function(x) summary(x)$dev.expl),
            ordisurf.p = map(ordisurf, function(x) summary(x)$s.pv),
+           ordisurf.plot = map2(ordisurf, pcoa.fort, surfplot),
            MDS1 = map(pcoa, # extract variance explained by MDS1
                       function(x) x$CA$eig[[1]] / sum(x$CA$eig)
                       ), 
@@ -238,10 +266,9 @@ niche_analysis <- function(x, y, criterion, ...) {
                       function(x) x$CA$eig[[2]] / sum(x$CA$eig)
                       )) %>%
     unnest(cols = c(ordisurf.dev_exp, ordisurf.p, envfit.r2, envfit.p, adonis.r2, adonis.p, MDS1, MDS2)) %>% # these are lists of length = 1, so unnesting them simply displays the value
-    select(..., comm2, traits, pcoa, ordisurf, ordisurf.dev_exp, ordisurf.p, envfit, envfit.fort, pcoa.fort, pcoa.plot, envfit.r2, envfit.p, adonis.r2, adonis.p, MDS1, MDS2)
+    select(..., comm2, traits, pcoa, ordisurf, ordisurf.dev_exp, ordisurf.p, ordisurf.plot, envfit, envfit.fort, pcoa.fort, pcoa.plot, envfit.r2, envfit.p, adonis.r2, adonis.p, MDS1, MDS2)
 }
 
-ordi1 <- ordisurf(niche.tax$pcoa[[1]] ~ pbl.w, data = niche.tax$traits[[1]])
 
 # Calculate site-wise beta diversity from visitation data
 beta_func <- function(x, traits, sitedata, level, criterion, binary, ...) {
@@ -534,6 +561,10 @@ To avoid overplotting plant species / Kugler classes, I have only plotted plant 
 # By plant.sp
 niche.tax <- niche_analysis(net, bb_traits, criterion = plant.sp.abb)
 niche.tax.plot <- niche.tax$pcoa.plot[[1]]
+niche.tax.surfplot <- niche.tax$ordisurf.plot
+nich.tax.baseplot <- plot(niche.tax$ordisurf[[1]])
+niche.tax$ordisurf.plot
+plot(niche.tax$ordisurf[[1]])
 
 # By ktype
 niche.morph <- niche_analysis(net, bb_traits, criterion = k.type.s)
@@ -544,39 +575,6 @@ pdf("../analyses/output/niche_pcoa.pdf", height = 8.5, width = 11)
 (niche.tax.plot + ggtitle("Taxonomic") | niche.morph.plot + ggtitle("Morphological")) + plot_layout(guides = 'collect') 
 dev.off()
 
-# Playing with ordisurf as alternative to envfit()
-library(ggordiplots)
-
-## Based on https://oliviarata.wordpress.com/2014/07/17/ordinations-in-ggplot2-v2-ordisurf/
-# Get ordination object
-ordi1 <- niche.tax$ordisurf[[1]] 
-ordi1.grid <- ordi1$grid #extracts the ordisurf object
-ordi1.mite <- expand.grid(x = ordi1.grid$x, y = ordi1.grid$y) #get x and ys
-ordi1.mite$z <- as.vector(ordi1.grid$z) #unravel the matrix for the z scores
-ordi1.mite.na <- data.frame(na.omit(ordi1.mite)) %>% #gets rid of the nas
-  as_tibble() %>%
-  rename(MDS1 = x, MDS2 = y)
-  
-
-# Get scores
-scores <- fortify(niche.tax$pcoa[[1]], axes = 1:2) %>%
-  mutate(Score = case_when(
-    Score == "species" ~ "FL.sp",
-    Score == "sites" ~ "BB.sp")
-    ) %>%
-  as_tibble()
-
-# Plot
-dat <- filter(scores, (abs(MDS1) > 0.25 | abs(MDS2) > 0.25) | Score == "BB.sp")
-
-ggplot(dat, aes(MDS1, MDS2, pch = Score)) +
-  geom_contour(data = ordi1.mite.na, aes(MDS1, MDS2, z = z, color = stat(level)), size = 1.5, alpha = 0.75, inherit.aes = FALSE) +
-  geom_point(size = 2) +
-  geom_text_repel(aes(MDS1, MDS2, label = Label), key_glyph = "rect") +
-  theme_light() +
-  scale_color_viridis_c(name = "Tongue length") +
-  scale_shape_manual(values = c(16, 1), name = "Level") +
-  coord_fixed() # Gavin Simpson says this is **really** important
 ```
 
 ### Results
