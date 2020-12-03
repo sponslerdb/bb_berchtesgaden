@@ -159,8 +159,9 @@ surfplot <- function(x, y, min_score = 0.25) {
     rename(MDS1 = x, MDS2 = y)
   
   scores <- y %>% 
-    filter((abs(MDS1) > 0.25 | abs(MDS2) > 0.25) | Score == "BB.sp")
-    
+    #filter((abs(MDS1) > 0.25 | abs(MDS2) > 0.25) | Score == "BB.sp")
+    filter((abs(MDS1) > 0.1 | abs(MDS2) > 0.1) | Score == "BB.sp")
+  
   ggplot(scores, aes(MDS1, MDS2, pch = Score)) +
     geom_contour(data = contours, aes(MDS1, MDS2, z = z, color = stat(level)), size = 1.5, alpha = 0.75, inherit.aes = FALSE) +
     geom_point(size = 2) +
@@ -216,14 +217,19 @@ niche_analysis <- function(x, y, criterion, ...) {
   x %>%
     filter(caste != "male") %>%
     #filter(!bb.sp %in% c("psit", "gers", "humi")) %>% # omit parasitic species, gers because it's a specialist, humi because it's so rare
-    filter(!bb.sp %in% c("gers", "humi")) %>% # omit parasitic species, gers because it's a specialist, humi because it's so rare
-    group_by(..., bb.sp, !!criterion) %>% # pooling all sites and years
+    filter(!bb.sp %in% c("gers", "humi")) %>% # gers because it's a specialist, humi because it's so rare
+    #filter(bb.sp %in% c("bss", "pasc", "prat", "hort", "soro", "wurf")) %>% # focal species
+    group_by(site, date, bb.sp, !!criterion, ...) %>% # pooling all sites and years
     summarize(freq = n()) %>% # get interaction frequency for each BB-FL pair
-    group_by(..., bb.sp) %>%
-    mutate(prop = freq/sum(freq)) %>% # get proportional interaction frequency for each BB-FL pair
-    dplyr::select(-freq) %>% # drop freq variable
+    group_by(site, date, bb.sp) %>%
+    mutate(prop = freq/sum(freq)) %>%
+    group_by(site, date, ...) %>%
+    complete(bb.sp, !!criterion, fill = list(prop = 0)) %>% # fill in zeros for unvisited plants
+    group_by(..., bb.sp, !!criterion) %>%
+    summarize(prop = mean(prop)) %>%
+    #dplyr::select(-freq) %>% # drop freq variable
     group_by(...) %>%
-    nest() %>% # nest into list-column
+    nest()  %>% # nest into list-column
     mutate(comm1 = map(data, # spread into the kind of array vegan likes
                        function(x) pivot_wider(x, names_from = !!criterion, values_from = prop) %>%
                          replace(is.na(.), 0)
@@ -252,6 +258,7 @@ niche_analysis <- function(x, y, criterion, ...) {
                           function(x) x$aov.tab$'Pr(>F)'[[1]]
                           ),
            ordisurf = map2(pcoa, traits, function(x, y) ordisurf(x ~ pbl.w, data = y, k = 8)),
+           #ordisurf = map2(pcoa, traits, function(x, y) ordisurf(x ~ pbl.w, data = y, k = 5)),
            ordisurf.dev_exp = map(ordisurf, function(x) summary(x)$dev.expl),
            ordisurf.p = map(ordisurf, function(x) summary(x)$s.pv),
            ordisurf.plot = map2(ordisurf, pcoa.fort, surfplot),
@@ -597,7 +604,7 @@ niche_mid.tax.plot <- filter(niche_x_elev.tax, elev.class2 == "mid")$ordisurf.pl
 niche_low.tax.plot <- filter(niche_x_elev.tax, elev.class2 == "low")$ordisurf.plot[[1]] + ggtitle("low/Tax")
 
 # Morphological
-niche_x_elev.morph <- niche_analysis(net, bb_traits, criterion = k.type.s, elev.class2)
+niche_x_elev.morph <- niche_analysis(net, bb_traits, criterion = k.type.ss, elev.class2)
 
 ## Extract and name plots
 niche_high.morph.plot <- filter(niche_x_elev.morph, elev.class2 == "high")$ordisurf.plot[[1]] + ggtitle("high/morph")
