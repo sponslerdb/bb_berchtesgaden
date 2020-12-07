@@ -226,7 +226,7 @@ niche_analysis <- function(x, y, criterion, ...) {
     group_by(site, date, ...) %>%
     complete(bb.sp, !!criterion, fill = list(prop = 0)) %>% # fill in zeros for unvisited plants
     group_by(..., bb.sp, !!criterion) %>%
-    summarize(prop = mean(prop)) %>%
+    summarize(prop = median(prop)) %>%
     #dplyr::select(-freq) %>% # drop freq variable
     group_by(...) %>%
     nest()  %>% # nest into list-column
@@ -972,8 +972,7 @@ This visualization deserves to be pulled out as a stand-alone chunk. It's so goo
 ### Visitation by BB species, parsed by elev.class2 and period
 visitation_abund.sp <- net %>%
   filter(caste != "male") %>%
-  filter(!bb.sp %in% c("psit", "gers", "humi")) %>% # only focal species
-  #group_by(elev.class2) %>%
+  filter(!bb.sp %in% c("gers", "humi")) %>% # only focal species
   group_by(site) %>%
   mutate(period = cut_interval(dayofyear, 3, labels = c("early",  "mid", "late"))) %>%
   # mutate(k.type.ss = factor(k.type.ss),
