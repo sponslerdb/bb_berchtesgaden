@@ -65,28 +65,34 @@ write_csv(network, "./processed_data/network.csv")
 ### Floral taxonomy
 Sys.setenv(ENTREZ_KEY = "ab9a55ec842df6f86a750929aefc69143608")
 
-fl_sp <- survey %>%
+fl_sp <- fl_survey %>%
   select(plant.sp) %>%
   unique() %>%
   bind_rows(select(network, plant.sp)) %>%
   unique()
 
-fl_tax <- tax_name(fl_sp$plant.sp, get = "family", db = "ncbi") %>%
+fl_tax <- taxize::tax_name(fl_sp$plant.sp, get = "family", db = "ncbi") %>%
   select(plant.sp = query, plant.family = family) %>%
-  separate(plant.sp, c("plant.genus", "plant.sp"), remove = FALSE) %>%
-  select(plant.genus, plant.family) %>%
+  separate(plant.sp, c("plant.genus", "sp"), remove = FALSE) %>%
+  select(plant.sp, plant.genus, plant.family) %>%
   unique()
 
 fl_tax_gapfill <- fl_tax %>% # manually fill in some gaps in the NCBI database
-  mutate(plant.family = case_when(
-    plant.genus == "Crocus" ~ "Iridaceae",
-    plant.genus == "Rheum" ~ "Polygonaceae",
-    plant.genus == "Mentha" ~ "Lamiaceae",
-    plant.genus %in% c("Senecio", "Crepis") ~ "Asteraceae",
-    plant.genus == "Salix" ~ "Salicaceae",
-    !plant.genus %in% c("Senecio", "Crocus", "Crepis", "Mentha", "Salix", "Rheum") ~ plant.family
-  ))
-
+  mutate(plant.family = if_else(is.na(plant.family), 
+                                case_when(
+                                  plant.genus == "Agrostis" ~ "Poaceae",
+                                  plant.genus == "Calamintha" ~ "Lamiaceae",
+                                  plant.genus == "Crepis" ~ "Asteraceae",
+                                  plant.genus == "Crocus" ~ "Iridaceae",
+                                  plant.genus == "Mentha" ~ "Lamiaceae",
+                                  plant.genus == "Minuartia" ~ "Caryophyllaceae",
+                                  plant.genus == "Papaver" ~ "Papaveraceae",
+                                  plant.genus == "Rheum" ~ "Polygonaceae",
+                                  plant.genus == "Salix" ~ "Salicaceae",
+                                  plant.genus == "Senecio" ~ "Asteraceae"),
+                                plant.family)
+  )
+  
 write_csv(fl_tax_gapfill, "./processed_data/floral_tax.csv")
 
 
@@ -155,7 +161,31 @@ floral_k_type <-  read_delim("./BioFlor_traits/BioFlor_Kugler_classification.csv
   add_row(plant.sp = "Gentiana aspera", plant.genus = "Gentiana", 
           k.type = "NA", k.type.s = "2.1", k.type.ss = "2") %>%  
   add_row(plant.sp = "Gentiana ciliata", plant.genus = "Gentiana", 
-          k.type = "NA", k.type.s = "4.1", k.type.ss = "4")  
+          k.type = "NA", k.type.s = "4.1", k.type.ss = "4") %>%
+  
+  add_row(plant.sp = "Alchemilla conjuncta", plant.genus = "Alchemilla", # All scored Alchemilla were classified as 1.2 
+          k.type = "NA", k.type.s = "1.2", k.type.ss = "1") %>%
+  add_row(plant.sp = "Arabis pumila", plant.genus = "Arabis", # All scored Arabis were classified as 1.2 
+          k.type = "NA", k.type.s = "1.2", k.type.ss = "1") %>%
+  add_row(plant.sp = "Arctous alpina", plant.genus = "Arctous", # All scored Ericaceae were classified as 3.1, and A. alpina is clearly a bell flower 
+          k.type = "NA", k.type.s = "3.1", k.type.ss = "3") %>%
+  add_row(plant.sp = "Calamintha clinopodium", plant.genus = "Calamintha", # Taxonomic synonym Clinopodium nepeta 
+          k.type = "NA", k.type.s = "5.1", k.type.ss = "5") %>%
+  add_row(plant.sp = "Carex leporina", plant.genus = "Carex", # All scored Carex were classified as 0 
+          k.type = "NA", k.type.s = "0.0", k.type.ss = "0") %>%
+  add_row(plant.sp = "Ficaria verna", plant.genus = "Ficaria", # Taxonomic synonym Ranunculus ficaria
+          k.type = "NA", k.type.s = "1.2", k.type.ss = "1") %>%
+  add_row(plant.sp = "Huperzia selago", plant.genus = "Huperzia", # It's a fern
+          k.type = "NA", k.type.s = "NA", k.type.ss = "NA") %>%
+  add_row(plant.sp = "Minuartia gerardii", plant.genus = "Minuartia", # All scored Minuartia were classified as 1.2 
+          k.type = "NA", k.type.s = "1.2", k.type.ss = "1") %>%
+  add_row(plant.sp = "Papaver aurantiacum", plant.genus = "Papaver", # All Papaver are 1.1 
+          k.type = "NA", k.type.s = "1.1", k.type.ss = "1") %>%
+  add_row(plant.sp = "Polygonum viviparum", plant.genus = "Polygonum", # Synonym: Bistorta vivipara
+          k.type = "NA", k.type.s = "3.2", k.type.ss = "3") %>%
+  add_row(plant.sp = "Sesleria caerulea", plant.genus = "Sesleria", # It's a grass
+          k.type = "NA", k.type.s = "0", k.type.ss = "0")
+  
 
 write_csv(floral_k_type, "./processed_data/floral_k_type.csv")
 
@@ -177,7 +207,7 @@ floral_color <-  read_delim("./BioFlor_traits/BioFlor_flower_color.csv", delim =
   unite(plant.sp, genus, species, sep = " ", remove = FALSE) %>%
   select(plant.sp, plant.genus = genus, color) %>%
   
-  # Fill in ktype data for plants present in my samples but missing from the Bioflor database
+  # Fill in color data for plants present in my samples but missing from the Bioflor database
   # Colors based on review of iNaturalist "research-grade" observations or Wikimedia commons. Where color is too variable to classify, "various_colors". 
   # Where essentially absent as in conifers, "NA".
   add_row(plant.sp = "Euphrasia rostkoviana", plant.genus = "Euphrasia", color = "var") %>%
@@ -208,6 +238,47 @@ floral_color <-  read_delim("./BioFlor_traits/BioFlor_flower_color.csv", delim =
   
 
 write_csv(floral_color, "./processed_data/floral_color.csv")
+
+### Bee colors from FReD database, downloaded December 8, 2020. http://www.reflectance.co.uk//index.php
+fred <- read_csv("./raw_data/FreD.csv") %>%
+  unite(plant.sp, c(Genus, Species), sep = " ") %>%
+  
+  # Fill in missing data where possible
+  
+  add_row(plant.sp = "Erica carnea", BeeColour = "blue", HumanColour = "pink") %>% # taxonomic synonym
+  add_row(plant.sp = "Centaurea jacea", BeeColour = "blue-green", HumanColour = "pink") %>% # Raine et al. (2007) PLoS ONE 
+  add_row(plant.sp = "Salvia verticillata", BeeColour = "uv-blue", HumanColour = "lilac") %>% # Raine et al. (2007) PLoS ONE
+  add_row(plant.sp = "Epilobium angustifolium", BeeColour = "blue", HumanColour = "pink") %>% # Raine et al. (2007) PLoS ONE
+  add_row(plant.sp = "Lamium galeobdolon", BeeColour = "uv-green", HumanColour = "yellow") # Raine et al. (2007) PLoS ONE
+
+survey_species <- read_csv("./processed_data/floral_survey.csv") %>%
+  select(plant.genus, plant.sp) %>%
+  distinct()
+
+visits_species <- read_csv("./processed_data/network.csv") %>%
+  select(plant.genus, plant.sp) %>%
+  distinct()
+  
+fred_survey <- left_join(survey_species, fred) %>%
+  select(plant.sp, BeeColour) %>%
+  distinct()
+
+fred_visits <- left_join(visits_species, fred) %>%
+  select(plant.sp, BeeColour) %>%
+  distinct()
+
+missing_freds <- bind_rows(fred_survey, fred_visits) %>%
+  distinct() %>%
+  filter(is.na(BeeColour))
+
+missing_freds.survey <- fred_survey %>%
+  distinct() %>%
+  filter(is.na(BeeColour))
+
+missing_freds.visits <- fred_visits %>%
+  distinct() %>%
+  filter(is.na(BeeColour))
+
 
 ### Climate data
 climate <- read_delim("./raw_data/climate2.txt", delim = "\t") %>%

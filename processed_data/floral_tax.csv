@@ -1,116 +1,365 @@
-plant.genus,plant.family
-Ajuga,Lamiaceae
-Alchemilla,Rosaceae
-Aposeris,Asteraceae
-Biscutella,Brassicaceae
-Cirsium,Asteraceae
-Dactylorhiza,Orchidaceae
-Daphne,Thymelaeaceae
-Dryas,Rosaceae
-Erica,Ericaceae
-Euphorbia,Euphorbiaceae
-Fragaria,Rosaceae
-Galium,Rubiaceae
-Gentiana,Gentianaceae
-Hieracium,Asteraceae
-Leontodon,Asteraceae
-Leucanthemum,Asteraceae
-Lotus,Fabaceae
-Plantago,Plantaginaceae
-Polygala,Polygalaceae
-Potentilla,Rosaceae
-Primula,Primulaceae
-Ranunculus,Ranunculaceae
-Silene,Caryophyllaceae
-Taraxacum,Asteraceae
-Thymus,Lamiaceae
-Trifolium,Fabaceae
-Veronica,Plantaginaceae
-Viola,Violaceae
-Hepatica,Ranunculaceae
-Salvia,Lamiaceae
-Aster,Asteraceae
-Chaerophyllum,Apiaceae
-Hippocrepis,Fabaceae
-Origanum,Lamiaceae
-Phyteuma,Campanulaceae
-Melampyrum,Orobanchaceae
-Thalictrum,Ranunculaceae
-Tofieldia,Tofieldiaceae
-Centaurea,Asteraceae
-Prunella,Lamiaceae
-Vaccinium,Ericaceae
-Tussilago,Asteraceae
-Campanula,Campanulaceae
-Lathyrus,Fabaceae
-Scabiosa,Caprifoliaceae
-Euphrasia,Orobanchaceae
-Carum,Apiaceae
-Lysimachia,Primulaceae
-Clinopodium,Lamiaceae
-Carlina,Asteraceae
-Juniperus,Cupressaceae
-Vicia,Fabaceae
-Polygonatum,Asparagaceae
-Knautia,Caprifoliaceae
-Senecio,Asteraceae
-Carduus,Asteraceae
-Helianthemum,Cistaceae
-Acinos,Lamiaceae
-Hypericum,Hypericaceae
-Rhinanthus,Orobanchaceae
-Rumex,Polygonaceae
-Teucrium,Lamiaceae
-Anthyllis,Fabaceae
-Buphthalmum,Asteraceae
-Medicago,Fabaceae
-Anthericum,Asparagaceae
-Stachys,Lamiaceae
-Galeopsis,Lamiaceae
-Carex,Cyperaceae
-Anemone,Ranunculaceae
-Crocus,Iridaceae
-Globularia,Plantaginaceae
-Soldanella,Primulaceae
-Antennaria,Asteraceae
-Crepis,Asteraceae
-Trollius,Ranunculaceae
-Adenostyles,Asteraceae
-Aconitum,Ranunculaceae
-Cardamine,Brassicaceae
-Geranium,Geraniaceae
-Geum,Rosaceae
-Mentha,Lamiaceae
-Myosotis,Boraginaceae
-Rhododendron,Ericaceae
-Solidago,Asteraceae
-Epilobium,Onagraceae
-Senecio,Asteraceae
-Willemetia,Asteraceae
-Bartsia,Orobanchaceae
-Chrysosplenium,Saxifragaceae
-Lamium,Lamiaceae
-Androsace,Primulaceae
-Petasites,Asteraceae
-Achillea,Asteraceae
-Rhodothamnus,Ericaceae
-Linaria,Plantaginaceae
-Salix,Salicaceae
-Saxifraga,Saxifragaceae
-Heracleum,Apiaceae
-Impatiens,Balsaminaceae
-Scrophularia,Scrophulariaceae
-Tragopogon,Asteraceae
-Helleborus,Ranunculaceae
-Pedicularis,Orobanchaceae
-Crepis,Asteraceae
-Hedysarum,Fabaceae
-Lilium,Liliaceae
-Rubus,Rosaceae
-Rosa,Rosaceae
-Larix,Pinaceae
-Mentha,Lamiaceae
-Salix,Salicaceae
-Caltha,Ranunculaceae
-Pulmonaria,Boraginaceae
-Rheum,Polygonaceae
+plant.sp,plant.genus,plant.family
+Achillea atrata,Achillea,Asteraceae
+Achillea clavennae,Achillea,Asteraceae
+Achillea millefolium,Achillea,Asteraceae
+Acinos alpinus,Acinos,Lamiaceae
+Aconitum napellus,Aconitum,Ranunculaceae
+Aconitum variegatum,Aconitum,Ranunculaceae
+Aconitum vulparia,Aconitum,Ranunculaceae
+Adenostyles alliariae,Adenostyles,Asteraceae
+Adenostyles glabra,Adenostyles,Asteraceae
+Aegopodium podagraria,Aegopodium,Apiaceae
+Agrostis alpina,Agrostis,Poaceae
+Agrostis capillaris,Agrostis,Poaceae
+Agrostis schleicheri,Agrostis,Poaceae
+Ajuga reptans,Ajuga,Lamiaceae
+Alchemilla conjuncta,Alchemilla,Rosaceae
+Alchemilla vulgaris,Alchemilla,Rosaceae
+Allium carinatum,Allium,Amaryllidaceae
+Androsace chamaejasme,Androsace,Primulaceae
+Anemone narcissiflora,Anemone,Ranunculaceae
+Anemone nemorosa,Anemone,Ranunculaceae
+Antennaria dioica,Antennaria,Asteraceae
+Anthericum ramosum,Anthericum,Asparagaceae
+Anthoxanthum alpinum,Anthoxanthum,Poaceae
+Anthoxanthum odoratum,Anthoxanthum,Poaceae
+Anthriscus sylvestris,Anthriscus,Apiaceae
+Anthyllis vulneraria,Anthyllis,Fabaceae
+Aposeris foetida,Aposeris,Asteraceae
+Aquilegia atrata,Aquilegia,Ranunculaceae
+Arabis alpina,Arabis,Brassicaceae
+Arabis caerulea,Arabis,Brassicaceae
+Arabis ciliata,Arabis,Brassicaceae
+Arabis hirsuta,Arabis,Brassicaceae
+Arabis pumila,Arabis,Brassicaceae
+Arabis sagittata,Arabis,Brassicaceae
+Arctous alpina,Arctous,Ericaceae
+Arenaria ciliata,Arenaria,Caryophyllaceae
+Arrhenatherum elatius,Arrhenatherum,Poaceae
+Aster bellidiastrum,Aster,Asteraceae
+Bartsia alpina,Bartsia,Orobanchaceae
+Bellis perennis,Bellis,Asteraceae
+Berberis vulgaris,Berberis,Berberidaceae
+Biscutella laevigata,Biscutella,Brassicaceae
+Brachypodium pinnatum,Brachypodium,Poaceae
+Brachypodium sylvaticum,Brachypodium,Poaceae
+Briza media,Briza,Poaceae
+Buphthalmum salicifolium,Buphthalmum,Asteraceae
+Calamagrostis varia,Calamagrostis,Poaceae
+Calamintha clinopodium,Calamintha,Lamiaceae
+Calluna vulgaris,Calluna,Ericaceae
+Campanula alpina,Campanula,Campanulaceae
+Campanula cochleariifolia,Campanula,Campanulaceae
+Campanula glomerata,Campanula,Campanulaceae
+Campanula patula,Campanula,Campanulaceae
+Campanula scheuchzeri,Campanula,Campanulaceae
+Campanula trachelium,Campanula,Campanulaceae
+Cardamine enneaphyllos,Cardamine,Brassicaceae
+Cardamine pratensis,Cardamine,Brassicaceae
+Carduus defloratus,Carduus,Asteraceae
+Carex alba,Carex,Cyperaceae
+Carex atrata,Carex,Cyperaceae
+Carex caryophyllea,Carex,Cyperaceae
+Carex digitata,Carex,Cyperaceae
+Carex ericetorum,Carex,Cyperaceae
+Carex ferruginea,Carex,Cyperaceae
+Carex firma,Carex,Cyperaceae
+Carex flacca,Carex,Cyperaceae
+Carex leporina,Carex,Cyperaceae
+Carex nigra,Carex,Cyperaceae
+Carex pallescens,Carex,Cyperaceae
+Carex panicea,Carex,Cyperaceae
+Carex sempervirens,Carex,Cyperaceae
+Carlina acaulis,Carlina,Asteraceae
+Carlina vulgaris,Carlina,Asteraceae
+Carum carvi,Carum,Apiaceae
+Centaurea jacea,Centaurea,Asteraceae
+Centaurea scabiosa,Centaurea,Asteraceae
+Cephalanthera longifolia,Cephalanthera,Orchidaceae
+Cerastium fontanum,Cerastium,Caryophyllaceae
+Cerastium latifolium,Cerastium,Caryophyllaceae
+Chaerophyllum hirsutum,Chaerophyllum,Apiaceae
+Chrysosplenium alternifolium,Chrysosplenium,Saxifragaceae
+Cirsium arvense,Cirsium,Asteraceae
+Cirsium oleraceum,Cirsium,Asteraceae
+Cirsium palustre,Cirsium,Asteraceae
+Cirsium spinosissimum,Cirsium,Asteraceae
+Cirsium vulgare,Cirsium,Asteraceae
+Clinopodium vulgare,Clinopodium,Lamiaceae
+Coeloglossum viride,Coeloglossum,Orchidaceae
+Convallaria majalis,Convallaria,Asparagaceae
+Crepis alpestris,Crepis,Asteraceae
+Crepis aurea,Crepis,Asteraceae
+Crepis biennis,Crepis,Asteraceae
+Crepis paludosa,Crepis,Asteraceae
+Crepis terglouensis,Crepis,Asteraceae
+Crocus albiflorus,Crocus,Iridaceae
+Cruciata laevipes,Cruciata,Rubiaceae
+Cuscuta epithymum,Cuscuta,Convolvulaceae
+Cynosurus cristatus,Cynosurus,Poaceae
+Dactylis glomerata,Dactylis,Poaceae
+Dactylorhiza incarnata,Dactylorhiza,Orchidaceae
+Dactylorhiza maculata,Dactylorhiza,Orchidaceae
+Dactylorhiza majalis,Dactylorhiza,Orchidaceae
+Daphne mezereum,Daphne,Thymelaeaceae
+Daucus carota,Daucus,Apiaceae
+Dentaria enneaphyllos,Dentaria,Brassicaceae
+Deschampsia cespitosa,Deschampsia,Poaceae
+Doronicum grandiflorum,Doronicum,Asteraceae
+Draba aizoides,Draba,Brassicaceae
+Dryas octopetala,Dryas,Rosaceae
+Epilobium alpestre,Epilobium,Onagraceae
+Epilobium alsinifolium,Epilobium,Onagraceae
+Epilobium angustifolium,Epilobium,Onagraceae
+Epilobium montanum,Epilobium,Onagraceae
+Epipactis atrorubens,Epipactis,Orchidaceae
+Erica carnea,Erica,Ericaceae
+Erigeron annuus,Erigeron,Asteraceae
+Erigeron uniflorus,Erigeron,Asteraceae
+Eupatorium cannabinum,Eupatorium,Asteraceae
+Euphorbia amygdaloides,Euphorbia,Euphorbiaceae
+Euphorbia cyparissias,Euphorbia,Euphorbiaceae
+Euphrasia minima,Euphrasia,Orobanchaceae
+Euphrasia picta,Euphrasia,Orobanchaceae
+Euphrasia rostkoviana,Euphrasia,Orobanchaceae
+Festuca nigrescens,Festuca,Poaceae
+Festuca pratensis,Festuca,Poaceae
+Festuca quadriflora,Festuca,Poaceae
+Ficaria verna,Ficaria,Ranunculaceae
+Fragaria vesca,Fragaria,Rosaceae
+Galeopsis speciosa,Galeopsis,Lamiaceae
+Galeopsis tetrahit,Galeopsis,Lamiaceae
+Galium album,Galium,Rubiaceae
+Galium anisophyllon,Galium,Rubiaceae
+Galium pumilum,Galium,Rubiaceae
+Gentiana asclepiadea,Gentiana,Gentianaceae
+Gentiana aspera,Gentiana,Gentianaceae
+Gentiana bavarica,Gentiana,Gentianaceae
+Gentiana ciliata,Gentiana,Gentianaceae
+Gentiana clusii,Gentiana,Gentianaceae
+Gentiana cruciata,Gentiana,Gentianaceae
+Gentiana nivalis,Gentiana,Gentianaceae
+Gentiana pannonica,Gentiana,Gentianaceae
+Gentiana utriculosa,Gentiana,Gentianaceae
+Gentiana verna,Gentiana,Gentianaceae
+Geranium robertianum,Geranium,Geraniaceae
+Geranium sylvaticum,Geranium,Geraniaceae
+Geum rivale,Geum,Rosaceae
+Geum urbanum,Geum,Rosaceae
+Glechoma hederacea,Glechoma,Lamiaceae
+Globularia cordifolia,Globularia,Plantaginaceae
+Globularia nudicaulis,Globularia,Plantaginaceae
+Platanthera bifolia,Platanthera,Orchidaceae
+Gymnadenia conopsea,Gymnadenia,Orchidaceae
+Gymnadenia odoratissima,Gymnadenia,Orchidaceae
+Gypsophila repens,Gypsophila,Caryophyllaceae
+Hedysarum hedysaroides,Hedysarum,Fabaceae
+Helianthemum alpestre,Helianthemum,Cistaceae
+Helianthemum nummularium,Helianthemum,Cistaceae
+Helictotrichon pubescens,Helictotrichon,Poaceae
+Helleborus niger,Helleborus,Ranunculaceae
+Hepatica nobilis,Hepatica,Ranunculaceae
+Heracleum austriacum,Heracleum,Apiaceae
+Heracleum sphondylium,Heracleum,Apiaceae
+Hieracium bifidum,Hieracium,Asteraceae
+Hieracium murorum,Hieracium,Asteraceae
+Hieracium pilosella,Hieracium,Asteraceae
+Hieracium pilosum,Hieracium,Asteraceae
+Hieracium villosum,Hieracium,Asteraceae
+Hippocrepis comosa,Hippocrepis,Fabaceae
+Holcus lanatus,Holcus,Poaceae
+Homogyne alpina,Homogyne,Asteraceae
+Huperzia selago,Huperzia,Lycopodiaceae
+Hypericum maculatum,Hypericum,Hypericaceae
+Hypericum perforatum,Hypericum,Hypericaceae
+Impatiens noli-tangere,Impatiens,Balsaminaceae
+Juncus trifidus,Juncus,Juncaceae
+Juniperus communis,Juniperus,Cupressaceae
+Knautia arvensis,Knautia,Caprifoliaceae
+Knautia dipsacifolia,Knautia,Caprifoliaceae
+Lamium galeobdolon,Lamium,Lamiaceae
+Lamium maculatum,Lamium,Lamiaceae
+Lathyrus pratensis,Lathyrus,Fabaceae
+Leontodon hispidus,Leontodon,Asteraceae
+Leucanthemum halleri,Leucanthemum,Asteraceae
+Leucanthemum vulgare,Leucanthemum,Asteraceae
+Ligusticum mutellina,Ligusticum,Apiaceae
+Lilium martagon,Lilium,Liliaceae
+Linaria alpina,Linaria,Plantaginaceae
+Linaria vulgaris,Linaria,Plantaginaceae
+Linum catharticum,Linum,Linaceae
+Listera ovata,Listera,Orchidaceae
+Lolium perenne,Lolium,Poaceae
+Lotus corniculatus,Lotus,Fabaceae
+Luzula glabrata,Luzula,Juncaceae
+Luzula luzulina,Luzula,Juncaceae
+Luzula multiflora,Luzula,Juncaceae
+Luzula pilosa,Luzula,Juncaceae
+Luzula sylvatica,Luzula,Juncaceae
+Lysimachia nemorum,Lysimachia,Primulaceae
+Lysimachia nummularia,Lysimachia,Primulaceae
+Maianthemum bifolium,Maianthemum,Asparagaceae
+Malaxis monophyllos,Malaxis,Orchidaceae
+Medicago lupulina,Medicago,Fabaceae
+Melampyrum sylvaticum,Melampyrum,Orobanchaceae
+Melica nutans,Melica,Poaceae
+Mentha longifolia,Mentha,Lamiaceae
+Mercurialis perennis,Mercurialis,Euphorbiaceae
+Minuartia gerardii,Minuartia,Caryophyllaceae
+Minuartia sedoides,Minuartia,Caryophyllaceae
+Minuartia verna,Minuartia,Caryophyllaceae
+Moehringia ciliata,Moehringia,Caryophyllaceae
+Moehringia muscosa,Moehringia,Caryophyllaceae
+Molinia caerulea,Molinia,Poaceae
+Myosotis alpestris,Myosotis,Boraginaceae
+Myosotis nemorosa,Myosotis,Boraginaceae
+Myosotis sylvatica,Myosotis,Boraginaceae
+Nigritella rhellicani,Nigritella,Orchidaceae
+Ophrys insectifera,Ophrys,Orchidaceae
+Orchis ustulata,Orchis,Orchidaceae
+Origanum vulgare,Origanum,Lamiaceae
+Oxalis acetosella,Oxalis,Oxalidaceae
+Papaver aurantiacum,Papaver,Papaveraceae
+Paris quadrifolia,Paris,Melanthiaceae
+Parnassia palustris,Parnassia,Celastraceae
+Pedicularis rostratocapitata,Pedicularis,Orobanchaceae
+Pedicularis rostratospicata,Pedicularis,Orobanchaceae
+Petasites albus,Petasites,Asteraceae
+Peucedanum ostruthium,Peucedanum,Apiaceae
+Phleum pratense,Phleum,Poaceae
+Phleum rhaeticum,Phleum,Poaceae
+Phyteuma orbiculare,Phyteuma,Campanulaceae
+Phyteuma spicatum,Phyteuma,Campanulaceae
+Pimpinella major,Pimpinella,Apiaceae
+Pinguicula alpina,Pinguicula,Lentibulariaceae
+Plantago lanceolata,Plantago,Plantaginaceae
+Plantago major,Plantago,Plantaginaceae
+Plantago media,Plantago,Plantaginaceae
+Poa alpina,Poa,Poaceae
+Poa annua,Poa,Poaceae
+Poa pratensis,Poa,Poaceae
+Poa trivialis,Poa,Poaceae
+Polygala alpestris,Polygala,Polygalaceae
+Polygala amara,Polygala,Polygalaceae
+Polygala amarella,Polygala,Polygalaceae
+Polygala chamaebuxus,Polygala,Polygalaceae
+Polygonatum odoratum,Polygonatum,Asparagaceae
+Polygonatum verticillatum,Polygonatum,Asparagaceae
+Polygonum viviparum,Polygonum,Polygonaceae
+Potentilla aurea,Potentilla,Rosaceae
+Potentilla brauneana,Potentilla,Rosaceae
+Potentilla erecta,Potentilla,Rosaceae
+Potentilla reptans,Potentilla,Rosaceae
+Prenanthes purpurea,Prenanthes,Asteraceae
+Primula auricula,Primula,Primulaceae
+Primula elatior,Primula,Primulaceae
+Primula farinosa,Primula,Primulaceae
+Primula minima,Primula,Primulaceae
+Primula veris,Primula,Primulaceae
+Pritzelago alpina,Pritzelago,Brassicaceae
+Prunella vulgaris,Prunella,Lamiaceae
+Pseudorchis albida,Pseudorchis,Orchidaceae
+Pulsatilla alpina,Pulsatilla,Ranunculaceae
+Pyrola rotundifolia,Pyrola,Ericaceae
+Ranunculus aconitifolius,Ranunculus,Ranunculaceae
+Ranunculus acris,Ranunculus,Ranunculaceae
+Ranunculus alpestris,Ranunculus,Ranunculaceae
+Ranunculus ficaria,Ranunculus,Ranunculaceae
+Ranunculus montanus,Ranunculus,Ranunculaceae
+Ranunculus nemorosus,Ranunculus,Ranunculaceae
+Ranunculus repens,Ranunculus,Ranunculaceae
+Rhinanthus alectorolophus,Rhinanthus,Orobanchaceae
+Rhinanthus glacialis,Rhinanthus,Orobanchaceae
+Rhinanthus minor,Rhinanthus,Orobanchaceae
+Rhododendron hirsutum,Rhododendron,Ericaceae
+Rhodothamnus chamaecistus,Rhodothamnus,Ericaceae
+Rumex acetosa,Rumex,Polygonaceae
+Rumex alpestris,Rumex,Polygonaceae
+Rumex obtusifolius,Rumex,Polygonaceae
+Sagina procumbens,Sagina,Caryophyllaceae
+Sagina saginoides,Sagina,Caryophyllaceae
+Salix retusa,Salix,Salicaceae
+Salvia glutinosa,Salvia,Lamiaceae
+Salvia verticillata,Salvia,Lamiaceae
+Sanguisorba officinalis,Sanguisorba,Rosaceae
+Sanicula europaea,Sanicula,Apiaceae
+Saxifraga aizoides,Saxifraga,Saxifragaceae
+Saxifraga androsacea,Saxifraga,Saxifragaceae
+Saxifraga caesia,Saxifraga,Saxifragaceae
+Saxifraga paniculata,Saxifraga,Saxifragaceae
+Saxifraga rotundifolia,Saxifraga,Saxifragaceae
+Saxifraga stellaris,Saxifraga,Saxifragaceae
+Scabiosa lucida,Scabiosa,Caprifoliaceae
+Scrophularia nodosa,Scrophularia,Scrophulariaceae
+Sedum album,Sedum,Crassulaceae
+Sedum atratum,Sedum,Crassulaceae
+Senecio abrotanifolius,Senecio,Asteraceae
+Senecio ovatus,Senecio,Asteraceae
+Sesleria albicans,Sesleria,Poaceae
+Sesleria caerulea,Sesleria,Poaceae
+Silene acaulis,Silene,Caryophyllaceae
+Silene dioica,Silene,Caryophyllaceae
+Silene flos-cuculi,Silene,Caryophyllaceae
+Silene nutans,Silene,Caryophyllaceae
+Silene vulgaris,Silene,Caryophyllaceae
+Solanum dulcamara,Solanum,Solanaceae
+Soldanella alpina,Soldanella,Primulaceae
+Solidago virgaurea,Solidago,Asteraceae
+Stachys alopecuros,Stachys,Lamiaceae
+Stachys officinalis,Stachys,Lamiaceae
+Stachys sylvatica,Stachys,Lamiaceae
+Stellaria graminea,Stellaria,Caryophyllaceae
+Stellaria nemorum,Stellaria,Caryophyllaceae
+Taraxacum officinale,Taraxacum,Asteraceae
+Teucrium chamaedrys,Teucrium,Lamiaceae
+Thalictrum aquilegiifolium,Thalictrum,Ranunculaceae
+Thesium alpinum,Thesium,Thesiaceae
+Thymus praecox,Thymus,Lamiaceae
+Thymus pulegioides,Thymus,Lamiaceae
+Tofieldia calyculata,Tofieldia,Tofieldiaceae
+Tofieldia pusilla,Tofieldia,Tofieldiaceae
+Tragopogon pratensis,Tragopogon,Asteraceae
+Traunsteinera globosa,Traunsteinera,Orchidaceae
+Trifolium badium,Trifolium,Fabaceae
+Trifolium medium,Trifolium,Fabaceae
+Trifolium montanum,Trifolium,Fabaceae
+Trifolium pratense,Trifolium,Fabaceae
+Trifolium repens,Trifolium,Fabaceae
+Trisetum flavescens,Trisetum,Poaceae
+Trollius europaeus,Trollius,Ranunculaceae
+Tussilago farfara,Tussilago,Asteraceae
+Urtica dioica,Urtica,Urticaceae
+Vaccinium myrtillus,Vaccinium,Ericaceae
+Vaccinium vitis-idaea,Vaccinium,Ericaceae
+Valeriana dioica,Valeriana,Caprifoliaceae
+Valeriana montana,Valeriana,Caprifoliaceae
+Valeriana officinalis,Valeriana,Caprifoliaceae
+Valeriana saxatilis,Valeriana,Caprifoliaceae
+Valeriana tripteris,Valeriana,Caprifoliaceae
+Veratrum album,Veratrum,Melanthiaceae
+Verbascum thapsus,Verbascum,Scrophulariaceae
+Veronica alpina,Veronica,Plantaginaceae
+Veronica aphylla,Veronica,Plantaginaceae
+Veronica beccabunga,Veronica,Plantaginaceae
+Veronica chamaedrys,Veronica,Plantaginaceae
+Veronica filiformis,Veronica,Plantaginaceae
+Veronica fruticans,Veronica,Plantaginaceae
+Veronica officinalis,Veronica,Plantaginaceae
+Veronica serpyllifolia,Veronica,Plantaginaceae
+Vicia cracca,Vicia,Fabaceae
+Vicia sepium,Vicia,Fabaceae
+Vincetoxicum hirundinaria,Vincetoxicum,Apocynaceae
+Viola biflora,Viola,Violaceae
+Viola collina,Viola,Violaceae
+Viola hirta,Viola,Violaceae
+Viola reichenbachiana,Viola,Violaceae
+Willemetia stipitata,Willemetia,Asteraceae
+Rubus idaeus,Rubus,Rosaceae
+Rosa canina,Rosa,Rosaceae
+Larix decidua,Larix,Pinaceae
+Mentha aquatilis,Mentha,Lamiaceae
+Salix spec.,Salix,Salicaceae
+Caltha palustris,Caltha,Ranunculaceae
+Pulmonaria officinalis,Pulmonaria,Boraginaceae
+Rheum barbarum,Rheum,Polygonaceae
+Mentha arvensis,Mentha,Lamiaceae
