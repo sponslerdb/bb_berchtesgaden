@@ -12,6 +12,7 @@ library(ggrepel)
 library(treemapify)
 library(mgcv)
 library(mgcViz)
+library(rstatix)
 library(tidyverse)
 library(lubridate)
 library(patchwork)
@@ -87,8 +88,6 @@ survey <- read_csv("../processed_data/floral_survey.csv") %>%
   dplyr::select(site, date, period, plant.sp, flower.cover) %>%
   mutate(year = factor(year(date))) %>% # convert year to factor
   left_join(fl_traits) # add floral traits
-
-View(filter(survey, is.na(k.type.s)) %>% select(plant.sp) %>% unique())
 ```
 
 # What proportion of the surveyed floral pool is visited, and how does this vary with elevation?
@@ -149,58 +148,76 @@ print(plot(prop_visited.siteyear.gam, allTerms = TRUE), pages = 1)
 ```{r}
 # By plant family
 families.survey <- survey %>% 
-  group_by(plant.family) %>%
+  group_by(plant.family, site) %>%
   summarize(flower.cover = sum(flower.cover)) %>%
+  group_by(site) %>%
   mutate(survey.prop = flower.cover/sum(flower.cover))
 
 families.visits <- net %>% 
-  group_by(plant.family) %>%
+  group_by(plant.family, site) %>%
   summarize(visits = n()) %>%
+  group_by(site) %>%
   mutate(visit.prop = visits/sum(visits))
-
+  
 families <- full_join(families.survey, families.visits) %>%
-  select(plant.family, survey.prop, visit.prop) %>%
+  select(plant.family, site,  survey.prop, visit.prop) %>%
   replace_na(replace = list(survey.prop = 0, visit.prop = 0)) %>%
-  #mutate(representation = (visit.prop - survey.prop)/survey.prop) %>% # representation as fold-change
-  mutate(representation = visit.prop - survey.prop) %>% # representation as difference
-  pivot_longer(cols = c(survey.prop, visit.prop, representation))
+  mutate(representation.fold = (visit.prop - survey.prop)/survey.prop, # representation as fold-change
+         representation = visit.prop - survey.prop) %>%
+  ungroup()
 
-ggplot(filter(families, name != "representation"), 
-       aes(name, value, fill = plant.family)) +
-  geom_col()
+ggplot(families, aes(plant.family, representation)) +
+  geom_boxplot()
 
-ggplot(filter(families, name == "representation"), 
-       aes(plant.family, value)) +
-  geom_col() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+ggplot(families, aes(plant.family, representation.fold)) +
+  geom_boxplot()
+
+aov.fam <- aov(representation ~ plant.family, data = families)
+aov.fam.test <- anova_test(aov.fam)
+aov.fam.tuk <- tukey_hsd(aov.fam)
+
+aov.fam2 <- aov(representation.fold ~ plant.family, data = filter(families, !is.infinite(representation.fold)))
+aov.fam2.test <- anova_test(aov.fam2)
+aov.fam2.tuk <- tukey_hsd(aov.fam2)
 
 # By Kugler morphotype
 morphotypes.survey <- survey %>% 
-  group_by(k.type.ss) %>%
+  group_by(k.type.ss, site) %>%
   summarize(flower.cover = sum(flower.cover)) %>%
+  group_by(site) %>%
   mutate(survey.prop = flower.cover/sum(flower.cover),
          k.type.ss = factor(k.type.ss))
 
 morphotypes.visits <- net %>% 
-  group_by(k.type.ss) %>%
+  group_by(k.type.ss, site) %>%
   summarize(visits = n()) %>%
+  group_by(site) %>%
   mutate(visit.prop = visits/sum(visits),
          k.type.ss = factor(k.type.ss))
 
 morphotypes <- full_join(morphotypes.survey, morphotypes.visits) %>%
-  select(k.type.ss, survey.prop, visit.prop) %>%
+  select(k.type.ss, site,  survey.prop, visit.prop) %>%
   replace_na(replace = list(survey.prop = 0, visit.prop = 0)) %>%
-  #mutate(representation = (visit.prop - survey.prop)/survey.prop) %>% # representation as fold-change
-  mutate(representation = visit.prop - survey.prop) %>% # representation as difference
-  pivot_longer(cols = c(survey.prop, visit.prop, representation))
+  mutate(representation.fold = (visit.prop - survey.prop)/survey.prop, # representation as fold-change
+         representation = visit.prop - survey.prop) %>%
+  ungroup()
 
-ggplot(filter(morphotypes, name != "representation"), 
-       aes(name, value, fill = k.type.ss)) +
-  geom_col()
+ggplot(morphotypes, aes(k.type.ss, representation)) +
+  geom_boxplot()
 
-ggplot(filter(morphotypes, name == "representation"), 
-       aes(k.type.ss, value)) +
-  geom_col()
+ggplot(morphotypes, aes(k.type.ss, representation.fold)) +
+  geom_boxplot()
+
+aov.morph <- aov(representation ~ k.type.ss, data = morphotypes)
+aov.morph.test <- anova_test(aov.morph)
+aov.morph.tuk <- tukey_hsd(aov.morph)
+
+aov.morph2 <- aov(representation.fold ~ k.type.ss, data = filter(morphotypes, !is.infinite(representation.fold)))
+aov.morph2.test <- anova_test(aov.morph2)
+aov.morph2.tuk <- tukey_hsd(aov.morph2)
+
+library(brms)
+brm.morph <- brm(representation ~ k.type.ss, data = morphotypes)
 ```
 
 
