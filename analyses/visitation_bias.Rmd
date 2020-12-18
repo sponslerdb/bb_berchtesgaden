@@ -1,0 +1,990 @@
+---
+title: "visitation_bias"
+author: "Doug Sponsler"
+date: "12/14/2020"
+output: html_document
+---
+# Preparations
+## Packages 
+```{r, warning=FALSE, include=FALSE, echo = FALSE}
+library(bipartite)
+library(mgcv)
+library(mgcViz)
+library(brms)
+library(bayesplot)
+#library(tidybayes)
+library(tidyverse)
+library(lubridate)
+```
+
+## Load data
+```{r message=FALSE, warning=FALSE, include=FALSE, echo = FALSE}
+# Site data
+site_data <- read_csv("../processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
+  mutate(elev.class2 = factor(elev.class2, levels = c("low", "mid", "high")),
+         site = factor(site)) # turn elav.class into an ordered factor and site into a regular factor
+
+# BB traits
+bb_traits <- read_csv("../processed_data/bb_traits.csv") 
+
+# FL traits
+## family-level taxonomy
+fl_tax <- read_csv("../processed_data/floral_tax.csv") 
+
+## Kugler morphotypes (accessed through Bioflor)
+fl_ktype <- read_csv("../processed_data/floral_k_type.csv") 
+
+## Flower colors (accessed through BioFlor)
+fl_color <- read_csv("../processed_data/floral_color.csv")
+
+## diameter and corolla depth data from Gita Benadi
+fl_morph <- read_csv("../processed_data/flower_morphology_GitaBenadi.csv") %>% 
+  dplyr::select(SampleID, plant.family = Family, plant.sp = Species, 
+                Unit, Flowers_per_unit, diam = Diameter, LN) %>%
+  group_by(plant.sp) %>%
+  summarize(diam = mean(diam), LN = mean(LN))
+
+## verbal description of Kugler morphotypes
+fl_ktype_key <- read_delim("../processed_data/kugler_key.tsv", delim = "\t", col_names = FALSE) %>%
+  dplyr::select(k.type = 1, description = 2)
+
+## join all floral trait tables
+fl_traits <- fl_tax %>%
+  full_join(fl_ktype) %>%
+  full_join(fl_color) %>%
+  full_join(fl_morph) %>%
+  dplyr::select(plant.sp, plant.genus, plant.family, k.type, k.type.s, k.type.ss, color, diam, LN)
+```
+
+## Align survey and visitation data with pseudodates
+```{r}
+# Site-dates where BB visitation was recorded (excluding dates where only males were recorded)
+visitation_samples <- read_csv("../processed_data/network.csv") %>%
+  filter(caste != "male") %>%
+  select(site, date) %>%
+  distinct() 
+
+# Site dates where floral surveying was conducted
+survey_samples <- read_csv("../processed_data/floral_survey.csv") %>%
+  select(site, date) %>%
+  distinct()
+
+# Site-dates where visitation sampling and floral sampling coincided
+shared_dates <- inner_join(visitation_samples, survey_samples)
+
+# Site-dates where visitation was recorded WITHOUT corresponding survey data
+visitation_only <- anti_join(visitation_samples, survey_samples) %>%
+  mutate(date.v = date) %>%
+  select(-date)
+
+# This creates a pseudo date column for unmatched visitation site-dates that will match each visitation date
+# to its nearest survey data. For site t4, there is a 2-year mismatch; we will drop these site-dates later.
+pseudodates <- full_join(visitation_only, survey_samples) %>%
+  mutate(mismatch = abs(date.v - date)) %>%
+  group_by(site, date.v) %>%
+  filter(mismatch == min(mismatch)) %>%
+  rename(date = date.v, pseudo.date = date)
+```
+
+## Generate a data frame that represents visitation and survey abundance
+```{r}
+# BB visitation data
+visitation <- read_csv("../processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  group_by(site, date, bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>% # visits per BB-FL pair
+  ungroup() %>%
+  left_join(pseudodates) %>% # Now we will replace unmatched dates with their pseudo dates
+  replace_na(replace = list(mismatch = 0)) %>% # set mismatch to zero for perfectly aligned dates
+  filter(mismatch <= 7) %>% # this gets rid of irreconcilable dates (like the t4 dates mentioned above)
+  mutate(date2 = if_else(is.na(pseudo.date), date, pseudo.date)) %>% # replace date with pseudodate for all site-dates lacking perfect alignments
+  select(-c(date, pseudo.date, mismatch)) %>%
+  rename(date = date2) %>%
+  group_by(site, date) %>%
+  complete(bb.sp, plant.sp, fill = list(visits = 0)) # generate all possible BB-FL combos for each site date and fill in zeros for visits
+
+# Floral cover data
+flower_cover <- read_csv("../processed_data/floral_survey.csv") %>%
+  filter(flower.cover > 0) %>% # ignore plants that were not blooming
+  group_by(site, date, plant.sp) %>%
+  summarize(flower.cover = sum(flower.cover))
+
+# Get shared dates after adding pseudodates. This will let us filter out survey dates that don't
+# have corresponding visitation sampling dates
+shared_dates_with_pseudo <- inner_join(visitation, flower_cover, by = c("site", "date")) %>%
+  select(site, date) %>%
+  distinct()
+
+# Join visitation and flower cover data
+
+## First we need a list of all BB spp. by site and date
+sp_by_site <- visitation %>% 
+  ungroup() %>%
+  select(site, date, bb.sp) %>%
+  distinct()
+
+## Then we need a list of unvisited plant.sp by site and date
+unvisited <- flower_cover %>% 
+  semi_join(shared_dates_with_pseudo) %>% # filter flower cover data to include only site-dates with visitation complement (real or pseudodates)
+  full_join(visitation) %>% # join to visitation data
+  filter(is.na(bb.sp)) %>% # select only the site-date-plants that were totally unvisited (and therefore have no BB spp to join to)
+  select(-bb.sp) %>% # drop bb.sp variable because I just want the plants
+  left_join(sp_by_site) %>% # join in the species list by site and date, thus populating the unvisited plants with all the BB spp recorded for each site-date
+  replace_na(replace = list(visits = 0)) # replace NAs (created in the line above) with zero
+
+## Now we can combine everything into a single data frame
+visit_cover <- flower_cover %>% 
+  semi_join(shared_dates_with_pseudo) %>% # filter flower cover data to include only site-dates with visitation complement (real or pseudodates)
+  full_join(visitation) %>% # join to visitation data
+  replace_na(replace = list(flower.cover = 0.01)) %>% # If a plant was visited but not surveyed, we will assign it the minimum non-zero flower cover value of 0.01.
+  filter(!is.na(bb.sp)) %>% # drop the univisited plants
+  bind_rows(unvisited) %>% # add them back, with BB spp and zeros
+  select(site, date, bb.sp, plant.sp, visits, flower.cover) %>%
+  group_by(site, date, bb.sp, plant.sp, flower.cover) %>% # In a few cases, the use of pseudodates causes two sampling period to converge on the same date, which creates apparent duplicate visitation data. We will handle this by averaging the visits.
+  summarize(visits = mean(visits)) %>%
+  left_join(fl_traits) %>% # add floral traits
+  ungroup()
+
+## Get total visits by BB sp and site-date; this will be a measure of BB abundance that we can use after we've calculated d'. I could, of course, work this into the biaseval function, but I'll put that off for now.
+bb_abundance <- visit_cover %>%
+  group_by(site, date, bb.sp) %>%
+  summarize(bb.sp.abund = sum(visits)) %>%
+  group_by(site, date) %>%
+  mutate(bb.sp.prop.abund = bb.sp.abund/sum(bb.sp.abund))
+```
+
+## A handy function for calculating Blüthgen's d'
+```{r}
+# A function for calculating Blüthgen's d', parsed in various ways
+biaseval <- function(x, criterion, ...) { # criterion = plant grouping variable, e.g. plant.sp, k.type.ss, color
+  
+  criterion <- enquo(criterion) # tidy eval
+  
+  x %>%
+    
+# Select variables of interest; the ... represents the variables we will use to parse our analysis
+    select(..., bb.sp, !!criterion, flower.cover, visits) %>% 
+    group_by(..., bb.sp, !!criterion) %>%
+    
+# If criterion = plant.sp, this next step does nothing. But if criterion is some other grouping variable (e.g. k.type.ss), this sums flower cover and visits over that grouping variable.
+    summarize(flower.cover = sum(flower.cover), 
+              visits = sum(visits)) %>%
+    
+# Nest into list column
+    group_by(...) %>%
+    nest() %>%
+
+# Pivot each nested data frame into the kind of web that bipartite likes
+    mutate(webs = map(data, function(x) select(x, bb.sp, !!criterion, visits) %>%
+                        pivot_wider(names_from = !!criterion, values_from = visits, values_fill = 0) %>%
+                        column_to_rownames("bb.sp"))) %>%
+
+# Pull out the flower.cover variable to use in the "abuns" argument of dfun below
+    mutate(low.abund = map(data, function(x) select(x, !!criterion, flower.cover) %>%
+                            unique() %>%
+                            column_to_rownames(paste(criterion)[2]))) %>% # Tell me why I need to do this, Hadley.
+
+# Call the dfun command from bipartite to calculate Blüthgen's d'
+    mutate(d = map2(webs, low.abund, function(x, y) bipartite::dfun(x, abuns = y$flower.cover) %>%
+                      data.frame() %>%
+                      rownames_to_column(var = "bb.sp"))) %>%
+    
+    unnest(cols = d) %>%
+    na.omit() %>% # in a few cases where the sampling is very sparse, d' cannot be calculated; these are safe to drop
+    ungroup() %>%
+    mutate(site = factor(site),
+         bb.sp = factor(bb.sp),
+         year = factor(lubridate::year(date)))
+}
+```
+
+# 1. Is bumble bee foraging biased? How do taxonomic, phylogenetic, and morphological bias compare? Are some BB species more biased than others?
+## 1.1 Calculate Blüthgen's d' (i.e. visitation bias)
+```{r}
+# No grouping -- just plant.sp
+bias_plantsp.sitedate <- biaseval(visit_cover, plant.sp, site, date) %>%
+  left_join(site_data) %>% # add site data
+  left_join(bb_abundance) %>% # add BB abundance data
+  mutate(criterion = factor(rep("plant.sp", n()))) 
+
+# Grouped by k.type.ss
+bias_ktype.sitedate <- biaseval(visit_cover, k.type.ss, site, date) %>%
+  left_join(site_data) %>%
+  left_join(bb_abundance) %>% # add BB abundance data
+  mutate(criterion = factor(rep("ktype", n())))
+
+# Grouped by plant.family
+bias_family.sitedate <- biaseval(visit_cover, plant.family, site, date) %>%
+  left_join(site_data) %>%
+  left_join(bb_abundance) %>% # add BB abundance data
+  mutate(criterion = factor(rep("plant.family", n())))
+
+# Collated
+bias_sitedate <- bind_rows(bias_plantsp.sitedate, 
+                           bias_ktype.sitedate, 
+                           bias_family.sitedate)
+```
+
+## 1.2 Visualize
+```{r}
+# Compare mean bias by criterion
+ggplot(bias_sitedate, aes(criterion, dprime)) +
+  geom_boxplot()
+
+# Bias ~ elevation * criterion
+ggplot(bias_sitedate, aes(elev.mean, dprime, color = criterion)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(se = TRUE)
+
+ggplot(bias_sitedate, aes(elev.mean, dprime, color = criterion)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(se = FALSE, method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~bb.sp)
+
+# Bias ~ year; Blüthgen's d' seems very robust to sampling effects, since it does not vary across years
+ggplot(bias_sitedate, aes(year, dprime, color = criterion)) +
+  geom_boxplot() 
+
+ggplot(bias_sitedate, aes(year, dprime, color = criterion)) +
+  geom_boxplot() +
+  facet_wrap(~bb.sp)
+
+# Does bias vary with abundance?
+ggplot(bias_sitedate, aes(log(bb.sp.abund), dprime, color = criterion)) +
+  #geom_point() +
+  geom_smooth() +
+  facet_wrap(~bb.sp)
+
+ggplot(bias_plantsp.sitedate, aes(log(bb.sp.prop.abund), dprime)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~bb.sp)
+```
+
+## 1.3 Are some BB species more biased than others? (brms models)
+```{r}
+# Do species vary in d' (simple intercept model)
+brm.plantsp <- brm(dprime ~ (1 | bb.sp), data = filter(bias.sitedate, criterion ==  "plant.sp"))
+summary(brm.plantsp)
+mcmc_plot(brm.plantsp, pars = c("^r_"))
+mcmc_plot(brm.plantsp, pars = c("^b_"))
+parnames(brm.plantsp)
+
+brm.ktype <- brm(dprime ~ (1 | bb.sp), data = filter(bias.sitedate, criterion ==  "ktype"))
+summary(brm.ktype)
+mcmc_plot(brm.ktype, pars = c("^r_"))
+mcmc_plot(brm.ktype, pars = c("^b_"))
+parnames(brm.ktype)
+
+brm.family <- brm(dprime ~ (1 | bb.sp), data = filter(bias.sitedate, criterion ==  "plant.family"))
+summary(brm.family)
+mcmc_plot(brm.family, pars = c("^r_"))
+mcmc_plot(brm.family, pars = c("^b_"))
+parnames(brm.family)
+```
+
+## 1.4 Does bias vary with criterion? (brms models)
+```{r}
+brm.criterion <- brm(dprime ~ (1 | criterion), data = bias.sitedate)
+summary(brm.criterion)
+mcmc_plot(brm.criterion, pars = c("^r_"))
+mcmc_plot(brm.criterion, pars = c("^b_"))
+parnames(brm.criterion)
+```
+
+## 1.5 Does bias vary with elevation? (brms models)
+```{r}
+# Does d' vary with elevation
+brm2.plantsp <- brm(dprime ~ elev.mean + (1 | bb.sp), 
+                    control = list(max_treedepth = 12),
+                    data = filter(bias.sitedate, criterion ==  "plant.sp"))
+summary(brm2.plantsp)
+mcmc_plot(brm2.plantsp, pars = c("^r_"))
+mcmc_plot(brm2.plantsp, pars = c("^b_"))
+conditional_effects(brm2.plantsp)
+parnames(brm2.plantsp)
+
+brm2.ktype <- brm(dprime ~ elev.mean + (1 | bb.sp), 
+                  control = list(max_treedepth = 12),
+                  data = filter(bias.sitedate, criterion ==  "ktype"))
+summary(brm2.ktype)
+mcmc_plot(brm2.ktype, pars = c("^r_"))
+mcmc_plot(brm2.ktype, pars = c("^b_"))
+conditional_effects(brm2.ktype)
+parnames(brm2.ktype)
+
+brm2.family <- brm(dprime ~ elev.mean + (1 + elev.mean | bb.sp), 
+                  control = list(max_treedepth = 10),
+                  data = filter(bias.sitedate, criterion ==  "plant.family"))
+summary(brm2.family)
+mcmc_plot(brm2.family, pars = c("^r_"))
+mcmc_plot(brm2.family, pars = c("^b_"))
+conditional_effects(brm2.family)
+parnames(brm2.family)
+
+brm2.family <- brm(dprime ~ elev.mean, 
+                  control = list(max_treedepth = 10),
+                  data = filter(bias.sitedate, criterion ==  "plant.family"))
+summary(brm2.family)
+mcmc_plot(brm2.family, pars = c("^r_"))
+mcmc_plot(brm2.family, pars = c("^b_"))
+conditional_effects(brm2.family)
+parnames(brm2.family)
+```
+
+## 1.6 Define hypotheses
+```{r}
+# Is d' different from 0?
+H1 <- paste("Intercept = 0")
+
+# Are some species more biased in their foraging than others? 
+H.bss_gers <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[gers,Intercept]")
+H.bss_hort <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[hort,Intercept]")
+H.bss_humi <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[humi,Intercept]")
+H.bss_hypn <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[hypn,Intercept]")
+H.bss_jone <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[jone,Intercept]")
+H.bss_lapi <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[lapi,Intercept]")
+H.bss_mend <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[mend,Intercept]")
+H.bss_mont <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[mont,Intercept]")
+H.bss_muci <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[muci,Intercept]")
+H.bss_pasc <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[pasc,Intercept]")
+H.bss_prat <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[prat,Intercept]")
+H.bss_psit <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[psit,Intercept]")
+H.bss_pyre <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[pyre,Intercept]")
+H.bss_soro <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[soro,Intercept]")
+H.bss_wurf <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[wurf,Intercept]")
+
+H.gers_hort <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[hort,Intercept]")
+H.gers_humi <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[humi,Intercept]")
+H.gers_hypn <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[hypn,Intercept]")
+H.gers_jone <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[jone,Intercept]")
+H.gers_lapi <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[lapi,Intercept]")
+H.gers_mend <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[mend,Intercept]")
+H.gers_mont <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[mont,Intercept]")
+H.gers_muci <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[muci,Intercept]")
+H.gers_pasc <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[pasc,Intercept]")
+H.gers_prat <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[prat,Intercept]")
+H.gers_psit <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[psit,Intercept]")
+H.gers_pyre <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[pyre,Intercept]")
+H.gers_soro <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[soro,Intercept]")
+H.gers_wurf <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[wurf,Intercept]")
+
+H.hort_humi <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[humi,Intercept]")
+H.hort_hypn <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[hypn,Intercept]")
+H.hort_jone <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[jone,Intercept]")
+H.hort_lapi <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[lapi,Intercept]")
+H.hort_mend <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[mend,Intercept]")
+H.hort_mont <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[mont,Intercept]")
+H.hort_muci <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[muci,Intercept]")
+H.hort_pasc <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[pasc,Intercept]")
+H.hort_prat <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[prat,Intercept]")
+H.hort_psit <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[psit,Intercept]")
+H.hort_pyre <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[pyre,Intercept]")
+H.hort_soro <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[soro,Intercept]")
+H.hort_wurf <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[wurf,Intercept]")
+
+H.humi_hypn <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[hypn,Intercept]")
+H.humi_jone <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[jone,Intercept]")
+H.humi_lapi <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[lapi,Intercept]")
+H.humi_mend <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[mend,Intercept]")
+H.humi_mont <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[mont,Intercept]")
+H.humi_muci <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[muci,Intercept]")
+H.humi_pasc <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[pasc,Intercept]")
+H.humi_prat <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[prat,Intercept]")
+H.humi_psit <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[psit,Intercept]")
+H.humi_pyre <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[pyre,Intercept]")
+H.humi_soro <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[soro,Intercept]")
+H.humi_wurf <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[wurf,Intercept]")
+
+H.hypn_jone <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[jone,Intercept]")
+H.hypn_lapi <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[lapi,Intercept]")
+H.hypn_mend <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[mend,Intercept]")
+H.hypn_mont <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[mont,Intercept]")
+H.hypn_muci <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[muci,Intercept]")
+H.hypn_pasc <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[pasc,Intercept]")
+H.hypn_prat <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[prat,Intercept]")
+H.hypn_psit <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[psit,Intercept]")
+H.hypn_pyre <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[pyre,Intercept]")
+H.hypn_soro <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[soro,Intercept]")
+H.hypn_wurf <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[wurf,Intercept]")
+
+H.jone_lapi <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[lapi,Intercept]")
+H.jone_mend <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[mend,Intercept]")
+H.jone_mont <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[mont,Intercept]")
+H.jone_muci <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[muci,Intercept]")
+H.jone_pasc <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[pasc,Intercept]")
+H.jone_prat <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[prat,Intercept]")
+H.jone_psit <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[psit,Intercept]")
+H.jone_pyre <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[pyre,Intercept]")
+H.jone_soro <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[soro,Intercept]")
+H.jone_wurf <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[wurf,Intercept]")
+
+H.lapi_mend <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[mend,Intercept]")
+H.lapi_mont <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[mont,Intercept]")
+H.lapi_muci <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[muci,Intercept]")
+H.lapi_pasc <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[pasc,Intercept]")
+H.lapi_prat <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[prat,Intercept]")
+H.lapi_psit <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[psit,Intercept]")
+H.lapi_pyre <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[pyre,Intercept]")
+H.lapi_soro <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[soro,Intercept]")
+H.lapi_wurf <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[wurf,Intercept]")
+
+H.mend_mont <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[mont,Intercept]")
+H.mend_muci <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[muci,Intercept]")
+H.mend_pasc <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[pasc,Intercept]")
+H.mend_prat <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[prat,Intercept]")
+H.mend_psit <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[psit,Intercept]")
+H.mend_pyre <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[pyre,Intercept]")
+H.mend_soro <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[soro,Intercept]")
+H.mend_wurf <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[wurf,Intercept]")
+
+H.mont_muci <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[muci,Intercept]")
+H.mont_pasc <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[pasc,Intercept]")
+H.mont_prat <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[prat,Intercept]")
+H.mont_psit <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[psit,Intercept]")
+H.mont_pyre <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[pyre,Intercept]")
+H.mont_soro <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[soro,Intercept]")
+H.mont_wurf <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[wurf,Intercept]")
+
+H.muci_pasc <- paste("r_bb.sp[muci,Intercept] = r_bb.sp[pasc,Intercept]")
+H.muci_prat <- paste("r_bb.sp[muci,Intercept] = r_bb.sp[prat,Intercept]")
+H.muci_psit <- paste("r_bb.sp[muci,Intercept] = r_bb.sp[psit,Intercept]")
+H.muci_pyre <- paste("r_bb.sp[muci,Intercept] = r_bb.sp[pyre,Intercept]")
+H.muci_soro <- paste("r_bb.sp[muci,Intercept] = r_bb.sp[soro,Intercept]")
+H.muci_wurf <- paste("r_bb.sp[muci,Intercept] = r_bb.sp[wurf,Intercept]")
+
+
+H.pasc_prat <- paste("r_bb.sp[pasc,Intercept] = r_bb.sp[prat,Intercept]")
+H.pasc_psit <- paste("r_bb.sp[pasc,Intercept] = r_bb.sp[psit,Intercept]")
+H.pasc_pyre <- paste("r_bb.sp[pasc,Intercept] = r_bb.sp[pyre,Intercept]")
+H.pasc_soro <- paste("r_bb.sp[pasc,Intercept] = r_bb.sp[soro,Intercept]")
+H.pasc_wurf <- paste("r_bb.sp[pasc,Intercept] = r_bb.sp[wurf,Intercept]")
+
+
+H.prat_psit <- paste("r_bb.sp[prat,Intercept] = r_bb.sp[psit,Intercept]")
+H.prat_pyre <- paste("r_bb.sp[prat,Intercept] = r_bb.sp[pyre,Intercept]")
+H.prat_soro <- paste("r_bb.sp[prat,Intercept] = r_bb.sp[soro,Intercept]")
+H.prat_wurf <- paste("r_bb.sp[prat,Intercept] = r_bb.sp[wurf,Intercept]")
+
+
+H.psit_pyre <- paste("r_bb.sp[psit,Intercept] = r_bb.sp[pyre,Intercept]")
+H.psit_soro <- paste("r_bb.sp[psit,Intercept] = r_bb.sp[soro,Intercept]")
+H.psit_wurf <- paste("r_bb.sp[psit,Intercept] = r_bb.sp[wurf,Intercept]")
+
+H.pyre_soro <- paste("r_bb.sp[pyre,Intercept] = r_bb.sp[soro,Intercept]")
+H.pyre_wurf <- paste("r_bb.sp[pyre,Intercept] = r_bb.sp[wurf,Intercept]")
+
+H.soro_wurf <- paste("r_bb.sp[soro,Intercept] = r_bb.sp[wurf,Intercept]")
+```
+
+## 1.7 Test contrasts
+```{r}
+### Plant.sp
+hypothesis(brm.plantsp, H1)
+
+hypothesis(brm.plantsp, H.bss_gers, class = "")
+hypothesis(brm.plantsp, H.bss_hort, class = "")
+hypothesis(brm.plantsp, H.bss_humi, class = "")
+hypothesis(brm.plantsp, H.bss_hypn, class = "")
+hypothesis(brm.plantsp, H.bss_jone, class = "")
+hypothesis(brm.plantsp, H.bss_lapi, class = "")
+hypothesis(brm.plantsp, H.bss_mend, class = "")
+hypothesis(brm.plantsp, H.bss_mont, class = "")
+hypothesis(brm.plantsp, H.bss_muci, class = "")
+hypothesis(brm.plantsp, H.bss_pasc, class = "")
+hypothesis(brm.plantsp, H.bss_prat, class = "")
+hypothesis(brm.plantsp, H.bss_psit, class = "")
+hypothesis(brm.plantsp, H.bss_pyre, class = "")
+hypothesis(brm.plantsp, H.bss_soro, class = "")
+hypothesis(brm.plantsp, H.bss_wurf, class = "")
+
+hypothesis(brm.plantsp, H.gers_hort, class = "")
+hypothesis(brm.plantsp, H.gers_humi, class = "")
+hypothesis(brm.plantsp, H.gers_hypn, class = "")
+hypothesis(brm.plantsp, H.gers_jone, class = "")
+hypothesis(brm.plantsp, H.gers_lapi, class = "")
+hypothesis(brm.plantsp, H.gers_mend, class = "")
+hypothesis(brm.plantsp, H.gers_mont, class = "")
+hypothesis(brm.plantsp, H.gers_muci, class = "")
+hypothesis(brm.plantsp, H.gers_pasc, class = "")
+hypothesis(brm.plantsp, H.gers_prat, class = "")
+hypothesis(brm.plantsp, H.gers_psit, class = "")
+hypothesis(brm.plantsp, H.gers_pyre, class = "")
+hypothesis(brm.plantsp, H.gers_soro, class = "")
+hypothesis(brm.plantsp, H.gers_wurf, class = "")
+
+hypothesis(brm.plantsp, H.hort_humi, class = "")
+hypothesis(brm.plantsp, H.hort_hypn, class = "")
+hypothesis(brm.plantsp, H.hort_jone, class = "")
+hypothesis(brm.plantsp, H.hort_lapi, class = "")
+hypothesis(brm.plantsp, H.hort_mend, class = "")
+hypothesis(brm.plantsp, H.hort_mont, class = "")
+hypothesis(brm.plantsp, H.hort_muci, class = "")
+hypothesis(brm.plantsp, H.hort_pasc, class = "")
+hypothesis(brm.plantsp, H.hort_prat, class = "")
+hypothesis(brm.plantsp, H.hort_psit, class = "")
+hypothesis(brm.plantsp, H.hort_pyre, class = "")
+hypothesis(brm.plantsp, H.hort_soro, class = "")
+hypothesis(brm.plantsp, H.hort_wurf, class = "")
+
+hypothesis(brm.plantsp, H.humi_hypn, class = "")
+hypothesis(brm.plantsp, H.humi_jone, class = "")
+hypothesis(brm.plantsp, H.humi_lapi, class = "")
+hypothesis(brm.plantsp, H.humi_mend, class = "")
+hypothesis(brm.plantsp, H.humi_mont, class = "")
+hypothesis(brm.plantsp, H.humi_muci, class = "")
+hypothesis(brm.plantsp, H.humi_pasc, class = "")
+hypothesis(brm.plantsp, H.humi_prat, class = "")
+hypothesis(brm.plantsp, H.humi_psit, class = "")
+hypothesis(brm.plantsp, H.humi_pyre, class = "")
+hypothesis(brm.plantsp, H.humi_soro, class = "")
+hypothesis(brm.plantsp, H.humi_wurf, class = "")
+
+hypothesis(brm.plantsp, H.hypn_jone, class = "")
+hypothesis(brm.plantsp, H.hypn_lapi, class = "")
+hypothesis(brm.plantsp, H.hypn_mend, class = "")
+hypothesis(brm.plantsp, H.hypn_mont, class = "")
+hypothesis(brm.plantsp, H.hypn_muci, class = "")
+hypothesis(brm.plantsp, H.hypn_pasc, class = "")
+hypothesis(brm.plantsp, H.hypn_prat, class = "")
+hypothesis(brm.plantsp, H.hypn_psit, class = "")
+hypothesis(brm.plantsp, H.hypn_pyre, class = "")
+hypothesis(brm.plantsp, H.hypn_soro, class = "")
+hypothesis(brm.plantsp, H.hypn_wurf, class = "")
+
+hypothesis(brm.plantsp, H.jone_lapi, class = "")
+hypothesis(brm.plantsp, H.jone_mend, class = "")
+hypothesis(brm.plantsp, H.jone_mont, class = "")
+hypothesis(brm.plantsp, H.jone_muci, class = "")
+hypothesis(brm.plantsp, H.jone_pasc, class = "")
+hypothesis(brm.plantsp, H.jone_prat, class = "")
+hypothesis(brm.plantsp, H.jone_psit, class = "")
+hypothesis(brm.plantsp, H.jone_pyre, class = "")
+hypothesis(brm.plantsp, H.jone_soro, class = "")
+hypothesis(brm.plantsp, H.jone_wurf, class = "")
+
+hypothesis(brm.plantsp, H.lapi_mend, class = "")
+hypothesis(brm.plantsp, H.lapi_mont, class = "")
+hypothesis(brm.plantsp, H.lapi_muci, class = "")
+hypothesis(brm.plantsp, H.lapi_pasc, class = "")
+hypothesis(brm.plantsp, H.lapi_prat, class = "")
+hypothesis(brm.plantsp, H.lapi_psit, class = "")
+hypothesis(brm.plantsp, H.lapi_pyre, class = "")
+hypothesis(brm.plantsp, H.lapi_soro, class = "")
+hypothesis(brm.plantsp, H.lapi_wurf, class = "")
+
+hypothesis(brm.plantsp, H.mend_mont, class = "")
+hypothesis(brm.plantsp, H.mend_muci, class = "")
+hypothesis(brm.plantsp, H.mend_pasc, class = "")
+hypothesis(brm.plantsp, H.mend_prat, class = "")
+hypothesis(brm.plantsp, H.mend_psit, class = "")
+hypothesis(brm.plantsp, H.mend_pyre, class = "")
+hypothesis(brm.plantsp, H.mend_soro, class = "")
+hypothesis(brm.plantsp, H.mend_wurf, class = "")
+
+hypothesis(brm.plantsp, H.mont_muci, class = "")
+hypothesis(brm.plantsp, H.mont_pasc, class = "")
+hypothesis(brm.plantsp, H.mont_prat, class = "")
+hypothesis(brm.plantsp, H.mont_psit, class = "")
+hypothesis(brm.plantsp, H.mont_pyre, class = "")
+hypothesis(brm.plantsp, H.mont_soro, class = "")
+hypothesis(brm.plantsp, H.mont_wurf, class = "")
+
+hypothesis(brm.plantsp, H.muci_pasc, class = "")
+hypothesis(brm.plantsp, H.muci_prat, class = "")
+hypothesis(brm.plantsp, H.muci_psit, class = "")
+hypothesis(brm.plantsp, H.muci_pyre, class = "")
+hypothesis(brm.plantsp, H.muci_soro, class = "")
+hypothesis(brm.plantsp, H.muci_wurf, class = "")
+
+hypothesis(brm.plantsp, H.pasc_prat, class = "")
+hypothesis(brm.plantsp, H.pasc_psit, class = "")
+hypothesis(brm.plantsp, H.pasc_pyre, class = "")
+hypothesis(brm.plantsp, H.pasc_soro, class = "")
+hypothesis(brm.plantsp, H.pasc_wurf, class = "")
+
+hypothesis(brm.plantsp, H.prat_psit, class = "")
+hypothesis(brm.plantsp, H.prat_pyre, class = "")
+hypothesis(brm.plantsp, H.prat_soro, class = "")
+hypothesis(brm.plantsp, H.prat_wurf, class = "")
+
+hypothesis(brm.plantsp, H.psit_pyre, class = "")
+hypothesis(brm.plantsp, H.psit_soro, class = "")
+hypothesis(brm.plantsp, H.psit_wurf, class = "")
+
+hypothesis(brm.plantsp, H.pyre_soro, class = "")
+hypothesis(brm.plantsp, H.pyre_wurf, class = "")
+
+hypothesis(brm.plantsp, H.soro_wurf, class = "")
+
+### Kugler type
+hypothesis(brm.ktype, H1)
+
+hypothesis(brm.ktype, H.bss_gers, class = "")
+hypothesis(brm.ktype, H.bss_hort, class = "")
+hypothesis(brm.ktype, H.bss_humi, class = "")
+hypothesis(brm.ktype, H.bss_hypn, class = "")
+hypothesis(brm.ktype, H.bss_jone, class = "")
+hypothesis(brm.ktype, H.bss_lapi, class = "")
+hypothesis(brm.ktype, H.bss_mend, class = "")
+hypothesis(brm.ktype, H.bss_mont, class = "")
+hypothesis(brm.ktype, H.bss_muci, class = "")
+hypothesis(brm.ktype, H.bss_pasc, class = "")
+hypothesis(brm.ktype, H.bss_prat, class = "")
+hypothesis(brm.ktype, H.bss_psit, class = "")
+hypothesis(brm.ktype, H.bss_pyre, class = "")
+hypothesis(brm.ktype, H.bss_soro, class = "")
+hypothesis(brm.ktype, H.bss_wurf, class = "")
+
+hypothesis(brm.ktype, H.gers_hort, class = "")
+hypothesis(brm.ktype, H.gers_humi, class = "")
+hypothesis(brm.ktype, H.gers_hypn, class = "")
+hypothesis(brm.ktype, H.gers_jone, class = "")
+hypothesis(brm.ktype, H.gers_lapi, class = "")
+hypothesis(brm.ktype, H.gers_mend, class = "")
+hypothesis(brm.ktype, H.gers_mont, class = "")
+hypothesis(brm.ktype, H.gers_muci, class = "")
+hypothesis(brm.ktype, H.gers_pasc, class = "")
+hypothesis(brm.ktype, H.gers_prat, class = "")
+hypothesis(brm.ktype, H.gers_psit, class = "")
+hypothesis(brm.ktype, H.gers_pyre, class = "")
+hypothesis(brm.ktype, H.gers_soro, class = "")
+hypothesis(brm.ktype, H.gers_wurf, class = "")
+
+hypothesis(brm.ktype, H.hort_humi, class = "")
+hypothesis(brm.ktype, H.hort_hypn, class = "")
+hypothesis(brm.ktype, H.hort_jone, class = "")
+hypothesis(brm.ktype, H.hort_lapi, class = "")
+hypothesis(brm.ktype, H.hort_mend, class = "")
+hypothesis(brm.ktype, H.hort_mont, class = "")
+hypothesis(brm.ktype, H.hort_muci, class = "")
+hypothesis(brm.ktype, H.hort_pasc, class = "")
+hypothesis(brm.ktype, H.hort_prat, class = "")
+hypothesis(brm.ktype, H.hort_psit, class = "")
+hypothesis(brm.ktype, H.hort_pyre, class = "")
+hypothesis(brm.ktype, H.hort_soro, class = "")
+hypothesis(brm.ktype, H.hort_wurf, class = "")
+
+hypothesis(brm.ktype, H.humi_hypn, class = "")
+hypothesis(brm.ktype, H.humi_jone, class = "")
+hypothesis(brm.ktype, H.humi_lapi, class = "")
+hypothesis(brm.ktype, H.humi_mend, class = "")
+hypothesis(brm.ktype, H.humi_mont, class = "")
+hypothesis(brm.ktype, H.humi_muci, class = "")
+hypothesis(brm.ktype, H.humi_pasc, class = "")
+hypothesis(brm.ktype, H.humi_prat, class = "")
+hypothesis(brm.ktype, H.humi_psit, class = "")
+hypothesis(brm.ktype, H.humi_pyre, class = "")
+hypothesis(brm.ktype, H.humi_soro, class = "")
+hypothesis(brm.ktype, H.humi_wurf, class = "")
+
+hypothesis(brm.ktype, H.hypn_jone, class = "")
+hypothesis(brm.ktype, H.hypn_lapi, class = "")
+hypothesis(brm.ktype, H.hypn_mend, class = "")
+hypothesis(brm.ktype, H.hypn_mont, class = "")
+hypothesis(brm.ktype, H.hypn_muci, class = "")
+hypothesis(brm.ktype, H.hypn_pasc, class = "")
+hypothesis(brm.ktype, H.hypn_prat, class = "")
+hypothesis(brm.ktype, H.hypn_psit, class = "")
+hypothesis(brm.ktype, H.hypn_pyre, class = "")
+hypothesis(brm.ktype, H.hypn_soro, class = "")
+hypothesis(brm.ktype, H.hypn_wurf, class = "")
+
+hypothesis(brm.ktype, H.jone_lapi, class = "")
+hypothesis(brm.ktype, H.jone_mend, class = "")
+hypothesis(brm.ktype, H.jone_mont, class = "")
+hypothesis(brm.ktype, H.jone_muci, class = "")
+hypothesis(brm.ktype, H.jone_pasc, class = "")
+hypothesis(brm.ktype, H.jone_prat, class = "")
+hypothesis(brm.ktype, H.jone_psit, class = "")
+hypothesis(brm.ktype, H.jone_pyre, class = "")
+hypothesis(brm.ktype, H.jone_soro, class = "")
+hypothesis(brm.ktype, H.jone_wurf, class = "")
+
+hypothesis(brm.ktype, H.lapi_mend, class = "")
+hypothesis(brm.ktype, H.lapi_mont, class = "")
+hypothesis(brm.ktype, H.lapi_muci, class = "")
+hypothesis(brm.ktype, H.lapi_pasc, class = "")
+hypothesis(brm.ktype, H.lapi_prat, class = "")
+hypothesis(brm.ktype, H.lapi_psit, class = "")
+hypothesis(brm.ktype, H.lapi_pyre, class = "")
+hypothesis(brm.ktype, H.lapi_soro, class = "")
+hypothesis(brm.ktype, H.lapi_wurf, class = "")
+
+hypothesis(brm.ktype, H.mend_mont, class = "")
+hypothesis(brm.ktype, H.mend_muci, class = "")
+hypothesis(brm.ktype, H.mend_pasc, class = "")
+hypothesis(brm.ktype, H.mend_prat, class = "")
+hypothesis(brm.ktype, H.mend_psit, class = "")
+hypothesis(brm.ktype, H.mend_pyre, class = "")
+hypothesis(brm.ktype, H.mend_soro, class = "")
+hypothesis(brm.ktype, H.mend_wurf, class = "")
+
+hypothesis(brm.ktype, H.mont_muci, class = "")
+hypothesis(brm.ktype, H.mont_pasc, class = "")
+hypothesis(brm.ktype, H.mont_prat, class = "")
+hypothesis(brm.ktype, H.mont_psit, class = "")
+hypothesis(brm.ktype, H.mont_pyre, class = "")
+hypothesis(brm.ktype, H.mont_soro, class = "")
+hypothesis(brm.ktype, H.mont_wurf, class = "")
+
+hypothesis(brm.ktype, H.muci_pasc, class = "")
+hypothesis(brm.ktype, H.muci_prat, class = "")
+hypothesis(brm.ktype, H.muci_psit, class = "")
+hypothesis(brm.ktype, H.muci_pyre, class = "")
+hypothesis(brm.ktype, H.muci_soro, class = "")
+hypothesis(brm.ktype, H.muci_wurf, class = "")
+
+hypothesis(brm.ktype, H.pasc_prat, class = "")
+hypothesis(brm.ktype, H.pasc_psit, class = "")
+hypothesis(brm.ktype, H.pasc_pyre, class = "")
+hypothesis(brm.ktype, H.pasc_soro, class = "")
+hypothesis(brm.ktype, H.pasc_wurf, class = "")
+
+hypothesis(brm.ktype, H.prat_psit, class = "")
+hypothesis(brm.ktype, H.prat_pyre, class = "")
+hypothesis(brm.ktype, H.prat_soro, class = "")
+hypothesis(brm.ktype, H.prat_wurf, class = "")
+
+hypothesis(brm.ktype, H.psit_pyre, class = "")
+hypothesis(brm.ktype, H.psit_soro, class = "")
+hypothesis(brm.ktype, H.psit_wurf, class = "")
+
+hypothesis(brm.ktype, H.pyre_soro, class = "")
+hypothesis(brm.ktype, H.pyre_wurf, class = "")
+
+hypothesis(brm.ktype, H.soro_wurf, class = "")
+
+### Plant family
+hypothesis(brm.family, H1)
+
+hypothesis(brm.family, H.bss_gers, class = "")
+hypothesis(brm.family, H.bss_hort, class = "")
+hypothesis(brm.family, H.bss_humi, class = "")
+hypothesis(brm.family, H.bss_hypn, class = "")
+hypothesis(brm.family, H.bss_jone, class = "")
+hypothesis(brm.family, H.bss_lapi, class = "")
+hypothesis(brm.family, H.bss_mend, class = "")
+hypothesis(brm.family, H.bss_mont, class = "")
+hypothesis(brm.family, H.bss_muci, class = "")
+hypothesis(brm.family, H.bss_pasc, class = "")
+hypothesis(brm.family, H.bss_prat, class = "")
+hypothesis(brm.family, H.bss_psit, class = "")
+hypothesis(brm.family, H.bss_pyre, class = "")
+hypothesis(brm.family, H.bss_soro, class = "")
+hypothesis(brm.family, H.bss_wurf, class = "")
+
+hypothesis(brm.family, H.gers_hort, class = "")
+hypothesis(brm.family, H.gers_humi, class = "")
+hypothesis(brm.family, H.gers_hypn, class = "")
+hypothesis(brm.family, H.gers_jone, class = "")
+hypothesis(brm.family, H.gers_lapi, class = "")
+hypothesis(brm.family, H.gers_mend, class = "")
+hypothesis(brm.family, H.gers_mont, class = "")
+hypothesis(brm.family, H.gers_muci, class = "")
+hypothesis(brm.family, H.gers_pasc, class = "")
+hypothesis(brm.family, H.gers_prat, class = "")
+hypothesis(brm.family, H.gers_psit, class = "")
+hypothesis(brm.family, H.gers_pyre, class = "")
+hypothesis(brm.family, H.gers_soro, class = "")
+hypothesis(brm.family, H.gers_wurf, class = "")
+
+hypothesis(brm.family, H.hort_humi, class = "")
+hypothesis(brm.family, H.hort_hypn, class = "")
+hypothesis(brm.family, H.hort_jone, class = "")
+hypothesis(brm.family, H.hort_lapi, class = "")
+hypothesis(brm.family, H.hort_mend, class = "")
+hypothesis(brm.family, H.hort_mont, class = "")
+hypothesis(brm.family, H.hort_muci, class = "")
+hypothesis(brm.family, H.hort_pasc, class = "")
+hypothesis(brm.family, H.hort_prat, class = "")
+hypothesis(brm.family, H.hort_psit, class = "")
+hypothesis(brm.family, H.hort_pyre, class = "")
+hypothesis(brm.family, H.hort_soro, class = "")
+hypothesis(brm.family, H.hort_wurf, class = "")
+
+hypothesis(brm.family, H.humi_hypn, class = "")
+hypothesis(brm.family, H.humi_jone, class = "")
+hypothesis(brm.family, H.humi_lapi, class = "")
+hypothesis(brm.family, H.humi_mend, class = "")
+hypothesis(brm.family, H.humi_mont, class = "")
+hypothesis(brm.family, H.humi_muci, class = "")
+hypothesis(brm.family, H.humi_pasc, class = "")
+hypothesis(brm.family, H.humi_prat, class = "")
+hypothesis(brm.family, H.humi_psit, class = "")
+hypothesis(brm.family, H.humi_pyre, class = "")
+hypothesis(brm.family, H.humi_soro, class = "")
+hypothesis(brm.family, H.humi_wurf, class = "")
+
+hypothesis(brm.family, H.hypn_jone, class = "")
+hypothesis(brm.family, H.hypn_lapi, class = "")
+hypothesis(brm.family, H.hypn_mend, class = "")
+hypothesis(brm.family, H.hypn_mont, class = "")
+hypothesis(brm.family, H.hypn_muci, class = "")
+hypothesis(brm.family, H.hypn_pasc, class = "")
+hypothesis(brm.family, H.hypn_prat, class = "")
+hypothesis(brm.family, H.hypn_psit, class = "")
+hypothesis(brm.family, H.hypn_pyre, class = "")
+hypothesis(brm.family, H.hypn_soro, class = "")
+hypothesis(brm.family, H.hypn_wurf, class = "")
+
+hypothesis(brm.family, H.jone_lapi, class = "")
+hypothesis(brm.family, H.jone_mend, class = "")
+hypothesis(brm.family, H.jone_mont, class = "")
+hypothesis(brm.family, H.jone_muci, class = "")
+hypothesis(brm.family, H.jone_pasc, class = "")
+hypothesis(brm.family, H.jone_prat, class = "")
+hypothesis(brm.family, H.jone_psit, class = "")
+hypothesis(brm.family, H.jone_pyre, class = "")
+hypothesis(brm.family, H.jone_soro, class = "")
+hypothesis(brm.family, H.jone_wurf, class = "")
+
+hypothesis(brm.family, H.lapi_mend, class = "")
+hypothesis(brm.family, H.lapi_mont, class = "")
+hypothesis(brm.family, H.lapi_muci, class = "")
+hypothesis(brm.family, H.lapi_pasc, class = "")
+hypothesis(brm.family, H.lapi_prat, class = "")
+hypothesis(brm.family, H.lapi_psit, class = "")
+hypothesis(brm.family, H.lapi_pyre, class = "")
+hypothesis(brm.family, H.lapi_soro, class = "")
+hypothesis(brm.family, H.lapi_wurf, class = "")
+
+hypothesis(brm.family, H.mend_mont, class = "")
+hypothesis(brm.family, H.mend_muci, class = "")
+hypothesis(brm.family, H.mend_pasc, class = "")
+hypothesis(brm.family, H.mend_prat, class = "")
+hypothesis(brm.family, H.mend_psit, class = "")
+hypothesis(brm.family, H.mend_pyre, class = "")
+hypothesis(brm.family, H.mend_soro, class = "")
+hypothesis(brm.family, H.mend_wurf, class = "")
+
+hypothesis(brm.family, H.mont_muci, class = "")
+hypothesis(brm.family, H.mont_pasc, class = "")
+hypothesis(brm.family, H.mont_prat, class = "")
+hypothesis(brm.family, H.mont_psit, class = "")
+hypothesis(brm.family, H.mont_pyre, class = "")
+hypothesis(brm.family, H.mont_soro, class = "")
+hypothesis(brm.family, H.mont_wurf, class = "")
+
+hypothesis(brm.family, H.muci_pasc, class = "")
+hypothesis(brm.family, H.muci_prat, class = "")
+hypothesis(brm.family, H.muci_psit, class = "")
+hypothesis(brm.family, H.muci_pyre, class = "")
+hypothesis(brm.family, H.muci_soro, class = "")
+hypothesis(brm.family, H.muci_wurf, class = "")
+
+hypothesis(brm.family, H.pasc_prat, class = "")
+hypothesis(brm.family, H.pasc_psit, class = "")
+hypothesis(brm.family, H.pasc_pyre, class = "")
+hypothesis(brm.family, H.pasc_soro, class = "")
+hypothesis(brm.family, H.pasc_wurf, class = "")
+
+hypothesis(brm.family, H.prat_psit, class = "")
+hypothesis(brm.family, H.prat_pyre, class = "")
+hypothesis(brm.family, H.prat_soro, class = "")
+hypothesis(brm.family, H.prat_wurf, class = "")
+
+hypothesis(brm.family, H.psit_pyre, class = "")
+hypothesis(brm.family, H.psit_soro, class = "")
+hypothesis(brm.family, H.psit_wurf, class = "")
+
+hypothesis(brm.family, H.pyre_soro, class = "")
+hypothesis(brm.family, H.pyre_wurf, class = "")
+
+hypothesis(brm.family, H.soro_wurf, class = "")
+```
+
+
+# 2. Having established the bias of BB foraging, let's zoom in on which morphotypes and families were over/under-represented
+## 2.1 Calculate representation
+```{r}
+representation.ktype <- visit_cover %>%
+  mutate(k.type.ss = factor(k.type.ss)) %>%
+  group_by(site, date, bb.sp, k.type.ss) %>%
+  summarize(flower.cover = sum(flower.cover),
+            visits = sum(visits)) %>%
+  group_by(site, date, bb.sp) %>%
+  mutate(prop.flower.cover = flower.cover/sum(flower.cover),
+         prop.visits = visits/sum(visits)) %>%
+  mutate(representation = prop.visits - prop.flower.cover,
+         representation.exp = if_else(visits == 0, 0, exp(prop.visits - prop.flower.cover)),
+         representation.bin = if_else(representation > 0, 1, 0)) %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date)) %>%
+  select(site, elev.mean, date, yday, bb.sp, k.type.ss, representation, representation.bin)
+
+representation.family <- visit_cover %>%
+  mutate(plant.family = factor(plant.family)) %>%
+  group_by(site, date, bb.sp, plant.family) %>%
+  summarize(flower.cover = sum(flower.cover),
+            visits = sum(visits)) %>%
+  group_by(site, date, bb.sp) %>%
+  mutate(prop.flower.cover = flower.cover/sum(flower.cover),
+         prop.visits = visits/sum(visits)) %>%
+  mutate(representation = prop.visits - prop.flower.cover,
+         representation.exp = if_else(visits == 0, 0, exp(prop.visits - prop.flower.cover)),
+         representation.bin = if_else(representation > 0, 1, 0)) %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date)) %>%
+  select(site, elev.mean, date, yday, bb.sp, plant.family, representation, representation.bin)
+```
+
+## 2.2 Visualize
+```{r}
+ggplot(representation.ktype, aes(representation)) +
+  geom_histogram()
+
+ggplot(representation.ktype, aes(representation.bin)) +
+  geom_bar()
+
+ggplot(representation.ktype, aes(k.type.ss, representation)) +
+  geom_boxplot() +
+  #geom_hline(yintercept = 1, linetype = "dashed")+
+  facet_wrap(~bb.sp)
+
+ggplot(representation.ktype, aes(k.type.ss, fill = representation.bin)) +
+  geom_bar() +
+  facet_wrap(~bb.sp)
+  
+ggplot(representation.ktype, aes(elev.mean, representation)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~k.type.ss)
+
+ggplot(representation.family, aes(plant.family, representation)) +
+  geom_boxplot() +
+  facet_wrap(~bb.sp)
+  
+ggplot(representation.family, aes(elev.mean, representation)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~plant.family)
+
+ggplot(representation.family, aes(yday, exp(representation))) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 3), se = FALSE) +
+  facet_wrap(~plant.family)
+```
+
+## 2.3 Explaining representation by floral traits, BB spp, and elevation (and maybe time)
+```{r}
+repmod.ktype <- brm(representation ~ (1 | k.type.ss), 
+                    data = representation.ktype)
+mcmc_plot(repmod.ktype)
+conditional_effects(repmod.ktype)
+
+repmod.ktype2 <- update(repmod.ktype, formula. = representation ~ elev.mean + (1 + elev.mean | k.type.ss))
+```
+
+# 3. Can we explain bias by BB-Fl trait associations? (RLQ + fourth corner analysis)
+## 3.1
+## 3.2 Do BB-FL trait associations vary with elevation?
+
+# 4. Can we explain BB-FL trait associations in terms of floral reward or handling time? We can use Neumayer and Paulus' (1999) data. 
+## 4.1 
+## 4.2 Do there appear to be suboptimalities in BB-FL trait associations? That is, are trait classes over/under-represented relative to their reward/efficiency? If so, how might explain such suboptimalities?  
+  - Innate bias trumps learning?
+  - Ecological modulators are involved, e.g. competition or distribution (see Sowig 1989)
+
+

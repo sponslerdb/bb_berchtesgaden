@@ -22,6 +22,7 @@ fl_survey <- read_delim("./raw_data/data_plantcover_forDoug_2020.01.17.csv", del
          day = day(temp.date),
          month = month(temp.date),
          date = make_date(year, month, day)) %>%
+  filter(plant.genus != "Huperzia") %>% # because I don't need the clubmoss
   dplyr::select(-temp.date)
   
 write_csv(fl_survey, "./processed_data/floral_survey.csv")

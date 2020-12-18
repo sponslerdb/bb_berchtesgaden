@@ -13,6 +13,7 @@ library(treemapify)
 library(mgcv)
 library(mgcViz)
 library(rstatix)
+library(brms)
 library(tidyverse)
 library(lubridate)
 library(patchwork)
@@ -97,6 +98,7 @@ surveyed.siteyear <- survey %>%
   summarize(flower.cover = sum(flower.cover))
   
 visited.siteyear <- net %>%
+  filter(caste != "male") %>%
   group_by(site, plant.sp, year) %>%
   summarize(visits = n())
 
@@ -105,6 +107,7 @@ auxilliary_data.survey <- survey %>%
   summarize(survey.dates = length(unique(date)))
 
 auxilliary_data.visits <- net %>%
+  filter(caste != "male") %>%
   group_by(site, year) %>%
   summarize(sample.dates = length(unique(date)),
             bb.abund = n())
@@ -154,6 +157,7 @@ families.survey <- survey %>%
   mutate(survey.prop = flower.cover/sum(flower.cover))
 
 families.visits <- net %>% 
+  filter(caste != "male") %>%
   group_by(plant.family, site) %>%
   summarize(visits = n()) %>%
   group_by(site) %>%
@@ -164,7 +168,11 @@ families <- full_join(families.survey, families.visits) %>%
   replace_na(replace = list(survey.prop = 0, visit.prop = 0)) %>%
   mutate(representation.fold = (visit.prop - survey.prop)/survey.prop, # representation as fold-change
          representation = visit.prop - survey.prop) %>%
-  ungroup()
+  group_by(plant.family) %>%
+  mutate(survey.prop.norm = scale(survey.prop),
+         visit.prop.norm = scale(visit.prop)) %>%
+  ungroup() %>%
+  left_join(site_data)
 
 ggplot(families, aes(plant.family, representation)) +
   geom_boxplot()
@@ -172,13 +180,12 @@ ggplot(families, aes(plant.family, representation)) +
 ggplot(families, aes(plant.family, representation.fold)) +
   geom_boxplot()
 
-aov.fam <- aov(representation ~ plant.family, data = families)
-aov.fam.test <- anova_test(aov.fam)
-aov.fam.tuk <- tukey_hsd(aov.fam)
+brm.fam <- brm(representation ~ plant.family, data = families)
+plot(brm.fam)
+plot(marginal_effects(brm.fam))
+hist(resid(brm.fam))
+mcmc_plot(brm.fam, type = "intervals")
 
-aov.fam2 <- aov(representation.fold ~ plant.family, data = filter(families, !is.infinite(representation.fold)))
-aov.fam2.test <- anova_test(aov.fam2)
-aov.fam2.tuk <- tukey_hsd(aov.fam2)
 
 # By Kugler morphotype
 morphotypes.survey <- survey %>% 
@@ -189,6 +196,7 @@ morphotypes.survey <- survey %>%
          k.type.ss = factor(k.type.ss))
 
 morphotypes.visits <- net %>% 
+  filter(caste != "male") %>%
   group_by(k.type.ss, site) %>%
   summarize(visits = n()) %>%
   group_by(site) %>%
@@ -200,7 +208,11 @@ morphotypes <- full_join(morphotypes.survey, morphotypes.visits) %>%
   replace_na(replace = list(survey.prop = 0, visit.prop = 0)) %>%
   mutate(representation.fold = (visit.prop - survey.prop)/survey.prop, # representation as fold-change
          representation = visit.prop - survey.prop) %>%
-  ungroup()
+  group_by(k.type.ss) %>%
+  mutate(survey.prop.norm = scale(survey.prop),
+         visit.prop.norm = scale(visit.prop)) %>%
+  ungroup() %>%
+  left_join(site_data)
 
 ggplot(morphotypes, aes(k.type.ss, representation)) +
   geom_boxplot()
@@ -208,19 +220,107 @@ ggplot(morphotypes, aes(k.type.ss, representation)) +
 ggplot(morphotypes, aes(k.type.ss, representation.fold)) +
   geom_boxplot()
 
-aov.morph <- aov(representation ~ k.type.ss, data = morphotypes)
-aov.morph.test <- anova_test(aov.morph)
-aov.morph.tuk <- tukey_hsd(aov.morph)
-
-aov.morph2 <- aov(representation.fold ~ k.type.ss, data = filter(morphotypes, !is.infinite(representation.fold)))
-aov.morph2.test <- anova_test(aov.morph2)
-aov.morph2.tuk <- tukey_hsd(aov.morph2)
-
-library(brms)
 brm.morph <- brm(representation ~ k.type.ss, data = morphotypes)
+plot(brm.morph)
+plot(marginal_effects(brm.morph))
+hist(resid(brm.morph))
+mcmc_plot(brm.morph, type = "intervals", pars = c("b_k.type.ss1", "b_k.type.ss2", "b_k.type.ss3",
+                                                  "b_k.type.ss4", "b_k.type.ss5", "b_k.type.ss6",
+                                                  "b_k.type.ss7", "b_k.type.ss8", "b_k.type.ss9",
+                                                  "b_k.type.ss10"))
+mcmc_plot(brm.morph, type = "intervals")
+
+### By elevation
+ggplot(families, aes(elev.mean, representation)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~plant.family)
+
+ggplot(families, aes(elev.mean, visit.prop)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~plant.family)
+
+ggplot(families, aes(elev.mean, visit.prop.norm)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~plant.family)
+
+ggplot(families, aes(elev.mean, survey.prop)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~plant.family)
+
+ggplot(families, aes(elev.mean, survey.prop.norm)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~plant.family)
+
+ggplot(morphotypes, aes(elev.mean, representation)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~k.type.ss)
+
+ggplot(morphotypes, aes(elev.mean, visit.prop)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~k.type.ss)
+
+ggplot(morphotypes, aes(elev.mean, visit.prop.norm)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~k.type.ss)
+
+ggplot(morphotypes, aes(elev.mean, survey.prop)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~k.type.ss)
+
+ggplot(morphotypes, aes(elev.mean, survey.prop.norm)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~k.type.ss)
 ```
 
+# Do BB species differ in their taxonomic/phylogenetic/morphological biases? And how does this vary with elevation/time?
+```{r}
+morphotypes.visits_sp <- net %>% 
+  group_by(k.type.ss, site, bb.sp) %>%
+  summarize(visits = n()) %>%
+  group_by(site, bb.sp) %>%
+  mutate(visit.prop = visits/sum(visits))
 
+sp_by_site <- net %>%
+  ungroup() %>%
+  select(site, bb.sp) %>%
+  distinct()
+  
+morphotypes_sp1 <- full_join(morphotypes.survey, morphotypes.visits_sp) 
+
+morphotypes_never_visited <- filter(morphotypes_sp1, is.na(bb.sp)) %>%
+  select(-bb.sp) %>%
+  left_join(sp_by_site) %>%
+  replace_na(replace = list(visits = 0, visit.prop = 0))
+
+morphotypes_sp <- full_join(morphotypes.survey, morphotypes.visits_sp) %>%
+  filter(!is.na(bb.sp)) %>%
+  bind_rows(morphotypes_never_visited) %>%
+  select(k.type.ss, site, bb.sp, survey.prop, visit.prop) %>%
+  replace_na(replace = list(survey.prop = 0, visit.prop = 0)) %>%
+  mutate(representation.fold = (visit.prop - survey.prop)/survey.prop, # representation as fold-change
+         representation = visit.prop - survey.prop) %>%
+  group_by(k.type.ss, bb.sp) %>%
+  mutate(survey.prop.norm = scale(survey.prop),
+         visit.prop.norm = scale(visit.prop)) %>%
+  ungroup() %>%
+  left_join(site_data)
+
+ggplot(filter(morphotypes_sp, bb.sp %in% c("pasc", "prat", "bss", "wurf", "soro", "psit", "hort")), 
+       aes(elev.mean, representation, color = bb.sp)) +
+  geom_line() +
+  #geom_smooth() +
+  facet_wrap(~k.type.ss)
+```
 
 
 
