@@ -8,10 +8,6 @@ author:
 - Alice Claßen
 - A. Fabienne Maihoff
 - Ingolf Steffan-Dewenter 
-output:
-  # pdf_document: default
-  # word_document:
-  #   reference_docx: docx_template.docx
 bibliography: refs.bib
 output: html_document
 ---

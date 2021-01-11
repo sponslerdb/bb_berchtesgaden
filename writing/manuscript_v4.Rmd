@@ -1,0 +1,34 @@
+---
+title: Bumble bee foraging bias
+author:
+- Douglas B. Sponsler
+- Fabrice Requier
+- Katharina Kallnik
+- Alice Claßen
+- A. Fabienne Maihoff
+- Ingolf Steffan-Dewenter 
+bibliography: refs.bib
+output: html_document
+---
+
+# Introduction
+
+Plant-pollinator networks are characterized by unequal interaction strengths among partners. While the distribution of interaction strengths can be partially explained by the neutral effects of abundance, pollinators exhibit positive and negative biases toward available flora even when interaction strength is conditioned on floral abundance. This phenomenon is formalized by the discrimination (d’) metric of [@Bluthgen2006-if], but to avoid conflation with the metric *per se*, we will use the term bias in a more general sense to describe disproportionality between pollinator visitation and floral abundance.
+
+Taken as a focal phenomenon, the realized floral biases of pollinators can be interposed between their underlying causal mechanisms and their higher-order significance **(Figure 1)**. From the causal perspective, realized biases can be partitioned into innate and learned components. Both these components depend on interactions between the functional traits of a given pollinator and those of its potential floral hosts, manifest over ecological time scales with respect to learned biases and evolutionary time scales with respect to innate biases. From the vantage of higher-order effects, the floral biases of pollinators contribute to the complex structures observed in plant-pollinator networks, which have consequences for both the ecological function of the network and the fitness of its constituent species. These effects can, in turn, feedback on the causes of bias via their modulation of community composition and biotic interactions.
+
+Bumble bees (Hymenoptera: *Bombus* spp.) are an especially interesting group in which to study floral biases together with their causal mechanisms and downstream effects. On the one hand, bumble bees are exceptionally versatile foragers, and their ability to solve the puzzles posed by complex flower morphologies [@Plowright1984-lc], or indeed by human investigators [@Alem2016-rn; @Loukola2017-bt], renders almost any flower potentially accessible. Even when a gross mismatch between tongue length and corolla depth makes the nectar of a given flower inaccessible by ordinary means, some bumble bee species will resort readily to biting through the base of the flower to “rob” nectar, incidentally making the nectar available to other prospective foragers as well. Flower handling skills are, moreover, socially transmitted, amplifying the plasticity of individual behavior [@Leadbeater2008-rh; @Loukola2017-bt]. Nevertheless, the flexibility of bumble bee foraging is tuned to floral reward, which depends on both the intrinsic reward of a given flower and the searching/learning/handling costs associated with exploiting it. At an evolutionary level, the innate preferences of bumble bees for certain floral traits likely reflect historic associations between floral traits and floral rewards [@Raine2007-nq]. These innate preferences, however, can be modulated or even nullified by learned patterns of reward based on individual foraging experience [@Kugler1943-uy; Maharaj2019-wm], which depend not only intrinsic floral properties but also ecological modulators, such as the spatial distribution of floral patches or competition with other bumble bees [@Ishii2013-sm; @Plowright1984-lc; @Sowig1989-ld]. Thus, realized biases in bumble bee foraging are the labile product of bumble bee traits, floral traits, and ecological context. The influence of these biases on interaction network structure has consequences both for plant pollination and bumble bee species coexistence, and these consequences potentially feed back into the causes of bumble bee foraging bias via the modulation of competition between bumble bees and ultimately via the regulation of community assembly.  <!-- strengthen this sentence with some refs? -->
+
+
+
+*mountain slopes give us floristic variation and abiotic variation while controlling for genetic variation within BB species, thus enabling us to study the lability of bias and partition it between innate and learned components*
+
+The study bias in bumble bee foraging
+
+Local elevation gradients along steep mountain slopes provide the opportunity to study broad environmental variation while controlling for potential confounding effects associated with geographic distance. 
+
+# Sandbox
+
+constrained by the learning and handling costs associated with available flower morphologies, and these costs are determined principally by the morphological fittedness between bumble bee tongue length and floral corolla depth. Short-tongued bumble bee species exploit deep flowers less efficiently than their long-tongued counterparts (robbing notwithstanding), and long-tongued species are less efficient than short-tongued species when foraging on shallow flowers [@Inouye1980-mv]. 
+
+# References

@@ -11,10 +11,14 @@ library(bipartite)
 library(mgcv)
 library(mgcViz)
 library(brms)
+library(lme4)
+#library(inla)
 library(bayesplot)
+library(vegan)
 #library(tidybayes)
 library(tidyverse)
 library(lubridate)
+library(tidymodels)
 ```
 
 ## Load data
@@ -144,7 +148,8 @@ visit_cover <- flower_cover %>%
   group_by(site, date, bb.sp, plant.sp, flower.cover) %>% # In a few cases, the use of pseudodates causes two sampling period to converge on the same date, which creates apparent duplicate visitation data. We will handle this by averaging the visits.
   summarize(visits = mean(visits)) %>%
   left_join(fl_traits) %>% # add floral traits
-  ungroup()
+  ungroup() %>%
+  mutate(k.type.ss = factor(k.type.ss))
 
 ## Get total visits by BB sp and site-date; this will be a measure of BB abundance that we can use after we've calculated d'. I could, of course, work this into the biaseval function, but I'll put that off for now.
 bb_abundance <- visit_cover %>%
@@ -152,6 +157,10 @@ bb_abundance <- visit_cover %>%
   summarize(bb.sp.abund = sum(visits)) %>%
   group_by(site, date) %>%
   mutate(bb.sp.prop.abund = bb.sp.abund/sum(bb.sp.abund))
+
+fl_abundance <- visit_cover %>%
+  group_by(site, date) %>%
+  summarize(total.flower.cover = sum(flower.cover))
 ```
 
 ## A handy function for calculating Blüthgen's d'
@@ -199,31 +208,249 @@ biaseval <- function(x, criterion, ...) { # criterion = plant grouping variable,
 }
 ```
 
-# 1. Is bumble bee foraging biased? How do taxonomic, phylogenetic, and morphological bias compare? Are some BB species more biased than others?
+## And one for niche overlap
+```{r}
+# Niche overlap by sp.pair * site * year
+niche_overlapper <- function(x, criterion) {
+    
+  criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
+  
+  no1 <- x %>%
+    group_by(bb.sp, !!criterion, site, date) %>% # group by site-year and BB-FL pair
+    summarize(visits = sum(visits)) %>%
+    group_by(bb.sp, site, date) %>% # group by site-year and BB species
+    mutate(prop.visits = visits/sum(visits)) %>% # get proportional interaction frequency for each BB-FL pair
+    select(site, date, bb.sp, !!criterion, prop.visits) %>%
+    pivot_wider(names_from = !!criterion, values_from = prop.visits, values_fill = 0) %>% # spread into the kind of array vegan likes
+    group_by(site, date) %>%
+    nest() %>% # nest into list-column
+    mutate(data2 = map(data, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
+           dist = map(data2, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
+           tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
+    dplyr::select(site, date, tidy_dist) %>% # drop intermediate list-columns
+    unnest(cols = c(tidy_dist)) %>%
+    rename(bb.sp1 = item1, bb.sp2 = item2) %>%
+    mutate(niche.overlap = 1-distance,  # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+           bss = if_else(bb.sp1 == "bss" | bb.sp2 == "bss", TRUE, FALSE),
+           pasc = if_else(bb.sp1 == "pasc" | bb.sp2 == "pasc", TRUE, FALSE),
+           wurf = if_else(bb.sp1 == "wurf" | bb.sp2 == "wurf", TRUE, FALSE),
+           prat = if_else(bb.sp1 == "prat" | bb.sp2 == "prat", TRUE, FALSE),
+           soro = if_else(bb.sp1 == "soro" | bb.sp2 == "soro", TRUE, FALSE),
+           humi = if_else(bb.sp1 == "humi" | bb.sp2 == "humi", TRUE, FALSE),
+           muci = if_else(bb.sp1 == "muci" | bb.sp2 == "muci", TRUE, FALSE),
+           pyre = if_else(bb.sp1 == "pyre" | bb.sp2 == "pyre", TRUE, FALSE),
+           mont = if_else(bb.sp1 == "mont" | bb.sp2 == "mont", TRUE, FALSE),
+           mend = if_else(bb.sp1 == "mend" | bb.sp2 == "mend", TRUE, FALSE),
+           psit = if_else(bb.sp1 == "psit" | bb.sp2 == "psit", TRUE, FALSE),
+           gers = if_else(bb.sp1 == "gers" | bb.sp2 == "gers", TRUE, FALSE),
+           jone = if_else(bb.sp1 == "jone" | bb.sp2 == "jone", TRUE, FALSE),
+           hypn = if_else(bb.sp1 == "hypn" | bb.sp2 == "hypn", TRUE, FALSE),
+           lapi = if_else(bb.sp1 == "lapi" | bb.sp2 == "lapi", TRUE, FALSE),
+           hort = if_else(bb.sp1 == "hort" | bb.sp2 == "hort", TRUE, FALSE))
+
+  no <- list(
+    
+  no_bss <- no1 %>%
+    group_by(site, date, bss) %>% 
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%
+    mutate(bb.sp = rep("bss", n())) %>%
+    filter(bss == TRUE),
+  
+  no_pasc <- no1 %>%
+    group_by(site, date, pasc) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("pasc", n())) %>%
+    filter(pasc == TRUE),
+  
+  no_wurf <- no1 %>%
+    group_by(site, date, wurf) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("wurf", n())) %>%
+    filter(wurf == TRUE),
+  
+  no_prat <- no1 %>%
+    group_by(site, date, prat) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%   
+    mutate(bb.sp = rep("prat", n())) %>%
+    filter(prat == TRUE),
+  
+  no_soro <- no1 %>%
+    group_by(site, date, soro) %>% 
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("soro", n())) %>%
+    filter(soro == TRUE),
+  
+  no_humi <- no1 %>%
+    group_by(site, date, humi) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("humi", n())) %>%
+    filter(humi == TRUE),
+  
+  no_muci <- no1 %>%
+    group_by(site, date, muci) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("muci", n())) %>%
+    filter(muci == TRUE),
+  
+  no_pyre <- no1 %>%
+    group_by(site, date, pyre) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%   
+    mutate(bb.sp = rep("pyre", n())) %>%
+    filter(pyre == TRUE),
+  
+  no_mont <- no1 %>%
+    group_by(site, date, mont) %>% 
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("mont", n())) %>%
+    filter(mont == TRUE),
+  
+  no_mend <- no1 %>%
+    group_by(site, date, mend) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("mend", n())) %>%
+    filter(mend == TRUE),
+  
+  no_psit <- no1 %>%
+    group_by(site, date, psit) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("psit", n())) %>%
+    filter(psit == TRUE),
+  
+  no_gers <- no1 %>%
+    group_by(site, date, gers) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("gers", n())) %>%
+    filter(gers == TRUE),
+  
+  no_jone <- no1 %>%
+    group_by(site, date, jone) %>% 
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("jone", n())) %>%
+    filter(jone == TRUE),
+  
+  no_hypn <- no1 %>%
+    group_by(site, date, hypn) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("hypn", n())) %>%
+    filter(hypn == TRUE),
+  
+  no_lapi <- no1 %>%
+    group_by(site, date, lapi) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("lapi", n())) %>%
+    filter(lapi == TRUE),
+  
+  no_hort <- no1 %>%
+    group_by(site, date, hort) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("hort", n())) %>%
+    filter(hort == TRUE)
+  ) %>%
+    
+    bind_rows() %>%
+    select(site, date, bb.sp, mean.niche.overlap, max.niche.overlap)
+  }
+```
+
+
+# 1. Is bumble bee foraging biased? How do taxonomic, phylogenetic, and morphological bias compare -- NO, can't analyze this, these should be considered separate repsonse variables and analyzed in separate models? Are some BB species more biased than others?
 ## 1.1 Calculate Blüthgen's d' (i.e. visitation bias)
 ```{r}
 # No grouping -- just plant.sp
+no_plant.sp <- niche_overlapper(visit_cover, plant.sp)
+
 bias_plantsp.sitedate <- biaseval(visit_cover, plant.sp, site, date) %>%
   left_join(site_data) %>% # add site data
   left_join(bb_abundance) %>% # add BB abundance data
-  mutate(criterion = factor(rep("plant.sp", n()))) 
+  left_join(fl_abundance) %>% # add fl abundance
+  mutate(criterion = factor(rep("plant.sp", n()))) %>%
+  left_join(no_plant.sp)
 
 # Grouped by k.type.ss
+no_ktype <- niche_overlapper(visit_cover, k.type.ss)
+
 bias_ktype.sitedate <- biaseval(visit_cover, k.type.ss, site, date) %>%
   left_join(site_data) %>%
   left_join(bb_abundance) %>% # add BB abundance data
-  mutate(criterion = factor(rep("ktype", n())))
+  left_join(fl_abundance) %>% # add fl abundance
+  mutate(criterion = factor(rep("ktype", n()))) %>%
+  left_join(no_ktype)
 
 # Grouped by plant.family
+no_plant.family <- niche_overlapper(visit_cover, plant.family)
+
 bias_family.sitedate <- biaseval(visit_cover, plant.family, site, date) %>%
   left_join(site_data) %>%
   left_join(bb_abundance) %>% # add BB abundance data
-  mutate(criterion = factor(rep("plant.family", n())))
+  left_join(fl_abundance) %>% # add fl abundance
+  mutate(criterion = factor(rep("plant.family", n()))) %>%
+  left_join(no_plant.family)
+
+
 
 # Collated
 bias_sitedate <- bind_rows(bias_plantsp.sitedate, 
                            bias_ktype.sitedate, 
-                           bias_family.sitedate)
+                           bias_family.sitedate) %>%
+  mutate(bb.sp = factor(bb.sp),
+         yday = yday(date),
+         elev = elev.mean/10) %>%
+  left_join(no)
+
+# When bias is high, it could mean that there are few good options on which all (or many) BB species converge. But apparently it doesn't. When bias is high, BB spp are biased toward DIFFERENT flora, and thus their niches diverge. 
+ggplot(bias_sitedate, aes(dprime, mean.niche.overlap, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm") +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
+  facet_wrap(~bb.sp) +
+  ylim(c(0,1))
+
+ggplot(bias_sitedate, aes(dprime, max.niche.overlap, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm") +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
+  facet_wrap(~bb.sp) +
+  ylim(c(0,1))
+
+ggplot(bias_sitedate, aes(log(total.flower.cover), dprime, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm") +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
+  facet_wrap(~bb.sp) +
+  ylim(c(0,1))
+
+ggplot(bias_sitedate, aes(log(total.flower.cover), mean.niche.overlap, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm") +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
+  facet_wrap(~bb.sp) +
+  ylim(c(0,1))
+
+
+brm.bias_niche <- brm(mean.niche.overlap ~ 1 + dprime + (1 | bb.sp),
+                     cores = 3,
+                     data = filter(bias_sitedate, criterion == "ktype"))
+
+parnames(brm.bias_niche)
+conditional_effects(brm.bias_nich)
+hypothesis(brm.bias_niche, "dprime = 0")
+pp_check(brm.bias_niche)
 ```
 
 ## 1.2 Visualize
@@ -237,7 +464,16 @@ ggplot(bias_sitedate, aes(elev.mean, dprime, color = criterion)) +
   geom_point(alpha = 0.25) +
   geom_smooth(se = TRUE)
 
+ggplot(bias_sitedate, aes(yday, dprime, color = criterion)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(se = TRUE)
+
 ggplot(bias_sitedate, aes(elev.mean, dprime, color = criterion)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(se = FALSE, method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~bb.sp)
+
+ggplot(bias_sitedate, aes(yday, dprime, color = criterion)) +
   geom_point(alpha = 0.25) +
   geom_smooth(se = FALSE, method = "gam", formula = y ~ s(x, k = 5)) +
   facet_wrap(~bb.sp)
@@ -256,81 +492,115 @@ ggplot(bias_sitedate, aes(log(bb.sp.abund), dprime, color = criterion)) +
   geom_smooth() +
   facet_wrap(~bb.sp)
 
+ggplot(bias_sitedate, aes(bb.sp.abund, dprime, color = criterion)) +
+  #geom_point() +
+  geom_smooth() +
+  facet_wrap(~bb.sp, )
+
+ggplot(bias_sitedate, aes(log(bb.sp.abund), dprime, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth()
+
 ggplot(bias_plantsp.sitedate, aes(log(bb.sp.prop.abund), dprime)) +
   geom_point() +
   geom_smooth() +
   facet_wrap(~bb.sp)
 ```
 
-## 1.3 Are some BB species more biased than others? (brms models)
+## 1.3 Multi-level model: bias ~ elevation + (1 + elevation | bb.sp)
 ```{r}
-# Do species vary in d' (simple intercept model)
-brm.plantsp <- brm(dprime ~ (1 | bb.sp), data = filter(bias.sitedate, criterion ==  "plant.sp"))
-summary(brm.plantsp)
-mcmc_plot(brm.plantsp, pars = c("^r_"))
-mcmc_plot(brm.plantsp, pars = c("^b_"))
-parnames(brm.plantsp)
-
-brm.ktype <- brm(dprime ~ (1 | bb.sp), data = filter(bias.sitedate, criterion ==  "ktype"))
-summary(brm.ktype)
-mcmc_plot(brm.ktype, pars = c("^r_"))
-mcmc_plot(brm.ktype, pars = c("^b_"))
-parnames(brm.ktype)
-
-brm.family <- brm(dprime ~ (1 | bb.sp), data = filter(bias.sitedate, criterion ==  "plant.family"))
-summary(brm.family)
-mcmc_plot(brm.family, pars = c("^r_"))
-mcmc_plot(brm.family, pars = c("^b_"))
-parnames(brm.family)
-```
-
-## 1.4 Does bias vary with criterion? (brms models)
-```{r}
-brm.criterion <- brm(dprime ~ (1 | criterion), data = bias.sitedate)
-summary(brm.criterion)
-mcmc_plot(brm.criterion, pars = c("^r_"))
-mcmc_plot(brm.criterion, pars = c("^b_"))
-parnames(brm.criterion)
-```
-
-## 1.5 Does bias vary with elevation? (brms models)
-```{r}
-# Does d' vary with elevation
-brm2.plantsp <- brm(dprime ~ elev.mean + (1 | bb.sp), 
-                    control = list(max_treedepth = 12),
-                    data = filter(bias.sitedate, criterion ==  "plant.sp"))
-summary(brm2.plantsp)
-mcmc_plot(brm2.plantsp, pars = c("^r_"))
-mcmc_plot(brm2.plantsp, pars = c("^b_"))
-conditional_effects(brm2.plantsp)
-parnames(brm2.plantsp)
-
-brm2.ktype <- brm(dprime ~ elev.mean + (1 | bb.sp), 
-                  control = list(max_treedepth = 12),
-                  data = filter(bias.sitedate, criterion ==  "ktype"))
-summary(brm2.ktype)
-mcmc_plot(brm2.ktype, pars = c("^r_"))
-mcmc_plot(brm2.ktype, pars = c("^b_"))
-conditional_effects(brm2.ktype)
-parnames(brm2.ktype)
-
-brm2.family <- brm(dprime ~ elev.mean + (1 + elev.mean | bb.sp), 
+# brms
+brm.ktype1 <- brm(dprime ~ yday + elev + (1 + elev | bb.sp), 
                   control = list(max_treedepth = 10),
-                  data = filter(bias.sitedate, criterion ==  "plant.family"))
-summary(brm2.family)
-mcmc_plot(brm2.family, pars = c("^r_"))
-mcmc_plot(brm2.family, pars = c("^b_"))
-conditional_effects(brm2.family)
-parnames(brm2.family)
+                  cores = 3,
+                  iter = 2000,
+                  file = "./output/brm_ktype1",
+                  data = filter(bias_sitedate, criterion ==  "ktype"))
 
-brm2.family <- brm(dprime ~ elev.mean, 
+summary(brm.ktype1)
+plot(brm.ktype1)
+parnames(brm.ktype1)
+mcmc_plot(brm.ktype1, pars = c("^r_"))
+mcmc_plot(brm.ktype1, pars = c("^b_"))
+mcmc_plot(brm.ktype1)
+conditional_effects(brm.ktype1)
+pp_check(brm.ktype1)
+
+brm.ktype2 <- brm(dprime ~ 1 + yday + elev + (1 | bb.sp), 
                   control = list(max_treedepth = 10),
-                  data = filter(bias.sitedate, criterion ==  "plant.family"))
-summary(brm2.family)
-mcmc_plot(brm2.family, pars = c("^r_"))
-mcmc_plot(brm2.family, pars = c("^b_"))
-conditional_effects(brm2.family)
-parnames(brm2.family)
+                  cores = 4,
+                  iter = 2000,
+                  file = "./output/brm_ktype2b",
+                  data = filter(bias_sitedate, criterion ==  "ktype"))
+
+summary(brm.ktype2)
+plot(brm.ktype2)
+parnames(brm.ktype2)
+mcmc_plot(brm.ktype2, pars = c("^r_"))
+mcmc_plot(brm.ktype2, pars = c("^b_"))
+mcmc_plot(brm.ktype2)
+conditional_effects(brm.ktype2)
+pp_check(brm.ktype2)
+
+brm.ktype3 <- brm(dprime ~ 1 + (1 | bb.sp), 
+                  control = list(max_treedepth = 10),
+                  cores = 4,
+                  iter = 2000,
+                  family = "poisson",
+                  file = "./output/brm_ktype3",
+                  data = filter(bias_sitedate, criterion ==  "ktype"))
+
+summary(brm.ktype3)
+plot(brm.ktype3)
+parnames(brm.ktype3)
+mcmc_plot(brm.ktype3, pars = c("^r_"))
+mcmc_plot(brm.ktype3, pars = c("^b_"))
+mcmc_plot(brm.ktype3)
+conditional_effects(brm.ktype3)
+pp_check(brm.ktype3)
+
+
+# lme4
+library(lme4)
+library(ggeffects)
+
+lmer.ktype <- lmer(dprime ~ 1 + elev:yday + (1 | bb.sp), 
+                  data = filter(bias_sitedate, criterion ==  "ktype"))
+summary(lmer.ktype)
+pred.ktype_yday <- ggpredict(lmer.ktype, "yday")
+pred.ktype_elev <- ggpredict(lmer.ktype, "elev")
+#pred.ktype_yday_ran <- ggpredict(lmer.ktype, "yday", type = "random")
+#pred.ktype_elev_ran <- ggpredict(lmer.ktype, "elev", type = "random")
+pred.ktype_bbsp <- ggpredict(lmer.ktype, "bb.sp", type = "random")
+
+plot(pred.ktype_yday)
+plot(pred.ktype_elev)
+#plot(pred.ktype_yday_ran)
+#plot(pred.ktype_elev_ran)
+plot(pred.ktype_bbsp)
+
+
+
+# mgcv
+gam.ktype <- bam(dprime ~ s(bb.sp, bs = "re") + 
+                   t2(yday, elev.mean, bs = c("tp", "gp")),
+                 method = "fREML",
+                 discrete = TRUE,
+                 data = filter(bias_sitedate, criterion ==  "ktype")) %>% getViz()
+
+summary(gam.ktype)
+plot(gam.ktype, allTerms = TRUE)
+
+# inla
+library(INLA)
+
+inla.ktype <- inla(dprime ~ elev.mean, 
+                   family = "gaussian",
+                   data = filter(bias_sitedate, criterion ==  "ktype"))
+
+inla.pen <- inla(dprime ~ 1 + elev.mean,
+  data = filter(bias_sitedate, criterion ==  "ktype"), control.predictor = list(compute = TRUE))
+summary(inla.pen)
 ```
 
 ## 1.6 Define hypotheses
@@ -897,85 +1167,179 @@ hypothesis(brm.family, H.soro_wurf, class = "")
 
 
 # 2. Having established the bias of BB foraging, let's zoom in on which morphotypes and families were over/under-represented
-## 2.1 Calculate representation
-```{r}
-representation.ktype <- visit_cover %>%
-  mutate(k.type.ss = factor(k.type.ss)) %>%
-  group_by(site, date, bb.sp, k.type.ss) %>%
-  summarize(flower.cover = sum(flower.cover),
-            visits = sum(visits)) %>%
-  group_by(site, date, bb.sp) %>%
-  mutate(prop.flower.cover = flower.cover/sum(flower.cover),
-         prop.visits = visits/sum(visits)) %>%
-  mutate(representation = prop.visits - prop.flower.cover,
-         representation.exp = if_else(visits == 0, 0, exp(prop.visits - prop.flower.cover)),
-         representation.bin = if_else(representation > 0, 1, 0)) %>%
-  left_join(site_data) %>%
-  mutate(yday = yday(date)) %>%
-  select(site, elev.mean, date, yday, bb.sp, k.type.ss, representation, representation.bin)
+## 2.1 Calculate bias per plant speces/ktype/family
 
-representation.family <- visit_cover %>%
-  mutate(plant.family = factor(plant.family)) %>%
-  group_by(site, date, bb.sp, plant.family) %>%
-  summarize(flower.cover = sum(flower.cover),
-            visits = sum(visits)) %>%
-  group_by(site, date, bb.sp) %>%
-  mutate(prop.flower.cover = flower.cover/sum(flower.cover),
-         prop.visits = visits/sum(visits)) %>%
-  mutate(representation = prop.visits - prop.flower.cover,
-         representation.exp = if_else(visits == 0, 0, exp(prop.visits - prop.flower.cover)),
-         representation.bin = if_else(representation > 0, 1, 0)) %>%
+Deciding exactly how to represent bias turns out to be rather tricky. I am trying out a few options right now.   
+
+1. Bias could  be trated simply as the Euclidean difference between prop.flower.cover and prop.visits. This has the effect of weighting bias by flower.cover, particularly negative bias, since an abundant plant can have a greater negative bias (because it is farther from 0) than a rare plant. Euclidean bias is bounded between -1 and 1. Its symmetry is a nice property that sets it apart from proportional or fold-change bias. If, for whatever reason, I decided that a log-transformation of this measure were desirable, I think I could simply add a constant of 1 to all values, which would move the boundary up to (0, 2). I think the biggest problem with measuring bias in this way is that it makes no distinction between a plant that was visited a little and one that was visited not at all, and that could be an important biological difference. For example, consider two plants, one with a proportional abundance = 0.01 and proportional visitation = 0.01, and the second with proportional abundance = 0.01 and proportional visitation = 0.00. These will look identical in our analysis, but it is possible that the unvisited plant would not have been visited no matter how high its abundance was. **For starters, though, I am going to proceed with this metric because it is the simplest. And because DJ thought it was a good idea.**
+
+2. Alternatively, bias could be calculated as a simple proportion: prop.visits/prop.flower.cover. If anything, this might tend to reverse the weighting, since a small Euclidean change in a rare species would be a large proportional change. Proportional change has a lower boundary of 0 and no upper boundary. This approach highlights cases of positive bias, but it is even worse than euclidean bias in terms of obscuring the distinction between plants visited slightly and those visited not at all. Worse in a sense. In another sense, it is better than euclidean bias, because with proportional visitation a plant visited 0 times is at least numerical distinguishable from one visited 1 time (visited plants will always have non-zero proportional bias). 
+
+3. Similarly to proportional bias, I could calculate bias as fold change. This converges to be virtually identical to proportional change as bias becomes more positive, but fold change has a lower bound of -1 instead of 0. 
+
+4. If the distinction between plants that were visited and those that were not is what we're most interested in, we could simply treat bias as binary. This, of course, comes at the price of not being able to distinguish a plant that received 0.01 proportional visitation and one that recevied  0.99 proportional visitation, and this distinction is arguably important. 
+
+5. An interesting option is to first separate visited from unvisited plants, set the bias of unvisited plants to 0, and then exponentiate the euclidean bias of all visited plant species. This has some desirable properties. First, it clearly distinguished visited plants from unvisited ones. Second, it assigns plants visited perfectly in proportion to their abundance a sensible bias of 1 (just like proportional bias). Thus, plants with a psotive bias are > 1 (bounded at 2.718282 -- okay, so that's a bit inelegant), those with a negative bias are < 1 (bounded at 0.367895), and those not visited at all = 0. 
+
+6. The problem with the option above is that is adds weight to positive bias. Another approach is to separate the unvisited plants from the visited, set unvisited bias = 0, and visited bias = prop.visits - prop.flower.cover + 1. The +1 serves to make the distribution positive, with 1 represening perfect proportionality between visitation and floral abundance. This creates a symmetrically bounded distribution between 0 (not inclusive) and 2 (inclusive), plus the true zeros from the unvisited plants. It feels a bit...slapped together, though.
+
+```{r}
+# Function for calculating bias per group (= criterion)
+biaseval_group <- function(x, criterion) {
+  
+  criterion <- enquo(criterion)
+  
+  x %>%
+    mutate(criterion = factor(!!criterion)) %>% # having this as a factor will help with modeling later on
+    group_by(site, date, bb.sp, criterion) %>%
+    summarize(flower.cover = sum(flower.cover), # get raw floer cover and visits by group
+              visits = sum(visits)) %>%
+    group_by(site, date, bb.sp) %>%
+    mutate(prop.flower.cover = flower.cover/sum(flower.cover), # get proportional flower cover and visits by group
+           prop.visits = visits/sum(visits)) %>%
+    mutate(bias = prop.visits - prop.flower.cover, # bias as difference
+           bias.prop = prop.visits/prop.flower.cover, # bias as proportion
+           bias.fold = bias/prop.flower.cover, # bias as fold change
+           bias.bin = if_else(bias > 0, 1, 0), # bias as binary
+           bias.exp = if_else(visits == 0, 0, exp(prop.visits - prop.flower.cover)),  # bias as exponentiated difference
+           bias.split = if_else(visits == 0, 0, (prop.visits - prop.flower.cover + 1))) %>%
+    mutate(yday = yday(date)) %>%
+    select(site, date, yday, bb.sp, criterion, 
+           bias, bias.prop, bias.fold, bias.bin, bias.exp, bias.split,
+           visits, flower.cover, prop.visits, prop.flower.cover)
+}
+
+bias_group_plantsp <- biaseval_group(visit_cover, plant.sp) %>%
   left_join(site_data) %>%
-  mutate(yday = yday(date)) %>%
-  select(site, elev.mean, date, yday, bb.sp, plant.family, representation, representation.bin)
+  rename(group = criterion) %>%
+  mutate(criterion = rep("plant.sp", n()))
+
+bias_group_ktype <- biaseval_group(visit_cover, k.type.ss) %>%
+  left_join(site_data) %>%
+  rename(group = criterion) %>%
+  mutate(criterion = rep("ktype", n()))
+
+bias_group_family <- biaseval_group(visit_cover, plant.family) %>%
+  left_join(site_data) %>%
+  rename(group = criterion) %>%
+  mutate(criterion = rep("plant.family", n()))
+
+bias_group <- bind_rows(bias_group_plantsp, bias_group_ktype, bias_group_family)
+
+ggplot(bias_group, aes(prop.flower.cover, prop.visits)) +
+  geom_point(alpha = 0.1) +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  geom_smooth(method = "lm") +
+  geom_abline(slope = 1, color = "red", linetype = "dashed") +
+  facet_wrap(~criterion)
+
+ggplot(bias_group, aes(log(prop.flower.cover), prop.visits)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  facet_wrap(~criterion)
+
+ggplot(filter(bias_group, criterion == "ktype"), aes(prop.flower.cover, prop.visits)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  geom_abline(slope = 1, color = "red", linetype = "dashed") +
+  facet_wrap(~group)
 ```
 
 ## 2.2 Visualize
 ```{r}
-ggplot(representation.ktype, aes(representation)) +
+# Check the distribution of bias
+ggplot(bias_group_ktype, aes(bias)) +
   geom_histogram()
 
-ggplot(representation.ktype, aes(representation.bin)) +
-  geom_bar()
+ggplot(bias_group_ktype, aes(bias)) +
+  geom_histogram() +
+  facet_wrap(~criterion)
 
-ggplot(representation.ktype, aes(k.type.ss, representation)) +
-  geom_boxplot() +
-  #geom_hline(yintercept = 1, linetype = "dashed")+
-  facet_wrap(~bb.sp)
+ggplot(bias_group_family, aes(bias)) +
+  geom_histogram()
 
-ggplot(representation.ktype, aes(k.type.ss, fill = representation.bin)) +
-  geom_bar() +
-  facet_wrap(~bb.sp)
-  
-ggplot(representation.ktype, aes(elev.mean, representation)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~k.type.ss)
+ggplot(bias_group_family, aes(bias)) +
+  geom_histogram() +
+  facet_wrap(~criterion)
 
-ggplot(representation.family, aes(plant.family, representation)) +
+# Bias by Kugler morphotype
+ggplot(bias_ktype, aes(criterion, bias)) +
+  geom_boxplot()
+
+ggplot(bias_ktype, aes(criterion, bias)) +
   geom_boxplot() +
   facet_wrap(~bb.sp)
-  
-ggplot(representation.family, aes(elev.mean, representation)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~plant.family)
 
-ggplot(representation.family, aes(yday, exp(representation))) +
-  geom_point(alpha = 0.1) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 3), se = FALSE) +
-  facet_wrap(~plant.family)
+ggplot(bias_ktype, aes(bb.sp, bias)) +
+  geom_boxplot() +
+  facet_wrap(~criterion)
+
+ggplot(bias_ktype, aes(elev.mean, bias)) +
+  #geom_point() +
+  geom_smooth(method = gam, formula = y ~ s(x, k = 5)) +
+  facet_wrap(~criterion)
+
+# Bias by plant family
+ggplot(bias_family, aes(criterion, bias)) +
+  geom_boxplot()
+
+ggplot(bias_family, aes(criterion, bias)) +
+  geom_boxplot() +
+  facet_wrap(~bb.sp)
+
+ggplot(bias_family, aes(elev.mean, bias)) +
+  #geom_point() +
+  geom_smooth(method = gam, formula = y ~ s(x, k = 5)) +
+  facet_wrap(~criterion)
+
+ggplot(bias_family, aes(elev.mean, bias)) +
+  #geom_point() +
+  geom_smooth(method = gam, formula = y ~ s(x, k = 5)) +
+  facet_wrap(~criterion)
+
 ```
 
 ## 2.3 Explaining representation by floral traits, BB spp, and elevation (and maybe time)
 ```{r}
-repmod.ktype <- brm(representation ~ (1 | k.type.ss), 
-                    data = representation.ktype)
+repmod.ktype <- brm(bias ~ elev.mean + (1 | criterion), 
+                    data = bias_ktype)
+
+repmod.ktype <- brm(bias ~ criterion, 
+                    data = bias_ktype)
+parnames(repmod.ktype)
 mcmc_plot(repmod.ktype)
 conditional_effects(repmod.ktype)
 
-repmod.ktype2 <- update(repmod.ktype, formula. = representation ~ elev.mean + (1 + elev.mean | k.type.ss))
+H.K5_K6 <- paste("b_criterion5 = b_criterion6")
+hypothesis(repmod.ktype, H.K5_K6, class = "")
 ```
+
+
+# How do species vary in their biases
+```{r}
+bias_matrix.plantsp <- bias_group_plantsp %>%
+  group_by(bb.sp, criterion) %>%
+  summarize(bias = mean(bias)) %>%
+  pivot_wider(values_from = bias, names_from = criterion, values_fill = 0) %>%
+  column_to_rownames("bb.sp")
+
+bias_matrix.ktype <- bias_group_ktype %>%
+  group_by(bb.sp, criterion) %>%
+  summarize(bias = mean(bias)) %>%
+  pivot_wider(values_from = bias, names_from = criterion, values_fill = 0) %>%
+  column_to_rownames("bb.sp")
+
+library(vegan)
+
+pca.plantsp <- rda(bias_matrix.plantsp)
+plot(pca.plantsp, type = "t")
+
+pca.ktype <- rda(bias_matrix.ktype)
+plot(pca.ktype)
+
+
+```
+
 
 # 3. Can we explain bias by BB-Fl trait associations? (RLQ + fourth corner analysis)
 ## 3.1
