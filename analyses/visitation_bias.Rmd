@@ -216,29 +216,26 @@ bias_plantsp <- biaseval(visit_cover, plant.sp, site, date) %>%
   left_join(site_data) %>% # add site data
   left_join(bb_abundance) %>% # add BB abundance data
   left_join(fl_abundance) %>% # add fl abundance
-  mutate(criterion = factor(rep("plant.sp", n()))) %>%
-  left_join(no_plant.sp)
+  mutate(criterion = factor(rep("plant.sp", n())))
 
 # Grouped by k.type.ss
 bias_ktype <- biaseval(visit_cover, k.type.ss, site, date) %>%
   left_join(site_data) %>%
   left_join(bb_abundance) %>% # add BB abundance data
   left_join(fl_abundance) %>% # add fl abundance
-  mutate(criterion = factor(rep("ktype", n()))) %>%
-  left_join(no_ktype)
+  mutate(criterion = factor(rep("ktype", n()))) 
 
 # Grouped by plant.family
 bias_family <- biaseval(visit_cover, plant.family, site, date) %>%
   left_join(site_data) %>%
   left_join(bb_abundance) %>% # add BB abundance data
   left_join(fl_abundance) %>% # add fl abundance
-  mutate(criterion = factor(rep("plant.family", n()))) %>%
-  left_join(no_plant.family)
+  mutate(criterion = factor(rep("plant.family", n())))
 
 # Collated
-bias <- bind_rows(bias_plantsp.sitedate, 
-                  bias_ktype.sitedate, 
-                  bias_family.sitedate) %>%
+bias <- bind_rows(bias_plantsp, 
+                  bias_ktype, 
+                  bias_family) %>%
   mutate(bb.sp = factor(bb.sp),
          yday = yday(date),
          elev = elev.mean/10) 
