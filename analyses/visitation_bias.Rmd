@@ -208,174 +208,11 @@ biaseval <- function(x, criterion, ...) { # criterion = plant grouping variable,
 }
 ```
 
-## And one for niche overlap
-```{r}
-# Niche overlap by sp.pair * site * year
-niche_overlapper <- function(x, criterion) {
-    
-  criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
-  
-  no1 <- x %>%
-    group_by(bb.sp, !!criterion, site, date) %>% # group by site-year and BB-FL pair
-    summarize(visits = sum(visits)) %>%
-    group_by(bb.sp, site, date) %>% # group by site-year and BB species
-    mutate(prop.visits = visits/sum(visits)) %>% # get proportional interaction frequency for each BB-FL pair
-    select(site, date, bb.sp, !!criterion, prop.visits) %>%
-    pivot_wider(names_from = !!criterion, values_from = prop.visits, values_fill = 0) %>% # spread into the kind of array vegan likes
-    group_by(site, date) %>%
-    nest() %>% # nest into list-column
-    mutate(data2 = map(data, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
-           dist = map(data2, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
-           tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
-    dplyr::select(site, date, tidy_dist) %>% # drop intermediate list-columns
-    unnest(cols = c(tidy_dist)) %>%
-    rename(bb.sp1 = item1, bb.sp2 = item2) %>%
-    mutate(niche.overlap = 1-distance,  # express niche overlap so that 1 = perfect overlap and 0 = no overlap
-           bss = if_else(bb.sp1 == "bss" | bb.sp2 == "bss", TRUE, FALSE),
-           pasc = if_else(bb.sp1 == "pasc" | bb.sp2 == "pasc", TRUE, FALSE),
-           wurf = if_else(bb.sp1 == "wurf" | bb.sp2 == "wurf", TRUE, FALSE),
-           prat = if_else(bb.sp1 == "prat" | bb.sp2 == "prat", TRUE, FALSE),
-           soro = if_else(bb.sp1 == "soro" | bb.sp2 == "soro", TRUE, FALSE),
-           humi = if_else(bb.sp1 == "humi" | bb.sp2 == "humi", TRUE, FALSE),
-           muci = if_else(bb.sp1 == "muci" | bb.sp2 == "muci", TRUE, FALSE),
-           pyre = if_else(bb.sp1 == "pyre" | bb.sp2 == "pyre", TRUE, FALSE),
-           mont = if_else(bb.sp1 == "mont" | bb.sp2 == "mont", TRUE, FALSE),
-           mend = if_else(bb.sp1 == "mend" | bb.sp2 == "mend", TRUE, FALSE),
-           psit = if_else(bb.sp1 == "psit" | bb.sp2 == "psit", TRUE, FALSE),
-           gers = if_else(bb.sp1 == "gers" | bb.sp2 == "gers", TRUE, FALSE),
-           jone = if_else(bb.sp1 == "jone" | bb.sp2 == "jone", TRUE, FALSE),
-           hypn = if_else(bb.sp1 == "hypn" | bb.sp2 == "hypn", TRUE, FALSE),
-           lapi = if_else(bb.sp1 == "lapi" | bb.sp2 == "lapi", TRUE, FALSE),
-           hort = if_else(bb.sp1 == "hort" | bb.sp2 == "hort", TRUE, FALSE))
-
-  no <- list(
-    
-  no_bss <- no1 %>%
-    group_by(site, date, bss) %>% 
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%
-    mutate(bb.sp = rep("bss", n())) %>%
-    filter(bss == TRUE),
-  
-  no_pasc <- no1 %>%
-    group_by(site, date, pasc) %>%
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("pasc", n())) %>%
-    filter(pasc == TRUE),
-  
-  no_wurf <- no1 %>%
-    group_by(site, date, wurf) %>%
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("wurf", n())) %>%
-    filter(wurf == TRUE),
-  
-  no_prat <- no1 %>%
-    group_by(site, date, prat) %>%
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%   
-    mutate(bb.sp = rep("prat", n())) %>%
-    filter(prat == TRUE),
-  
-  no_soro <- no1 %>%
-    group_by(site, date, soro) %>% 
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("soro", n())) %>%
-    filter(soro == TRUE),
-  
-  no_humi <- no1 %>%
-    group_by(site, date, humi) %>%
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("humi", n())) %>%
-    filter(humi == TRUE),
-  
-  no_muci <- no1 %>%
-    group_by(site, date, muci) %>%
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("muci", n())) %>%
-    filter(muci == TRUE),
-  
-  no_pyre <- no1 %>%
-    group_by(site, date, pyre) %>%
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%   
-    mutate(bb.sp = rep("pyre", n())) %>%
-    filter(pyre == TRUE),
-  
-  no_mont <- no1 %>%
-    group_by(site, date, mont) %>% 
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("mont", n())) %>%
-    filter(mont == TRUE),
-  
-  no_mend <- no1 %>%
-    group_by(site, date, mend) %>%
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("mend", n())) %>%
-    filter(mend == TRUE),
-  
-  no_psit <- no1 %>%
-    group_by(site, date, psit) %>%
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("psit", n())) %>%
-    filter(psit == TRUE),
-  
-  no_gers <- no1 %>%
-    group_by(site, date, gers) %>%
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("gers", n())) %>%
-    filter(gers == TRUE),
-  
-  no_jone <- no1 %>%
-    group_by(site, date, jone) %>% 
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("jone", n())) %>%
-    filter(jone == TRUE),
-  
-  no_hypn <- no1 %>%
-    group_by(site, date, hypn) %>%
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("hypn", n())) %>%
-    filter(hypn == TRUE),
-  
-  no_lapi <- no1 %>%
-    group_by(site, date, lapi) %>%
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("lapi", n())) %>%
-    filter(lapi == TRUE),
-  
-  no_hort <- no1 %>%
-    group_by(site, date, hort) %>%
-    summarize(mean.niche.overlap = mean(niche.overlap),
-              max.niche.overlap = max(niche.overlap)) %>%    
-    mutate(bb.sp = rep("hort", n())) %>%
-    filter(hort == TRUE)
-  ) %>%
-    
-    bind_rows() %>%
-    select(site, date, bb.sp, mean.niche.overlap, max.niche.overlap)
-  }
-```
-
-
 # 1. Is bumble bee foraging biased? How do taxonomic, phylogenetic, and morphological bias compare -- NO, can't analyze this, these should be considered separate repsonse variables and analyzed in separate models? Are some BB species more biased than others?
 ## 1.1 Calculate Blüthgen's d' (i.e. visitation bias)
 ```{r}
 # No grouping -- just plant.sp
-no_plant.sp <- niche_overlapper(visit_cover, plant.sp)
-
-bias_plantsp.sitedate <- biaseval(visit_cover, plant.sp, site, date) %>%
+bias_plantsp <- biaseval(visit_cover, plant.sp, site, date) %>%
   left_join(site_data) %>% # add site data
   left_join(bb_abundance) %>% # add BB abundance data
   left_join(fl_abundance) %>% # add fl abundance
@@ -383,9 +220,7 @@ bias_plantsp.sitedate <- biaseval(visit_cover, plant.sp, site, date) %>%
   left_join(no_plant.sp)
 
 # Grouped by k.type.ss
-no_ktype <- niche_overlapper(visit_cover, k.type.ss)
-
-bias_ktype.sitedate <- biaseval(visit_cover, k.type.ss, site, date) %>%
+bias_ktype <- biaseval(visit_cover, k.type.ss, site, date) %>%
   left_join(site_data) %>%
   left_join(bb_abundance) %>% # add BB abundance data
   left_join(fl_abundance) %>% # add fl abundance
@@ -393,111 +228,67 @@ bias_ktype.sitedate <- biaseval(visit_cover, k.type.ss, site, date) %>%
   left_join(no_ktype)
 
 # Grouped by plant.family
-no_plant.family <- niche_overlapper(visit_cover, plant.family)
-
-bias_family.sitedate <- biaseval(visit_cover, plant.family, site, date) %>%
+bias_family <- biaseval(visit_cover, plant.family, site, date) %>%
   left_join(site_data) %>%
   left_join(bb_abundance) %>% # add BB abundance data
   left_join(fl_abundance) %>% # add fl abundance
   mutate(criterion = factor(rep("plant.family", n()))) %>%
   left_join(no_plant.family)
 
-
-
 # Collated
-bias_sitedate <- bind_rows(bias_plantsp.sitedate, 
-                           bias_ktype.sitedate, 
-                           bias_family.sitedate) %>%
+bias <- bind_rows(bias_plantsp.sitedate, 
+                  bias_ktype.sitedate, 
+                  bias_family.sitedate) %>%
   mutate(bb.sp = factor(bb.sp),
          yday = yday(date),
-         elev = elev.mean/10) %>%
-  left_join(no)
-
-# When bias is high, it could mean that there are few good options on which all (or many) BB species converge. But apparently it doesn't. When bias is high, BB spp are biased toward DIFFERENT flora, and thus their niches diverge. 
-ggplot(bias_sitedate, aes(dprime, mean.niche.overlap, color = criterion)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth(method = "lm") +
-  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
-  facet_wrap(~bb.sp) +
-  ylim(c(0,1))
-
-ggplot(bias_sitedate, aes(dprime, max.niche.overlap, color = criterion)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth(method = "lm") +
-  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
-  facet_wrap(~bb.sp) +
-  ylim(c(0,1))
-
-ggplot(bias_sitedate, aes(log(total.flower.cover), dprime, color = criterion)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth(method = "lm") +
-  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
-  facet_wrap(~bb.sp) +
-  ylim(c(0,1))
-
-ggplot(bias_sitedate, aes(log(total.flower.cover), mean.niche.overlap, color = criterion)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth(method = "lm") +
-  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
-  facet_wrap(~bb.sp) +
-  ylim(c(0,1))
-
-
-brm.bias_niche <- brm(mean.niche.overlap ~ 1 + dprime + (1 | bb.sp),
-                     cores = 3,
-                     data = filter(bias_sitedate, criterion == "ktype"))
-
-parnames(brm.bias_niche)
-conditional_effects(brm.bias_nich)
-hypothesis(brm.bias_niche, "dprime = 0")
-pp_check(brm.bias_niche)
+         elev = elev.mean/10) 
 ```
 
 ## 1.2 Visualize
 ```{r}
 # Compare mean bias by criterion
-ggplot(bias_sitedate, aes(criterion, dprime)) +
+ggplot(bias, aes(criterion, dprime)) +
   geom_boxplot()
 
 # Bias ~ elevation * criterion
-ggplot(bias_sitedate, aes(elev.mean, dprime, color = criterion)) +
+ggplot(bias, aes(elev.mean, dprime, color = criterion)) +
   geom_point(alpha = 0.25) +
   geom_smooth(se = TRUE)
 
-ggplot(bias_sitedate, aes(yday, dprime, color = criterion)) +
+ggplot(bias, aes(yday, dprime, color = criterion)) +
   geom_point(alpha = 0.25) +
   geom_smooth(se = TRUE)
 
-ggplot(bias_sitedate, aes(elev.mean, dprime, color = criterion)) +
+ggplot(bias, aes(elev.mean, dprime, color = criterion)) +
   geom_point(alpha = 0.25) +
   geom_smooth(se = FALSE, method = "gam", formula = y ~ s(x, k = 5)) +
   facet_wrap(~bb.sp)
 
-ggplot(bias_sitedate, aes(yday, dprime, color = criterion)) +
+ggplot(bias, aes(yday, dprime, color = criterion)) +
   geom_point(alpha = 0.25) +
   geom_smooth(se = FALSE, method = "gam", formula = y ~ s(x, k = 5)) +
   facet_wrap(~bb.sp)
 
 # Bias ~ year; Blüthgen's d' seems very robust to sampling effects, since it does not vary across years
-ggplot(bias_sitedate, aes(year, dprime, color = criterion)) +
+ggplot(bias, aes(year, dprime, color = criterion)) +
   geom_boxplot() 
 
-ggplot(bias_sitedate, aes(year, dprime, color = criterion)) +
+ggplot(bias, aes(year, dprime, color = criterion)) +
   geom_boxplot() +
   facet_wrap(~bb.sp)
 
 # Does bias vary with abundance?
-ggplot(bias_sitedate, aes(log(bb.sp.abund), dprime, color = criterion)) +
+ggplot(bias, aes(log(bb.sp.abund), dprime, color = criterion)) +
   #geom_point() +
   geom_smooth() +
   facet_wrap(~bb.sp)
 
-ggplot(bias_sitedate, aes(bb.sp.abund, dprime, color = criterion)) +
+ggplot(bias, aes(bb.sp.abund, dprime, color = criterion)) +
   #geom_point() +
   geom_smooth() +
   facet_wrap(~bb.sp, )
 
-ggplot(bias_sitedate, aes(log(bb.sp.abund), dprime, color = criterion)) +
+ggplot(bias, aes(log(bb.sp.abund), dprime, color = criterion)) +
   geom_point(alpha = 0.1) +
   geom_smooth()
 
@@ -515,7 +306,7 @@ brm.ktype1 <- brm(dprime ~ yday + elev + (1 + elev | bb.sp),
                   cores = 3,
                   iter = 2000,
                   file = "./output/brm_ktype1",
-                  data = filter(bias_sitedate, criterion ==  "ktype"))
+                  data = filter(bias, criterion ==  "ktype"))
 
 summary(brm.ktype1)
 plot(brm.ktype1)
@@ -531,7 +322,7 @@ brm.ktype2 <- brm(dprime ~ 1 + yday + elev + (1 | bb.sp),
                   cores = 4,
                   iter = 2000,
                   file = "./output/brm_ktype2b",
-                  data = filter(bias_sitedate, criterion ==  "ktype"))
+                  data = filter(bias, criterion ==  "ktype"))
 
 summary(brm.ktype2)
 plot(brm.ktype2)
@@ -548,7 +339,7 @@ brm.ktype3 <- brm(dprime ~ 1 + (1 | bb.sp),
                   iter = 2000,
                   family = "poisson",
                   file = "./output/brm_ktype3",
-                  data = filter(bias_sitedate, criterion ==  "ktype"))
+                  data = filter(bias, criterion ==  "ktype"))
 
 summary(brm.ktype3)
 plot(brm.ktype3)
@@ -565,7 +356,7 @@ library(lme4)
 library(ggeffects)
 
 lmer.ktype <- lmer(dprime ~ 1 + elev:yday + (1 | bb.sp), 
-                  data = filter(bias_sitedate, criterion ==  "ktype"))
+                  data = filter(bias, criterion ==  "ktype"))
 summary(lmer.ktype)
 pred.ktype_yday <- ggpredict(lmer.ktype, "yday")
 pred.ktype_elev <- ggpredict(lmer.ktype, "elev")
@@ -586,7 +377,7 @@ gam.ktype <- bam(dprime ~ s(bb.sp, bs = "re") +
                    t2(yday, elev.mean, bs = c("tp", "gp")),
                  method = "fREML",
                  discrete = TRUE,
-                 data = filter(bias_sitedate, criterion ==  "ktype")) %>% getViz()
+                 data = filter(bias, criterion ==  "ktype")) %>% getViz()
 
 summary(gam.ktype)
 plot(gam.ktype, allTerms = TRUE)
@@ -596,14 +387,14 @@ library(INLA)
 
 inla.ktype <- inla(dprime ~ elev.mean, 
                    family = "gaussian",
-                   data = filter(bias_sitedate, criterion ==  "ktype"))
+                   data = filter(bias, criterion ==  "ktype"))
 
 inla.pen <- inla(dprime ~ 1 + elev.mean,
-  data = filter(bias_sitedate, criterion ==  "ktype"), control.predictor = list(compute = TRUE))
+  data = filter(bias, criterion ==  "ktype"), control.predictor = list(compute = TRUE))
 summary(inla.pen)
 ```
 
-## 1.6 Define hypotheses
+## 1.4 Define hypotheses
 ```{r}
 # Is d' different from 0?
 H1 <- paste("Intercept = 0")
@@ -748,7 +539,7 @@ H.pyre_wurf <- paste("r_bb.sp[pyre,Intercept] = r_bb.sp[wurf,Intercept]")
 H.soro_wurf <- paste("r_bb.sp[soro,Intercept] = r_bb.sp[wurf,Intercept]")
 ```
 
-## 1.7 Test contrasts
+## 1.5 Test contrasts
 ```{r}
 ### Plant.sp
 hypothesis(brm.plantsp, H1)
@@ -1167,7 +958,8 @@ hypothesis(brm.family, H.soro_wurf, class = "")
 
 
 # 2. Having established the bias of BB foraging, let's zoom in on which morphotypes and families were over/under-represented
-## 2.1 Calculate bias per plant speces/ktype/family
+
+## 2.1 Defining bias
 
 Deciding exactly how to represent bias turns out to be rather tricky. I am trying out a few options right now.   
 
@@ -1183,8 +975,8 @@ Deciding exactly how to represent bias turns out to be rather tricky. I am tryin
 
 6. The problem with the option above is that is adds weight to positive bias. Another approach is to separate the unvisited plants from the visited, set unvisited bias = 0, and visited bias = prop.visits - prop.flower.cover + 1. The +1 serves to make the distribution positive, with 1 represening perfect proportionality between visitation and floral abundance. This creates a symmetrically bounded distribution between 0 (not inclusive) and 2 (inclusive), plus the true zeros from the unvisited plants. It feels a bit...slapped together, though.
 
+## 2.2 Function for calculating bias per group (= criterion)
 ```{r}
-# Function for calculating bias per group (= criterion)
 biaseval_group <- function(x, criterion) {
   
   criterion <- enquo(criterion)
@@ -1208,7 +1000,10 @@ biaseval_group <- function(x, criterion) {
            bias, bias.prop, bias.fold, bias.bin, bias.exp, bias.split,
            visits, flower.cover, prop.visits, prop.flower.cover)
 }
+```
 
+## 2.3 Calculate bias per plant speces/ktype/family
+```{r}
 bias_group_plantsp <- biaseval_group(visit_cover, plant.sp) %>%
   left_join(site_data) %>%
   rename(group = criterion) %>%
@@ -1245,7 +1040,7 @@ ggplot(filter(bias_group, criterion == "ktype"), aes(prop.flower.cover, prop.vis
   facet_wrap(~group)
 ```
 
-## 2.2 Visualize
+## 2.4 Visualize
 ```{r}
 # Check the distribution of bias
 ggplot(bias_group_ktype, aes(bias)) +
@@ -1263,43 +1058,42 @@ ggplot(bias_group_family, aes(bias)) +
   facet_wrap(~criterion)
 
 # Bias by Kugler morphotype
-ggplot(bias_ktype, aes(criterion, bias)) +
+ggplot(bias_group_ktype, aes(group, bias)) +
   geom_boxplot()
 
-ggplot(bias_ktype, aes(criterion, bias)) +
+ggplot(bias_group_ktype, aes(group, bias)) +
   geom_boxplot() +
   facet_wrap(~bb.sp)
 
-ggplot(bias_ktype, aes(bb.sp, bias)) +
+ggplot(bias_group_ktype, aes(bb.sp, bias)) +
   geom_boxplot() +
-  facet_wrap(~criterion)
+  facet_wrap(~group)
 
-ggplot(bias_ktype, aes(elev.mean, bias)) +
+ggplot(bias_group_ktype, aes(elev.mean, bias)) +
   #geom_point() +
   geom_smooth(method = gam, formula = y ~ s(x, k = 5)) +
-  facet_wrap(~criterion)
+  facet_wrap(~group)
 
 # Bias by plant family
-ggplot(bias_family, aes(criterion, bias)) +
+ggplot(bias_group_family, aes(group, bias)) +
   geom_boxplot()
 
-ggplot(bias_family, aes(criterion, bias)) +
+ggplot(bias_group_family, aes(group, bias)) +
   geom_boxplot() +
   facet_wrap(~bb.sp)
 
-ggplot(bias_family, aes(elev.mean, bias)) +
+ggplot(bias_group_family, aes(bb.sp, bias)) +
+  geom_boxplot() +
+  facet_wrap(~group)
+
+ggplot(bias_group_family, aes(elev.mean, bias)) +
   #geom_point() +
   geom_smooth(method = gam, formula = y ~ s(x, k = 5)) +
-  facet_wrap(~criterion)
-
-ggplot(bias_family, aes(elev.mean, bias)) +
-  #geom_point() +
-  geom_smooth(method = gam, formula = y ~ s(x, k = 5)) +
-  facet_wrap(~criterion)
-
+  facet_wrap(~group)
 ```
 
-## 2.3 Explaining representation by floral traits, BB spp, and elevation (and maybe time)
+
+## 2.5 Explaining bias by floral traits, BB spp, and elevation (and maybe time)
 ```{r}
 repmod.ktype <- brm(bias ~ elev.mean + (1 | criterion), 
                     data = bias_ktype)
@@ -1313,6 +1107,8 @@ conditional_effects(repmod.ktype)
 H.K5_K6 <- paste("b_criterion5 = b_criterion6")
 hypothesis(repmod.ktype, H.K5_K6, class = "")
 ```
+
+
 
 
 # How do species vary in their biases
@@ -1345,10 +1141,217 @@ plot(pca.ktype)
 ## 3.1
 ## 3.2 Do BB-FL trait associations vary with elevation?
 
-# 4. Can we explain BB-FL trait associations in terms of floral reward or handling time? We can use Neumayer and Paulus' (1999) data. 
-## 4.1 
-## 4.2 Do there appear to be suboptimalities in BB-FL trait associations? That is, are trait classes over/under-represented relative to their reward/efficiency? If so, how might explain such suboptimalities?  
-  - Innate bias trumps learning?
-  - Ecological modulators are involved, e.g. competition or distribution (see Sowig 1989)
+# 4. How does bias relate to network structure?
+## 4.1 A function for calculating niche overlap
+```{r}
+# Niche overlap by sp.pair * site * year
+niche_overlapper <- function(x, criterion) {
+    
+  criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
+  
+  no1 <- x %>%
+    group_by(bb.sp, !!criterion, site, date) %>% # group by site-year and BB-FL pair
+    summarize(visits = sum(visits)) %>%
+    group_by(bb.sp, site, date) %>% # group by site-year and BB species
+    mutate(prop.visits = visits/sum(visits)) %>% # get proportional interaction frequency for each BB-FL pair
+    select(site, date, bb.sp, !!criterion, prop.visits) %>%
+    pivot_wider(names_from = !!criterion, values_from = prop.visits, values_fill = 0) %>% # spread into the kind of array vegan likes
+    group_by(site, date) %>%
+    nest() %>% # nest into list-column
+    mutate(data2 = map(data, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
+           dist = map(data2, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
+           tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
+    dplyr::select(site, date, tidy_dist) %>% # drop intermediate list-columns
+    unnest(cols = c(tidy_dist)) %>%
+    rename(bb.sp1 = item1, bb.sp2 = item2) %>%
+    mutate(niche.overlap = 1-distance,  # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+           bss = if_else(bb.sp1 == "bss" | bb.sp2 == "bss", TRUE, FALSE),
+           pasc = if_else(bb.sp1 == "pasc" | bb.sp2 == "pasc", TRUE, FALSE),
+           wurf = if_else(bb.sp1 == "wurf" | bb.sp2 == "wurf", TRUE, FALSE),
+           prat = if_else(bb.sp1 == "prat" | bb.sp2 == "prat", TRUE, FALSE),
+           soro = if_else(bb.sp1 == "soro" | bb.sp2 == "soro", TRUE, FALSE),
+           humi = if_else(bb.sp1 == "humi" | bb.sp2 == "humi", TRUE, FALSE),
+           muci = if_else(bb.sp1 == "muci" | bb.sp2 == "muci", TRUE, FALSE),
+           pyre = if_else(bb.sp1 == "pyre" | bb.sp2 == "pyre", TRUE, FALSE),
+           mont = if_else(bb.sp1 == "mont" | bb.sp2 == "mont", TRUE, FALSE),
+           mend = if_else(bb.sp1 == "mend" | bb.sp2 == "mend", TRUE, FALSE),
+           psit = if_else(bb.sp1 == "psit" | bb.sp2 == "psit", TRUE, FALSE),
+           gers = if_else(bb.sp1 == "gers" | bb.sp2 == "gers", TRUE, FALSE),
+           jone = if_else(bb.sp1 == "jone" | bb.sp2 == "jone", TRUE, FALSE),
+           hypn = if_else(bb.sp1 == "hypn" | bb.sp2 == "hypn", TRUE, FALSE),
+           lapi = if_else(bb.sp1 == "lapi" | bb.sp2 == "lapi", TRUE, FALSE),
+           hort = if_else(bb.sp1 == "hort" | bb.sp2 == "hort", TRUE, FALSE))
+
+  no <- list(
+    
+  no_bss <- no1 %>%
+    group_by(site, date, bss) %>% 
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%
+    mutate(bb.sp = rep("bss", n())) %>%
+    filter(bss == TRUE),
+  
+  no_pasc <- no1 %>%
+    group_by(site, date, pasc) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("pasc", n())) %>%
+    filter(pasc == TRUE),
+  
+  no_wurf <- no1 %>%
+    group_by(site, date, wurf) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("wurf", n())) %>%
+    filter(wurf == TRUE),
+  
+  no_prat <- no1 %>%
+    group_by(site, date, prat) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%   
+    mutate(bb.sp = rep("prat", n())) %>%
+    filter(prat == TRUE),
+  
+  no_soro <- no1 %>%
+    group_by(site, date, soro) %>% 
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("soro", n())) %>%
+    filter(soro == TRUE),
+  
+  no_humi <- no1 %>%
+    group_by(site, date, humi) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("humi", n())) %>%
+    filter(humi == TRUE),
+  
+  no_muci <- no1 %>%
+    group_by(site, date, muci) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("muci", n())) %>%
+    filter(muci == TRUE),
+  
+  no_pyre <- no1 %>%
+    group_by(site, date, pyre) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%   
+    mutate(bb.sp = rep("pyre", n())) %>%
+    filter(pyre == TRUE),
+  
+  no_mont <- no1 %>%
+    group_by(site, date, mont) %>% 
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("mont", n())) %>%
+    filter(mont == TRUE),
+  
+  no_mend <- no1 %>%
+    group_by(site, date, mend) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("mend", n())) %>%
+    filter(mend == TRUE),
+  
+  no_psit <- no1 %>%
+    group_by(site, date, psit) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("psit", n())) %>%
+    filter(psit == TRUE),
+  
+  no_gers <- no1 %>%
+    group_by(site, date, gers) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("gers", n())) %>%
+    filter(gers == TRUE),
+  
+  no_jone <- no1 %>%
+    group_by(site, date, jone) %>% 
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("jone", n())) %>%
+    filter(jone == TRUE),
+  
+  no_hypn <- no1 %>%
+    group_by(site, date, hypn) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("hypn", n())) %>%
+    filter(hypn == TRUE),
+  
+  no_lapi <- no1 %>%
+    group_by(site, date, lapi) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("lapi", n())) %>%
+    filter(lapi == TRUE),
+  
+  no_hort <- no1 %>%
+    group_by(site, date, hort) %>%
+    summarize(mean.niche.overlap = mean(niche.overlap),
+              max.niche.overlap = max(niche.overlap)) %>%    
+    mutate(bb.sp = rep("hort", n())) %>%
+    filter(hort == TRUE)
+  ) %>%
+    
+    bind_rows() %>%
+    select(site, date, bb.sp, mean.niche.overlap, max.niche.overlap)
+  }
+```
+
+## 4.2 Calculate niche overlap: NOT READY FOR INTERPRETATION YET
+```{r}
+niche_overlap_plant.sp <- niche_overlapper(visit_cover, plant.sp)
+
+niche_overlap_ktype <- niche_overlapper(visit_cover, k.type.ss)
+
+niche_overlap_plant.family <- niche_overlapper(visit_cover, plant.family)
+
+niche_overlap <- bind_rows(no_plant.sp, 
+                           no_ktype, 
+                           no_plant.family)
+
+# When bias is high, it could mean that there are few good options on which all (or many) BB species converge. But apparently it doesn't. When bias is high, BB spp are biased toward DIFFERENT flora, and thus their niches diverge. 
+ggplot(bias, aes(dprime, mean.niche.overlap, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm") +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
+  facet_wrap(~bb.sp) +
+  ylim(c(0,1))
+
+ggplot(bias, aes(dprime, max.niche.overlap, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm") +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
+  facet_wrap(~bb.sp) +
+  ylim(c(0,1))
+
+ggplot(bias, aes(log(total.flower.cover), dprime, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm") +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
+  facet_wrap(~bb.sp) +
+  ylim(c(0,1))
+
+ggplot(bias, aes(log(total.flower.cover), mean.niche.overlap, color = criterion)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm") +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
+  facet_wrap(~bb.sp) +
+  ylim(c(0,1))
+
+
+brm.bias_niche <- brm(mean.niche.overlap ~ 1 + dprime + (1 | bb.sp),
+                     cores = 3,
+                     data = filter(bias, criterion == "ktype"))
+
+parnames(brm.bias_niche)
+conditional_effects(brm.bias_nich)
+hypothesis(brm.bias_niche, "dprime = 0")
+pp_check(brm.bias_niche)
+```
 
 
