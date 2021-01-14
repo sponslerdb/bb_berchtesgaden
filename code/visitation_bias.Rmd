@@ -26,33 +26,33 @@ library(tidymodels)
 ## Load data
 ```{r message=FALSE, warning=FALSE, include=FALSE, echo = FALSE}
 # Site data
-site_data <- read_csv("../processed_data/site_data.csv") %>%
+site_data <- read_csv("../data/processed_data/site_data.csv") %>%
   dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
   mutate(elev.class2 = factor(elev.class2, levels = c("low", "mid", "high")),
          site = factor(site)) # turn elav.class into an ordered factor and site into a regular factor
 
 # BB traits
-bb_traits <- read_csv("../processed_data/bb_traits.csv") 
+bb_traits <- read_csv("../data/processed_data/bb_traits.csv") 
 
 # FL traits
 ## family-level taxonomy
-fl_tax <- read_csv("../processed_data/floral_tax.csv") 
+fl_tax <- read_csv("../data/processed_data/floral_tax.csv") 
 
 ## Kugler morphotypes (accessed through Bioflor)
-fl_ktype <- read_csv("../processed_data/floral_k_type.csv") 
+fl_ktype <- read_csv("../data/processed_data/floral_k_type.csv") 
 
 ## Flower colors (accessed through BioFlor)
-fl_color <- read_csv("../processed_data/floral_color.csv")
+fl_color <- read_csv("../data/processed_data/floral_color.csv")
 
 ## diameter and corolla depth data from Gita Benadi
-fl_morph <- read_csv("../processed_data/flower_morphology_GitaBenadi.csv") %>% 
+fl_morph <- read_csv("../data/processed_data/flower_morphology_GitaBenadi.csv") %>% 
   dplyr::select(SampleID, plant.family = Family, plant.sp = Species, 
                 Unit, Flowers_per_unit, diam = Diameter, LN) %>%
   group_by(plant.sp) %>%
   summarize(diam = mean(diam), LN = mean(LN))
 
 ## verbal description of Kugler morphotypes
-fl_ktype_key <- read_delim("../processed_data/kugler_key.tsv", delim = "\t", col_names = FALSE) %>%
+fl_ktype_key <- read_delim("../data/processed_data/kugler_key.tsv", delim = "\t", col_names = FALSE) %>%
   dplyr::select(k.type = 1, description = 2)
 
 ## join all floral trait tables
@@ -66,13 +66,13 @@ fl_traits <- fl_tax %>%
 ## Align survey and visitation data with pseudodates
 ```{r}
 # Site-dates where BB visitation was recorded (excluding dates where only males were recorded)
-visitation_samples <- read_csv("../processed_data/network.csv") %>%
+visitation_samples <- read_csv("../data/processed_data/network.csv") %>%
   filter(caste != "male") %>%
   select(site, date) %>%
   distinct() 
 
 # Site dates where floral surveying was conducted
-survey_samples <- read_csv("../processed_data/floral_survey.csv") %>%
+survey_samples <- read_csv("../data/processed_data/floral_survey.csv") %>%
   select(site, date) %>%
   distinct()
 
@@ -96,7 +96,7 @@ pseudodates <- full_join(visitation_only, survey_samples) %>%
 ## Generate a data frame that represents visitation and survey abundance
 ```{r}
 # BB visitation data
-visitation <- read_csv("../processed_data/network.csv") %>%
+visitation <- read_csv("../data/processed_data/network.csv") %>%
   filter(caste != "male") %>% # we will ignore males 
   group_by(site, date, bb.sp, plant.sp) %>%
   summarize(visits = n()) %>% # visits per BB-FL pair
@@ -111,7 +111,7 @@ visitation <- read_csv("../processed_data/network.csv") %>%
   complete(bb.sp, plant.sp, fill = list(visits = 0)) # generate all possible BB-FL combos for each site date and fill in zeros for visits
 
 # Floral cover data
-flower_cover <- read_csv("../processed_data/floral_survey.csv") %>%
+flower_cover <- read_csv("../data/processed_data/floral_survey.csv") %>%
   filter(flower.cover > 0) %>% # ignore plants that were not blooming
   group_by(site, date, plant.sp) %>%
   summarize(flower.cover = sum(flower.cover))
@@ -210,7 +210,8 @@ biaseval <- function(x, criterion, ...) { # criterion = plant grouping variable,
 }
 ```
 
-# 1. How does overall bias (Blüthgen's d') vary across species and through elev*time? For now, we will focus on bias at the level of plant species. We'll start considering traits later on when our goal is to explain patterns of bias.
+# 1. Quantifying bias
+How does overall bias (Blüthgen's d') vary across species and through elev*time? For now, we will focus on bias at the level of plant species. We'll start considering traits later on when our goal is to explain patterns of bias.
 ## 1.1 Calculate Blüthgen's d' (i.e. visitation bias)
 ```{r}
 # No grouping -- just plant.sp
@@ -319,13 +320,13 @@ ggplot(filter(bias, criterion == "plant.sp"), aes(yday, dprime)) +
 
 # After inspecting these plots, I see no reason to indulge in wiggly models.
 
-# This model includes a global interaction term for yday and elevation, with a varying intercept for bb.sp and a varying slow for elev | bb.sp. I think this should give me all the estimation I'm interested in.
+# This model includes a global interaction term for yday and elevation, with a varying intercept for bb.sp and a varying slow for elev | bb.sp. I think this should give me all the estimation I'm interested in. It's tricky to make it converge, though.
 brm.plantsp11 <- brm(dprime ~ yday * elev + (1 + elev | bb.sp), 
                   control = list(max_treedepth = 10),
                   cores = 4,
                   iter = 4000,
                   #family = "skew_normal",
-                  file = "./output/brm_plantsp11",
+                  file = "../output/brm_plantsp11",
                   data = filter(bias, criterion ==  "plant.sp"))
 
 summary(brm.plantsp11)
@@ -341,11 +342,12 @@ pp_check(brm.plantsp11)
 bayes_R2(brm.plantsp11)
 hypothesis(brm.plantsp11, "b_elev = 0", class = NULL)
 
+# Alternatively, we can drop the varying slope term to simplify the model a bit. Still doesn't quite converge.
 brm.plantsp1 <- brm(dprime ~ yday * elev + (1 | bb.sp), 
                   control = list(max_treedepth = 10),
                   cores = 4,
                   iter = 2000,
-                  file = "./output/brm_plantsp1",
+                  file = "../output/brm_plantsp1",
                   data = filter(bias, criterion ==  "plant.sp"))
 
 summary(brm.plantsp1)
@@ -361,11 +363,12 @@ pp_check(brm.plantsp1)
 bayes_R2(brm.plantsp1)
 hypothesis(brm.plantsp1, "b_elev = 0", class = NULL)
 
+# We can simplify the model still more by dropping the yday*elev interaction term. Now it converges. But I think the takeaway is that neither elevation noy yday give us a clear signal with respect  to dprime.
 brm.plantsp2 <- brm(dprime ~ yday + elev + (1 | bb.sp), 
                   control = list(max_treedepth = 10),
                   cores = 4,
                   iter = 2000,
-                  file = "./output/brm_plantsp2",
+                  file = "../output/brm_plantsp2",
                   data = filter(bias, criterion ==  "plant.sp"))
 
 summary(brm.plantsp2)
@@ -381,21 +384,65 @@ pp_check(brm.plantsp2)
 bayes_R2(brm.plantsp2)
 hypothesis(brm.plantsp2, "b_elev = 0", class = NULL)
 
-# This, I think, would also be a legitimate way to specify the model, but it would not tell us anything about elevation or time. 
+# This, I think, would also be a legitimate way to specify the model, but it would not tell us anything about elevation or time. It's the simplest, and that's nice. Well-behaved. Captures about twice as much variance as the previous model, and it wins the WAIC context easily.
 brm.plantsp0 <- brm(dprime ~ 1 + (1 | bb.sp) + (1 | site),
                   control = list(max_treedepth = 10),
                   cores = 4,
                   iter = 2000,
-                  file = "./output/brm_plantsp0",
+                  file = "../output/brm_plantsp0",
                   data = filter(bias, criterion ==  "plant.sp"))
 
 summary(brm.plantsp0)
 plot(brm.plantsp0)
 parnames(brm.plantsp0)
+
+# I guess the message here is that both bb.sp and site contribute to the variation of dprime, but site more so. Biologically, I think the meaning of prime variation by site is that some sites have greater relative abundance of *attractive* flora than others. A site with loads of something that is never visited and a little bit of clover will yield a high dprime, while a site with a high abundance of attractive floral would yield a low dprime.
 mcmc_plot(brm.plantsp0, pars = c("^r_"))
+mcmc_plot(brm.plantsp0, pars = c("^r_bb.sp")) 
+ggsave("../output/brm.plantsp0_plot1.png")
 mcmc_plot(brm.plantsp0, pars = c("^b_"))
 pp_check(brm.plantsp0)
 bayes_R2(brm.plantsp0)
+
+# Another option would be to drop just elevation from the model. This runs clean. Doesn't explain much more variance than the simpler model, though.
+brm.plantsp00 <- brm(dprime ~ yday + (1 | bb.sp) + (1 | site),
+                  control = list(max_treedepth = 10),
+                  cores = 4,
+                  iter = 2000,
+                  file = "../output/brm_plantsp00",
+                  data = filter(bias, criterion ==  "plant.sp"))
+
+summary(brm.plantsp00)
+plot(brm.plantsp00)
+parnames(brm.plantsp00)
+mcmc_plot(brm.plantsp00, pars = c("^r_"))
+mcmc_plot(brm.plantsp00, pars = c("^b_"))
+conditional_effects(brm.plantsp00)
+pp_check(brm.plantsp00)
+bayes_R2(brm.plantsp00)
+
+# Let's do a formal comparison of the last three models
+waic(brm.plantsp2, brm.plantsp0, brm.plantsp00)
+
+# The one including yday is a *slight* winner, but the margin is so small as to be meaningless. I think the simplest model is the one we want (brm.plantsp0).
+
+# Let's try the same model now, but for ktype.
+brm.ktype0 <- brm(dprime ~ 1 + (1 | bb.sp) + (1 | site),
+                  control = list(max_treedepth = 10),
+                  cores = 4,
+                  iter = 2000,
+                  family = "skew_normal",
+                  file = "../output/brm_ktype0",
+                  data = filter(bias, criterion ==  "ktype"))
+
+summary(brm.ktype0)
+plot(brm.ktype0)
+parnames(brm.ktype0)
+mcmc_plot(brm.ktype0, pars = c("^r_"))
+mcmc_plot(brm.ktype0, pars = c("^b_"))
+conditional_effects(brm.ktype0)
+pp_check(brm.ktype0)
+bayes_R2(brm.ktype0)
 ```
 
 ## 1.4 Define hypotheses
@@ -961,7 +1008,7 @@ hypothesis(brm.family, H.soro_wurf, class = "")
 ```
 
 
-# 2. Having established the bias of BB foraging, let's zoom in on which morphotypes and families were over/under-represented
+# 2. Explaining bias
 
 ## 2.1 Defining bias
 
@@ -978,6 +1025,8 @@ Deciding exactly how to represent bias turns out to be rather tricky. I am tryin
 5. An interesting option is to first separate visited from unvisited plants, set the bias of unvisited plants to 0, and then exponentiate the euclidean bias of all visited plant species. This has some desirable properties. First, it clearly distinguished visited plants from unvisited ones. Second, it assigns plants visited perfectly in proportion to their abundance a sensible bias of 1 (just like proportional bias). Thus, plants with a psotive bias are > 1 (bounded at 2.718282 -- okay, so that's a bit inelegant), those with a negative bias are < 1 (bounded at 0.367895), and those not visited at all = 0. 
 
 6. The problem with the option above is that is adds weight to positive bias. Another approach is to separate the unvisited plants from the visited, set unvisited bias = 0, and visited bias = prop.visits - prop.flower.cover + 1. The +1 serves to make the distribution positive, with 1 represening perfect proportionality between visitation and floral abundance. This creates a symmetrically bounded distribution between 0 (not inclusive) and 2 (inclusive), plus the true zeros from the unvisited plants. It feels a bit...slapped together, though.
+
+*We will adopt the term representation to avoid confusion with the object defined above.*
 
 ## 2.2 Function for calculating bias per group (= criterion)
 ```{r}
@@ -1015,13 +1064,14 @@ representation <- biaseval_group(visit_cover, plant.sp) %>%
   mutate(k.type.ss = factor(k.type.ss)) %>%
   select(site, date, elev.mean, yday, bb.sp, plant.sp, k.type.ss, 
          prop.visits, prop.flower.cover, bias, visits, 
-         flower.cover, plant.genus, plant.family)
+         flower.cover, plant.genus, plant.family) %>%
+  left_join(bb_traits)
 
 # 
-representation_ktype <- biaseval_group(visit_cover, k.type.ss) %>%
-  left_join(site_data) %>%
-  rename(group = criterion) %>%
-  mutate(criterion = rep("ktype", n()))
+# representation_ktype <- biaseval_group(visit_cover, k.type.ss) %>%
+#   left_join(site_data) %>%
+#   rename(group = criterion) %>%
+#   mutate(criterion = rep("ktype", n()))
 # 
 # bias_group_family <- biaseval_group(visit_cover, plant.family) %>%
 #   left_join(site_data) %>%
@@ -1102,19 +1152,20 @@ ggplot(bias_group_family, aes(elev.mean, bias)) +
 ```
 
 
-## 2.5 Explaining bias by floral traits, BB spp, and elevation (and maybe time)
+## 2.5 Multi-level models
 ```{r}
+# The tons of zeros are due to the lots of plant species that were present at very low abundance and received few or zero visits. 
 ggplot(representation, aes(k.type.ss, bias)) +
   geom_violin()
 
-ggplot(representation_ktype, aes(group, bias)) +
+ggplot(representation, aes(k.type.ss, bias)) +
   geom_boxplot()
 
 ggplot(representation, aes(bias)) +
   geom_histogram() +
   facet_wrap(~k.type.ss)
 
-ggplot(filter(representation, visits > 0), aes(bias)) +
+ggplot(filter(representation, abs(bias) > 0.1), aes(bias)) +
   geom_histogram() +
   facet_wrap(~k.type.ss)
 
@@ -1126,23 +1177,32 @@ ggplot(representation, aes(prop.flower.cover, prop.visits)) +
   geom_smooth(method = "lm") +
   facet_wrap(~k.type.ss)
 
-summary(lm(representation ~ k.type.ss, data = bias))
-
-brm_representation0 <- brm(bias ~ 1 + (1 | group),
+brm_representation0 <- brm(bias ~ 1 + (1 | k.type.ss) + (1 | site),
                  control = list(max_treedepth = 10),
-                 cores = 4,
-                 iter = 2000,
-                 file = "./output/brm_representation1",
-                 data = representation_ktype)
-
-brm_representation1 <- brm(bias ~ 1 + (1 | k.type.ss),
-                 control = list(max_treedepth = 10),
-                 #cores = 4,
                  cores = 4,
                  chains = 4,
-                 #iter = 2000,
                  iter = 2000,
-                 file = "./output/brm_representation1",
+                 file = "../output/brm_representation0",
+                 data = representation)
+
+summary(brm_representation0)
+plot(brm_representation0)
+parnames(brm_representation0)
+mcmc_plot(brm_representation0, pars = c("^r_"))
+#mcmc_plot(representation.ktype0, pars = c("elev"))
+mcmc_plot(brm_representation0, pars = c("^b_"))
+mcmc_plot(brm_representation0)
+#conditional_effects(representation.ktype0)
+pp_check(brm_representation0)
+bayes_R2(brm_representation0)
+
+
+brm_representation1 <- brm(bias ~ pbl.w + (1 + pbl.w | k.type.ss) + (1 | bb.sp),
+                 control = list(max_treedepth = 10),
+                 cores = 4,
+                 chains = 4,
+                 iter = 2000,
+                 file = "../output/brm_representation1",
                  data = representation)
 
 summary(brm_representation1)
@@ -1191,58 +1251,46 @@ lmer_representation3 <- lmer(prop.visits ~ log(prop.flower.cover) + (1 + log(pro
 
 summary(lmer_representation3)
 plot(lmer_representation3)
+
+# Can we explain anything with tongue length
+
+ggplot(filter(representation, bb.sp != "gers" & abs(bias) >= 0.1), aes(pbl.w, bias)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~k.type.ss)
+
+lm_pbl <- lmer(bias ~ pbl.w + (1 + pbl.w | k.type.ss) + (1 | bb.sp),
+               data = representation)
+
+summary(lm_pbl)
 ```
 
-
-# 3. How do species vary in their biases?
+## 2.6 Ordination of bias
 ```{r}
-rep_matrix.plantsp <- representation %>%
-  group_by(bb.sp, group) %>%
+rep_matrix.ktype <- representation %>%
+  group_by(bb.sp, k.type.ss) %>%
   summarize(bias = mean(bias)) %>%
-  pivot_wider(values_from = bias, names_from = group, values_fill = 0) %>%
-  column_to_rownames("bb.sp")
-
-bias_matrix.ktype <- bias_group_ktype %>%
-  group_by(bb.sp, group) %>%
-  summarize(bias = mean(bias)) %>%
-  pivot_wider(values_from = bias, names_from = group, values_fill = 0) %>%
+  pivot_wider(values_from = bias, names_from = k.type.ss, values_fill = 0) %>%
   column_to_rownames("bb.sp")
 
 traits <- bb_traits %>%
   arrange(bb.sp)
 
-pca.plantsp <- rda(bias_matrix.plantsp)
-plot(pca.plantsp, type = "t")
-envfit(pca.plantsp ~ pbl.w.class, data = traits)
-summary(ordisurf(pca.plantsp ~ pbl.w.class, data = traits))
-
-
-pca.ktype <- rda(bias_matrix.ktype)
+pca.ktype <- rda(rep_matrix.ktype)
+#ef.ktype <- envfit(pca.ktype ~ pbl.w.class, data = traits)
+#os.ktype <- ordisurf(pca.ktype ~ pbl.w.class, data = traits)
+ef.ktype <- envfit(pca.ktype ~ pbl.w, data = traits)
+os.ktype <- ordisurf(pca.ktype ~ pbl.w, data = traits)
 plot(pca.ktype, type = "t")
-envfit(pca.ktype ~ pbl.w.class, data = traits)
-summary(ordisurf(pca.ktype ~ pbl.w.class, data = traits))
-pca.ktype_pca1_traits <- pca.ktype$CA$u[,1] %>%
-  as.data.frame() %>%
-  rownames_to_column(var = "bb.sp") %>%
-  rename(PC1 = 2) %>%
-  left_join(bb_traits)
-
-ggplot(pca.ktype_pca1_traits, aes(pbl.w, PC1)) +
-  geom_point() +
-  geom_smooth(method = "lm", formula = y ~ poly(x, 2))
-
-ggplot(pca.ktype_pca1_traits, aes(pbl.w.class, PC1)) +
-  geom_point() +
-  geom_smooth(method = "lm")
+plot(ef.ktype, add = TRUE)
+plot(os.ktype)
 ```
 
 
-# 3. Can we explain bias by BB-Fl trait associations? (RLQ + fourth corner analysis)
-## 3.1
-## 3.2 Do BB-FL trait associations vary with elevation?
+# 3. Effects of bias
 
-# 4. How does bias relate to network structure?
-## 4.1 A function for calculating niche overlap
+## 3.1 Relationship between bias(d') and niche overlap
+### 3.1.1 A function for calculating niche overlap
 ```{r}
 # Niche overlap by sp.pair * site * year
 niche_overlapper <- function(x, criterion) {
@@ -1402,7 +1450,7 @@ niche_overlapper <- function(x, criterion) {
   }
 ```
 
-## 4.2 Calculate niche overlap: NOT READY FOR INTERPRETATION YET
+### 3.1.2 Calculate niche overlap: NOT READY FOR INTERPRETATION YET
 ```{r}
 niche_overlap_plant.sp <- niche_overlapper(visit_cover, plant.sp)
 
@@ -1452,6 +1500,27 @@ parnames(brm.bias_niche)
 conditional_effects(brm.bias_nich)
 hypothesis(brm.bias_niche, "dprime = 0")
 pp_check(brm.bias_niche)
+```
+
+## 3.2 Ordination of dietary niche
+```{r}
+rep_matrix.ktype <- representation %>%
+  group_by(bb.sp, k.type.ss) %>%
+  summarize(bias = mean(bias)) %>%
+  pivot_wider(values_from = bias, names_from = k.type.ss, values_fill = 0) %>%
+  column_to_rownames("bb.sp")
+
+traits <- bb_traits %>%
+  arrange(bb.sp)
+
+pca.ktype <- rda(rep_matrix.ktype)
+#ef.ktype <- envfit(pca.ktype ~ pbl.w.class, data = traits)
+#os.ktype <- ordisurf(pca.ktype ~ pbl.w.class, data = traits)
+ef.ktype <- envfit(pca.ktype ~ pbl.w, data = traits)
+os.ktype <- ordisurf(pca.ktype ~ pbl.w, data = traits)
+plot(pca.ktype, type = "t")
+plot(ef.ktype, add = TRUE)
+plot(os.ktype)
 ```
 
 
