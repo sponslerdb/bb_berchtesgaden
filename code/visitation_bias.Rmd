@@ -8,10 +8,10 @@ output: html_document
 ## Packages 
 ```{r, warning=FALSE, include=FALSE, echo = FALSE}
 library(bipartite)
-library(mgcv)
-library(mgcViz)
 library(brms)
 library(lme4)
+library(sjPlot)
+library(DHARMa)
 library(bayesplot)
 library(vegan)
 library(tidyverse)
@@ -316,69 +316,69 @@ ggplot(filter(bias, criterion == "plant.sp"), aes(yday, dprime)) +
 
 # After inspecting these plots, I see no reason to indulge in wiggly models.
 
-# This model includes a global interaction term for yday and elevation, with a varying intercept for bb.sp and a varying slow for elev | bb.sp. I think this should give me all the estimation I'm interested in. It's tricky to make it converge, though.
-brm.plantsp11 <- brm(dprime ~ yday * elev + (1 + elev | bb.sp), 
-                  control = list(max_treedepth = 10),
-                  cores = 4,
-                  iter = 4000,
-                  #family = "skew_normal",
-                  file = "../output/brm_plantsp11",
-                  data = filter(bias, criterion ==  "plant.sp"))
-
-summary(brm.plantsp11)
-prior_summary(brm.plantsp11)
-plot(brm.plantsp11)
-parnames(brm.plantsp11)
-mcmc_plot(brm.plantsp11, pars = c("^r_"))
-mcmc_plot(brm.plantsp11, pars = c("elev"))
-mcmc_plot(brm.plantsp11, pars = c("^b_"))
-mcmc_plot(brm.plantsp11)
-conditional_effects(brm.plantsp11)
-pp_check(brm.plantsp11)
-bayes_R2(brm.plantsp11)
-hypothesis(brm.plantsp11, "b_elev = 0", class = NULL)
-
-# Alternatively, we can drop the varying slope term to simplify the model a bit. Still doesn't quite converge.
-brm.plantsp1 <- brm(dprime ~ yday * elev + (1 | bb.sp), 
-                  control = list(max_treedepth = 10),
-                  cores = 4,
-                  iter = 2000,
-                  file = "../output/brm_plantsp1",
-                  data = filter(bias, criterion ==  "plant.sp"))
-
-summary(brm.plantsp1)
-prior_summary(brm.plantsp1)
-plot(brm.plantsp1)
-parnames(brm.plantsp1)
-mcmc_plot(brm.plantsp1, pars = c("^r_"))
-mcmc_plot(brm.plantsp1, pars = c("elev"))
-mcmc_plot(brm.plantsp1, pars = c("^b_"))
-mcmc_plot(brm.plantsp1)
-conditional_effects(brm.plantsp1)
-pp_check(brm.plantsp1)
-bayes_R2(brm.plantsp1)
-hypothesis(brm.plantsp1, "b_elev = 0", class = NULL)
-
-# We can simplify the model still more by dropping the yday*elev interaction term. Now it converges. But I think the takeaway is that neither elevation noy yday give us a clear signal with respect  to dprime.
-brm.plantsp2 <- brm(dprime ~ yday + elev + (1 | bb.sp), 
-                  control = list(max_treedepth = 10),
-                  cores = 4,
-                  iter = 2000,
-                  file = "../output/brm_plantsp2",
-                  data = filter(bias, criterion ==  "plant.sp"))
-
-summary(brm.plantsp2)
-prior_summary(brm.plantsp2)
-plot(brm.plantsp2)
-parnames(brm.plantsp2)
-mcmc_plot(brm.plantsp2, pars = c("^r_"))
-mcmc_plot(brm.plantsp2, pars = c("elev"))
-mcmc_plot(brm.plantsp2, pars = c("^b_"))
-mcmc_plot(brm.plantsp2)
-conditional_effects(brm.plantsp2)
-pp_check(brm.plantsp2)
-bayes_R2(brm.plantsp2)
-hypothesis(brm.plantsp2, "b_elev = 0", class = NULL)
+# # This model includes a global interaction term for yday and elevation, with a varying intercept for bb.sp and a varying slow for elev | bb.sp. I think this should give me all the estimation I'm interested in. It's tricky to make it converge, though.
+# brm.plantsp11 <- brm(dprime ~ yday * elev + (1 + elev | bb.sp), 
+#                   control = list(max_treedepth = 10),
+#                   cores = 4,
+#                   iter = 4000,
+#                   #family = "skew_normal",
+#                   file = "../output/brm_plantsp11",
+#                   data = filter(bias, criterion ==  "plant.sp"))
+# 
+# summary(brm.plantsp11)
+# prior_summary(brm.plantsp11)
+# plot(brm.plantsp11)
+# parnames(brm.plantsp11)
+# mcmc_plot(brm.plantsp11, pars = c("^r_"))
+# mcmc_plot(brm.plantsp11, pars = c("elev"))
+# mcmc_plot(brm.plantsp11, pars = c("^b_"))
+# mcmc_plot(brm.plantsp11)
+# conditional_effects(brm.plantsp11)
+# pp_check(brm.plantsp11)
+# bayes_R2(brm.plantsp11)
+# hypothesis(brm.plantsp11, "b_elev = 0", class = NULL)
+# 
+# # Alternatively, we can drop the varying slope term to simplify the model a bit. Still doesn't quite converge.
+# brm.plantsp1 <- brm(dprime ~ yday * elev + (1 | bb.sp), 
+#                   control = list(max_treedepth = 10),
+#                   cores = 4,
+#                   iter = 2000,
+#                   file = "../output/brm_plantsp1",
+#                   data = filter(bias, criterion ==  "plant.sp"))
+# 
+# summary(brm.plantsp1)
+# prior_summary(brm.plantsp1)
+# plot(brm.plantsp1)
+# parnames(brm.plantsp1)
+# mcmc_plot(brm.plantsp1, pars = c("^r_"))
+# mcmc_plot(brm.plantsp1, pars = c("elev"))
+# mcmc_plot(brm.plantsp1, pars = c("^b_"))
+# mcmc_plot(brm.plantsp1)
+# conditional_effects(brm.plantsp1)
+# pp_check(brm.plantsp1)
+# bayes_R2(brm.plantsp1)
+# hypothesis(brm.plantsp1, "b_elev = 0", class = NULL)
+# 
+# # We can simplify the model still more by dropping the yday*elev interaction term. Now it converges. But I think the takeaway is that neither elevation noy yday give us a clear signal with respect  to dprime.
+# brm.plantsp2 <- brm(dprime ~ yday + elev + (1 | bb.sp), 
+#                   control = list(max_treedepth = 10),
+#                   cores = 4,
+#                   iter = 2000,
+#                   file = "../output/brm_plantsp2",
+#                   data = filter(bias, criterion ==  "plant.sp"))
+# 
+# summary(brm.plantsp2)
+# prior_summary(brm.plantsp2)
+# plot(brm.plantsp2)
+# parnames(brm.plantsp2)
+# mcmc_plot(brm.plantsp2, pars = c("^r_"))
+# mcmc_plot(brm.plantsp2, pars = c("elev"))
+# mcmc_plot(brm.plantsp2, pars = c("^b_"))
+# mcmc_plot(brm.plantsp2)
+# conditional_effects(brm.plantsp2)
+# pp_check(brm.plantsp2)
+# bayes_R2(brm.plantsp2)
+# hypothesis(brm.plantsp2, "b_elev = 0", class = NULL)
 
 # This, I think, would also be a legitimate way to specify the model, but it would not tell us anything about elevation or time. It's the simplest, and that's nice. Well-behaved. Captures about twice as much variance as the previous model, and it wins the WAIC context easily.
 brm.plantsp0 <- brm(dprime ~ 1 + (1 | bb.sp) + (1 | site),
@@ -392,53 +392,74 @@ summary(brm.plantsp0)
 plot(brm.plantsp0)
 parnames(brm.plantsp0)
 
-# I guess the message here is that both bb.sp and site contribute to the variation of dprime, but site more so. Biologically, I think the meaning of prime variation by site is that some sites have greater relative abundance of *attractive* flora than others. A site with loads of something that is never visited and a little bit of clover will yield a high dprime, while a site with a high abundance of attractive floral would yield a low dprime.
-mcmc_plot(brm.plantsp0, pars = c("^r_"))
-mcmc_plot(brm.plantsp0, pars = c("^r_bb.sp")) 
-ggsave("../output/brm.plantsp0_plot1.png")
-mcmc_plot(brm.plantsp0, pars = c("^b_"))
-pp_check(brm.plantsp0)
-bayes_R2(brm.plantsp0)
+# Out of curiosity, let's see what we get from the lme4 approach to the same model; we can use this as a sanity check of sorts. If the results of lme4 differ dramatically from those of brms, we might wonder why.
+lme4.plantsp0 <- lmer(dprime ~ 1 + (1 | bb.sp) + (1 | site),
+                      data = filter(bias, criterion ==  "plant.sp"))
 
-# Another option would be to drop just elevation from the model. This runs clean. Doesn't explain much more variance than the simpler model, though.
-brm.plantsp00 <- brm(dprime ~ yday + (1 | bb.sp) + (1 | site),
-                  control = list(max_treedepth = 10),
-                  cores = 4,
-                  iter = 2000,
-                  file = "../output/brm_plantsp00",
-                  data = filter(bias, criterion ==  "plant.sp"))
+summary(lme4.plantsp0)
+#plot_model(lme4.plantsp0, type = "pred")
+plot_model(lme4.plantsp0, type = "re")
 
-summary(brm.plantsp00)
-plot(brm.plantsp00)
-parnames(brm.plantsp00)
-mcmc_plot(brm.plantsp00, pars = c("^r_"))
-mcmc_plot(brm.plantsp00, pars = c("^b_"))
-conditional_effects(brm.plantsp00)
-pp_check(brm.plantsp00)
-bayes_R2(brm.plantsp00)
+lme4.plantsp1 <- lmer(dprime ~ elev * yday + (1 | bb.sp) + (1 | site),
+                      data = filter(bias, criterion ==  "plant.sp"))
 
-# Let's do a formal comparison of the last three models
-waic(brm.plantsp2, brm.plantsp0, brm.plantsp00)
+summary(lme4.plantsp1)
+plot_model(lme4.plantsp1, type = "pred")
+plot_model(lme4.plantsp1, type = "pred", terms = c("yday", "elev"))
+plot_model(lme4.plantsp1, type = "re")
 
-# The one including yday is a *slight* winner, but the margin is so small as to be meaningless. I think the simplest model is the one we want (brm.plantsp0).
+AIC(lme4.plantsp1)
+AIC(lme4.plantsp0)
 
-# Let's try the same model now, but for ktype.
-brm.ktype0 <- brm(dprime ~ 1 + (1 | bb.sp) + (1 | site),
-                  control = list(max_treedepth = 10),
-                  cores = 4,
-                  iter = 2000,
-                  family = "skew_normal",
-                  file = "../output/brm_ktype0",
-                  data = filter(bias, criterion ==  "ktype"))
 
-summary(brm.ktype0)
-plot(brm.ktype0)
-parnames(brm.ktype0)
-mcmc_plot(brm.ktype0, pars = c("^r_"))
-mcmc_plot(brm.ktype0, pars = c("^b_"))
-conditional_effects(brm.ktype0)
-pp_check(brm.ktype0)
-bayes_R2(brm.ktype0)
+# 
+# # I guess the message here is that both bb.sp and site contribute to the variation of dprime, but site more so. Biologically, I think the meaning of prime variation by site is that some sites have greater relative abundance of *attractive* flora than others. A site with loads of something that is never visited and a little bit of clover will yield a high dprime, while a site with a high abundance of attractive floral would yield a low dprime.
+# mcmc_plot(brm.plantsp0, pars = c("^r_"))
+# mcmc_plot(brm.plantsp0, pars = c("^r_bb.sp")) 
+# ggsave("../output/brm.plantsp0_plot1.png")
+# mcmc_plot(brm.plantsp0, pars = c("^b_"))
+# pp_check(brm.plantsp0)
+# bayes_R2(brm.plantsp0)
+# 
+# # Another option would be to drop just elevation from the model. This runs clean. Doesn't explain much more variance than the simpler model, though.
+# brm.plantsp00 <- brm(dprime ~ yday + (1 | bb.sp) + (1 | site),
+#                   control = list(max_treedepth = 10),
+#                   cores = 4,
+#                   iter = 2000,
+#                   file = "../output/brm_plantsp00",
+#                   data = filter(bias, criterion ==  "plant.sp"))
+# 
+# summary(brm.plantsp00)
+# plot(brm.plantsp00)
+# parnames(brm.plantsp00)
+# mcmc_plot(brm.plantsp00, pars = c("^r_"))
+# mcmc_plot(brm.plantsp00, pars = c("^b_"))
+# conditional_effects(brm.plantsp00)
+# pp_check(brm.plantsp00)
+# bayes_R2(brm.plantsp00)
+# 
+# # Let's do a formal comparison of the last three models
+# waic(brm.plantsp2, brm.plantsp0, brm.plantsp00)
+# 
+# # The one including yday is a *slight* winner, but the margin is so small as to be meaningless. I think the simplest model is the one we want (brm.plantsp0).
+# 
+# # Let's try the same model now, but for ktype.
+# brm.ktype0 <- brm(dprime ~ 1 + (1 | bb.sp) + (1 | site),
+#                   control = list(max_treedepth = 10),
+#                   cores = 4,
+#                   iter = 2000,
+#                   family = "skew_normal",
+#                   file = "../output/brm_ktype0",
+#                   data = filter(bias, criterion ==  "ktype"))
+# 
+# summary(brm.ktype0)
+# plot(brm.ktype0)
+# parnames(brm.ktype0)
+# mcmc_plot(brm.ktype0, pars = c("^r_"))
+# mcmc_plot(brm.ktype0, pars = c("^b_"))
+# conditional_effects(brm.ktype0)
+# pp_check(brm.ktype0)
+# bayes_R2(brm.ktype0)
 ```
 
 ## 1.4 Define hypotheses
@@ -1051,17 +1072,38 @@ biaseval_group <- function(x, criterion) {
 }
 ```
 
-## 2.3 Calculate bias per plant speces/ktype/family
+## 2.3 Calculate visitation probability per plant speces/ktype/family
 ```{r}
-representation <- biaseval_group(visit_cover, plant.sp) %>%
-  rename(plant.sp = criterion) %>%
-  left_join(site_data) %>%
+visit_prob <- visit_cover %>%
+  group_by(site, date, bb.sp, plant.sp) %>%
+  summarize(flower.cover = sum(flower.cover), # get raw flower cover and visits by group
+            visits = sum(visits)) %>%
+  group_by(site, date) %>%
+  mutate(prop.flower.cover = flower.cover/sum(flower.cover), # get proportional flower cover and visits by group
+         prop.visits = visits/sum(visits),
+         visits.bin = factor(if_else(visits > 0, 1, 0))) %>%
+  group_by(site, date, bb.sp) %>%
+  mutate(bb.sp.abund = sum(visits)) %>%
   left_join(fl_traits) %>%
-  mutate(k.type.ss = factor(k.type.ss)) %>%
-  select(site, date, elev.mean, yday, bb.sp, plant.sp, k.type.ss, 
-         prop.visits, prop.flower.cover, bias, visits, 
-         flower.cover, plant.genus, plant.family) %>%
-  left_join(bb_traits)
+  left_join(bb_traits) %>%
+  select(site, date, bb.sp, plant.sp, visits.bin, prop.flower.cover, k.type.ss, bb.sp.abund, pbl.w.class2) %>%
+  mutate(k.type.ss = factor(k.type.ss))
+
+
+# Pooled across BB spp
+visit_prob_pooled <- visit_cover %>%
+  group_by(site, date, plant.sp) %>%
+  summarize(flower.cover = sum(flower.cover), # get raw floer cover and visits by group
+            visits = sum(visits)) %>%
+  group_by(site, date) %>%
+  mutate(prop.flower.cover = flower.cover/sum(flower.cover), # get proportional flower cover and visits by group
+         prop.visits = visits/sum(visits),
+         bb.abund = sum(visits),
+         visits.bin = factor(if_else(visits > 0, 1, 0))) %>%
+  mutate(yday = yday(date)) %>%
+  left_join(fl_traits) %>%
+  mutate(k.type.ss = factor(k.type.ss))
+
 
 # 
 # representation_ktype <- biaseval_group(visit_cover, k.type.ss) %>%
@@ -1149,116 +1191,108 @@ ggplot(bias_group_family, aes(elev.mean, bias)) +
 
 
 ## 2.5 Multi-level models
+My approach will be to fit models using both brms and lme4, partly as a learning exercise, partly to enable quicker model development, partly as a sanity check / back-up plan.
+
+### Preliminary visualization
+The tons of zeros are due to the lots of plant species that were present at very low abundance and received few or zero visits. This might not be ideal. We could opt for one of our alternative bias measure, like fold change, which all give something like a poisson distribution, but I don't know if this would be an improvement. We could also filter our data to include only plants that were above some threshold of relative abundance, say, 1%.
 ```{r}
-# The tons of zeros are due to the lots of plant species that were present at very low abundance and received few or zero visits. 
+# Bias
 ggplot(representation, aes(k.type.ss, bias)) +
   geom_violin()
 
-ggplot(representation, aes(k.type.ss, bias)) +
-  geom_boxplot()
+# Bias.fold
+ggplot(representation, aes(k.type.ss, bias.fold)) +
+  geom_violin()
 
-ggplot(representation, aes(bias)) +
-  geom_histogram() +
-  facet_wrap(~k.type.ss)
+# Bias.exp
+ggplot(representation, aes(k.type.ss, bias.exp)) +
+  geom_violin()
 
-ggplot(filter(representation, abs(bias) > 0.1), aes(bias)) +
-  geom_histogram() +
-  facet_wrap(~k.type.ss)
+# Bias.bin
+ggplot(representation, aes(k.type.ss, fill = bias.bin)) +
+  geom_bar()
 
-ggplot(filter(representation, prop.flower.cover > 0.05), aes(k.type.ss, bias)) +
-  geom_boxplot()
+# Visits.bin
+ggplot(representation, aes(k.type.ss, fill = visits.bin)) +
+  geom_bar()
 
-ggplot(representation, aes(prop.flower.cover, prop.visits)) +
-  geom_point() +
-  geom_smooth(method = "lm") +
-  facet_wrap(~k.type.ss)
-
-brm_representation0 <- brm(bias ~ 1 + (1 | k.type.ss) + (1 | site),
-                 control = list(max_treedepth = 10),
-                 cores = 4,
-                 chains = 4,
-                 iter = 2000,
-                 file = "../output/brm_representation0",
-                 data = representation)
-
-summary(brm_representation0)
-plot(brm_representation0)
-parnames(brm_representation0)
-mcmc_plot(brm_representation0, pars = c("^r_"))
-#mcmc_plot(representation.ktype0, pars = c("elev"))
-mcmc_plot(brm_representation0, pars = c("^b_"))
-mcmc_plot(brm_representation0)
-#conditional_effects(representation.ktype0)
-pp_check(brm_representation0)
-bayes_R2(brm_representation0)
+ggplot(visit_prob_pooled, aes(k.type.ss, fill = visits.bin)) +
+  geom_bar(position = "fill")
 
 
-brm_representation1 <- brm(bias ~ pbl.w + (1 + pbl.w | k.type.ss) + (1 | bb.sp),
-                 control = list(max_treedepth = 10),
-                 cores = 4,
-                 chains = 4,
-                 iter = 2000,
-                 file = "../output/brm_representation1",
-                 data = representation)
+# Bias filtered
+ggplot(filter(representation, prop.flower.cover >= 0.05), aes(k.type.ss, bias)) +
+  geom_violin()
 
-summary(brm_representation1)
-plot(brm_representation1)
-parnames(brm_representation1)
-mcmc_plot(brm_representation1, pars = c("^r_"))
-#mcmc_plot(representation.ktype1, pars = c("elev"))
-mcmc_plot(brm_representation1, pars = c("^b_"))
-mcmc_plot(brm_representation1)
-#conditional_effects(representation.ktype1)
-pp_check(brm_representation1)
-bayes_R2(brm_representation1)
+ggplot(filter(representation, visits > 0), aes(k.type.ss, bias)) +
+  geom_violin()
 
-hypothesis(representation.ktype1, "r_group[5,Intercept] = r_group[6,Intercept]", class = "")
-hypothesis(representation.ktype1, "r_group[1,Intercept] = r_group[0,Intercept]", class = "")
+# Visits.bin filtered
+ggplot(filter(representation, prop.flower.cover >= 0.05), aes(k.type.ss, fill = visits.bin)) +
+  geom_bar()
+```
 
 
-# One interesting way to think about bias is to focus on the slope of prop.visits ~ prop.flower.cover. 
-# We could analyze this with a varying slope model
+### lme4 models
+We will drop ktypes 9 and 10 from these models since both are vanishingly rare
+```{r}
+# This model does not parse by tongue length
+glmer_vp00 <- glmer(visits.bin ~ prop.flower.cover + bb.sp.abund + (1 | k.type.ss) + (1 | site),
+                    family  = "binomial",
+                    data = filter(visit_prob, !k.type.ss %in% c("9", "10")))
 
-# Binomial ggplot smoother
-binomial_smooth <- function(...) {
-  geom_smooth(method = "glm", method.args = list(family = "quasibinomial"), se = FALSE, ...)
-}
+plot_model(glmer_vp00, type = "pred")
+plot_model(glmer_vp00, type = "re")
 
-ggplot(representation, aes(sqrt(prop.flower.cover), sqrt(prop.visits))) +
-  geom_point() +
-  #geom_smooth(method = "lm") +
-  #binomial_smooth(formula = y ~ splines::ns(x, 3)) +
-  geom_smooth() +
-  #geom_smooth(method = "glm", method.args = list(family = "binomial")) +
-  facet_grid(k.type.ss~bb.sp)
+# This model does 
+glmer_vp01 <- glmer(visits.bin ~ prop.flower.cover + bb.sp.abund + (1 | k.type.ss:pbl.w.class2) + (1 | site),
+                    family  = "binomial",
+                    data = filter(visit_prob, !k.type.ss %in% c("9", "10")))
 
-brm_representation3 <- brm(prop.visits ~ prop.flower.cover + (1 + prop.flower.cover | k.type.ss),
-                 control = list(max_treedepth = 10),
-                 #cores = 4,
-                 cores = 2,
-                 chains = 2,
-                 #iter = 2000,
-                 iter = 1000,
-                 file = "./output/brm_representation3",
-                 data = representation)
+plot_model(glmer_vp01, type = "pred")
+plot_model(glmer_vp01, type = "re")
+```
 
-lmer_representation3 <- lmer(prop.visits ~ log(prop.flower.cover) + (1 + log(prop.flower.cover) | k.type.ss),
-                             data = representation)
 
-summary(lmer_representation3)
-plot(lmer_representation3)
+### brms models
+```{r}
+# This model does not parse by tongue length
+brm_representation00 <- brm(visits.bin ~ prop.flower.cover + bb.sp.abund + (1 | k.type.ss) + (1 | site),
+                            family = "bernoulli",
+                            file = "../output/brm_vp00",
+                            chains = 4,
+                            cores = 4,
+                            iter = 2000,
+                            data = filter(visit_prob, !k.type.ss %in% c("9", "10")))
 
-# Can we explain anything with tongue length
+summary(brm_representation00)
+prior_summary(brm_representation00)
+parnames(brm_representation00)
+mcmc_plot(brm_representation00, pars = c("^r_k"))
+mcmc_plot(brm_representation00, pars = c("elev"))
+mcmc_plot(brm_representation00, pars = c("^b_"))
+mcmc_plot(brm_representation00)
+conditional_effects(brm_representation00)
+pp_check(brm_representation00)
+bayes_R2(brm_representation00)
 
-ggplot(filter(representation, bb.sp != "gers" & abs(bias) >= 0.1), aes(pbl.w, bias)) +
-  geom_point() +
-  geom_smooth(method = "lm") +
-  facet_wrap(~k.type.ss)
+hypothesis(brm_representation00, "r_k.type.ss[0,Intercept] = r_k.type.ss[1,Intercept]", class = NULL)
+hypothesis(brm_representation00, "r_k.type.ss[1,Intercept] = r_k.type.ss[2,Intercept]", class = NULL)
+hypothesis(brm_representation00, "r_k.type.ss[6,Intercept] = r_k.type.ss[5,Intercept]", class = NULL)
+hypothesis(brm_representation00, "r_k.type.ss[6,Intercept] = r_k.type.ss[5,Intercept]", class = NULL)
+hypothesis(brm_representation00, "r_k.type.ss[6,Intercept] = r_k.type.ss[5,Intercept]", class = NULL)
 
-lm_pbl <- lmer(bias ~ pbl.w + (1 + pbl.w | k.type.ss) + (1 | bb.sp),
-               data = representation)
+# This model does
+brm_representation01 <- brm(visits.bin ~ prop.flower.cover + bb.sp.abund + (1 | k.type.ss:pbl.w.class2) + (1 | site),
+                            family = "bernoulli",
+                            file = "../output/brm_vp01",
+                            chains = 4,
+                            cores = 4,
+                            iter = 2000,
+                            data = filter(visit_prob, !k.type.ss %in% c("9", "10")))
 
-summary(lm_pbl)
+
+
 ```
 
 ## 2.6 Ordination of bias
@@ -1269,10 +1303,16 @@ rep_matrix.ktype <- representation %>%
   pivot_wider(values_from = bias, names_from = k.type.ss, values_fill = 0) %>%
   column_to_rownames("bb.sp")
 
+rep_matrix.ktype2 <- representation %>%
+  group_by(bb.sp, k.type.ss) %>%
+  summarize(visit.bin = mean(bias)) %>%
+  pivot_wider(values_from = visit.bin, names_from = k.type.ss, values_fill = 0) %>%
+  column_to_rownames("bb.sp")
+
 traits <- bb_traits %>%
   arrange(bb.sp)
 
-pca.ktype <- rda(rep_matrix.ktype)
+pca.ktype <- rda(rep_matrix.ktype2)
 #ef.ktype <- envfit(pca.ktype ~ pbl.w.class, data = traits)
 #os.ktype <- ordisurf(pca.ktype ~ pbl.w.class, data = traits)
 ef.ktype <- envfit(pca.ktype ~ pbl.w, data = traits)

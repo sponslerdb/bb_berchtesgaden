@@ -13,7 +13,7 @@ output:
   html_document: default
 ---
 
-# Introduction
+# 1. Introduction
 
 Plant-pollinator networks are characterized by unequal interaction strengths among partners. While the distribution of interaction strengths can be partially explained by the neutral effects of abundance, pollinators exhibit positive and negative biases toward available flora even when interaction strength is conditioned on floral abundance. Taken as a focal phenomenon, the floral biases of pollinators can be interposed between their underlying causal mechanisms and their higher-order significance **(Figure 1)**. From the causal perspective, floral biases can be partitioned into innate and learned components. Both these components depend on interactions between the functional traits of a given pollinator and those of its potential floral hosts, manifest over ecological time scales with respect to learned biases and evolutionary time scales with respect to innate biases. From the vantage of higher-order effects, the floral biases of pollinators contribute to the complex structures observed in plant-pollinator networks, which have consequences for both the ecological function of the network and the fitness of its constituent species. These effects can, in turn, feedback on the causes of bias via their modulation of community composition and biotic interactions.
 
@@ -23,36 +23,64 @@ The topic of floral preference in bumble bees has been approached via both labor
 
 
 
-# Methods
+# 2. Methods
 
-## Field sampling
+## 2.1 Field sampling
 
 The study was conducted in Berchtesgaden National Park (47.55°N, 12.92°E), located in the Northern Limestone Alps of southeast Germany. The landscape is characterized by mountain pastures mainly surrounded by coniferous forests. We selected 25 study sites (60 x 60 m) on mountain pastures at elevations ranging from 641-2032 m above sea level. Fourteen of these pastures are extensively grazed by cattle or sheep, three are mowed for hay production, and eight have been abandoned throughout the last century and are no longer subject to any human management. The sites sampled in this study are the same as those used in a series of previous studies [@Hoiss2012-sn; @Hoiss2012-kr; Hoiss2015-gv], but the data reported here are otherwise independent.
 
 Sampling consisted of repeated visits to each study site at approximately weekly intervals. Samples were only collected on dry days when the air temperature was at least 6°C. During each visit, bumble bees and their activity were recorded during a 50-minute transect walk. Bumblebees observed on or a given flower were counted as floral visitors. Bumble bee queens were identified to species level in the field, whereas workers and males were stored in individually labeled tubes in the freezer for later identification in the laboratory after @Amiet1996-jz. 
 
 
-## Data analysis
+## 2.2. Data analysis
 
 Prior to analysis, we aligned each bumble bee visitation sample with corresponding floral survey data. For most samples, floral surveying was conducted jointly with bumble bee visitation observation. In cases where bumble bee visitation was sampled without a joint floral survey, the bumble bee visitation data was paired with the nearest available floral survey data within a maximum distance of 7 days. Bumble bee visitation samples lacking corresponding floral survey data within 7 days were omitted from further analysis. In a few cases where more than one bumble bee visitation date was paired with a given floral survey date, the bumble bee visitation data were pooled. 
 
+### 2.2.1 Modeling cumulative bias 
+
 To quantify cumulative bias per bumble bee species, we used the discrimination (d’) metric of @Bluthgen2006-if, which represents the net deviation of a species’ visitation from the predictions of a null model in which the probability of visitation is purely a function of floral abundance. 
 
+#### 2.2.2.1.1 Model 1: dprime ~
+
+### 2.2.2 Modeling visitation probability as a function of floral morphotype and bumble bee tongue length
+
+#### 2.2.2.1 Model 2: visits.bin ~ prop.flower.cover + bb.sp.abund + (1 | k.type.ss) + (1 | site)
+
+#### 2.2.2.2 Model 3: visits.bin ~ prop.flower.cover + bb.sp.abund + (1 | k.type.ss:pbl.w.class2) + (1 | site)
+
+#### 2.2.2.3 Model 4: Ordination with post-hoc fitting of tongue-length
+
+### 2.2.3 Modeling the relationship between bias and niche relationships 
+<!-- I might try to include a plant-centric analysis, too, to see how bias relates to potential competition between plants for BB pollinators. I think it is true to say that if floral resources are not limiting for bees, bee visitation is limiting for flora. -->
+
+#### Model 5: niche_overlap ~ dprime
+
+#### Model 6: Ordination of diet
 
 
-# Results
-## Cumulative bias across species and sites
+# 3. Results
+## 3.1 Model 1
 ```{r}
 knitr::include_graphics("../output/brm.plantsp0_plot1.png")
 ```
 
-## Parsing bias by floral morphotype [representation ~ 1 + (1 + ktype) + (1 + site)]
+## 3.2 Model 2
 
-## Linking morphological bias to species' traits [bias ordination w/ tongue length]
+## 3.3. Model 3
 
-## 
+## 3.4 Model 4
 
-# Discussion
+## 3.5 Model 5
+
+## 3.6 Model 6
+
+# 4. Discussion
+
+## 4.1 The phenomenon of bias: Cumulative bias and variation across species
+
+## 4.2 The mechanism of bias: Explaining bias by the interaction of flower and bumble bee morphology
+
+## 4.3 The outcome of bias: Linking bias to niche relationships
 
 
 # Sandbox
@@ -61,4 +89,4 @@ constrained by the learning and handling costs associated with available flower 
 
 This phenomenon is formalized by the discrimination (d’) metric of @Bluthgen2006-if, but to avoid conflation with the metric *per se*, we use the term bias in a general sense to describe disproportionality between pollinator visitation and floral abundance.
 
-# References
+# 5. References
