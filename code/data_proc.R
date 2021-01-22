@@ -28,7 +28,7 @@ fl_survey <- read_delim("./raw_data/data_plantcover_forDoug_2020.01.17.csv", del
 write_csv(fl_survey, "./processed_data/floral_survey.csv")
 
 ### Visitation data
-network <- read_delim("./raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim = ";", 
+network <- read_delim("./data/raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim = ";", 
                            locale = locale(decimal_mark = ",", grouping_mark = ".")) %>%
   mutate(plant_sp_latin = str_replace_all(plant_sp_latin, 
                                          c("Arabis caerula" = "Arabis caerulea", # correct nomenclature typos and synonyms
@@ -47,13 +47,14 @@ network <- read_delim("./raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim 
          day = day(temp.date),
          month = month(temp.date),
          date = make_date(year, month, day)) %>%
-  mutate(bb.sp = str_replace_all(bb.sp, c("luco" = "bss","terr" = "bss", "telu" = "bss", "cryp" = "bss", 
-                                          "sylv" = "psit", "quad" = "psit", "camp" = "psit", "flav" = "psit", "psyt" = "psit")),
+  filter(bb.sp != "cryp") %>% # this species was observed only oncne in three years
+  mutate(bb.sp = str_replace_all(bb.sp, c("luco" = "telu", "terr" = "telu", "sylv" = "psit", 
+                                          "quad" = "psit", "camp" = "psit", "flav" = "psit", 
+                                          "psyt" = "psit")),
          bb.sp.lat = str_replace_all(bb.sp.lat, c("Bombus terrestris/lucorum" = "Bombus ss",
-                                        "Bombus terrestris" = "Bombus ss",
-                                        "Bombus lucorum" = "Bombus ss",
-                                        "Bombus terrestris/lucorum/lucorum" = "Bombus ss",
-                                        "Bombus cryptarum" = "Bombus ss",
+                                        "Bombus terrestris" = "Bombus telu",
+                                        "Bombus lucorum" = "Bombus telu",
+                                        "Bombus terrestris/lucorum/lucorum" = "Bombus telu",
                                         "B. barbutellus, B. bohemicus, B. sylvestris" = "Psithyrus",
                                         "Bombus sylvestris" = "Psithyrus",
                                         "Bombus quadricolor" = "Psithyrus",
@@ -61,7 +62,7 @@ network <- read_delim("./raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim 
                                         "Bombus flavidus" = "Psithyrus"))) %>%
   dplyr::select(-temp.date)
 
-write_csv(network, "./processed_data/network.csv")
+write_csv(network, "./data/processed_data/network.csv")
 
 ### Floral taxonomy
 Sys.setenv(ENTREZ_KEY = "ab9a55ec842df6f86a750929aefc69143608")

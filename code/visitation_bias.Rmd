@@ -13,10 +13,20 @@ library(lme4)
 library(sjPlot)
 library(DHARMa)
 library(bayesplot)
+library(tidybayes)
+library(modelr)
+library(ggdist)
 library(vegan)
+library(ggvegan)
+library(ggrepel)
+library(treemapify)
+library(patchwork)
+library(tidymodels)
 library(tidyverse)
 library(lubridate)
-library(tidymodels)
+
+rstan::rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
 ```
 
 ## Load data
@@ -29,6 +39,10 @@ site_data <- read_csv("../data/processed_data/site_data.csv") %>%
 
 # BB traits
 bb_traits <- read_csv("../data/processed_data/bb_traits.csv") 
+
+ggplot(bb_traits, aes(pbl.w, pbl.w.durieaux,
+                      color = bb.sp, pch = factor(pbl.w.class2))) +
+  geom_point()
 
 # FL traits
 ## family-level taxonomy
@@ -149,6 +163,14 @@ visit_cover <- flower_cover %>%
   ungroup() %>%
   mutate(k.type.ss = factor(k.type.ss))
 
+ktype_families <- visit_cover %>%
+  select(plant.sp, plant.family, k.type.ss) %>%
+  distinct()
+  
+ggplot(ktype_families, aes(plant.family, fill = k.type.ss)) +
+  geom_bar(position = "fill") +
+  theme(axis.text.x = element_text(angle = 90))
+
 ## Get total visits by BB sp and site-date; this will be a measure of BB abundance that we can use after we've calculated d'. I could, of course, work this into the biaseval function, but I'll put that off for now.
 bb_abundance <- visit_cover %>%
   group_by(site, date, bb.sp) %>%
@@ -212,1121 +234,392 @@ How does overall bias (Blüthgen's d') vary across species and through elev*time
 ```{r}
 # No grouping -- just plant.sp
 bias_plantsp <- biaseval(visit_cover, plant.sp, site, date) %>%
-  left_join(site_data) %>% # add site data
-  left_join(bb_abundance) %>% # add BB abundance data
-  left_join(fl_abundance) %>% # add fl abundance
-  mutate(criterion = factor(rep("plant.sp", n())))
+  rename(dprime.sp = dprime) %>%
+  select(site, date, bb.sp, dprime.sp)
 
 # Grouped by k.type.ss
 bias_ktype <- biaseval(visit_cover, k.type.ss, site, date) %>%
-  left_join(site_data) %>%
-  left_join(bb_abundance) %>% # add BB abundance data
-  left_join(fl_abundance) %>% # add fl abundance
-  mutate(criterion = factor(rep("ktype", n()))) 
+  rename(dprime.ktype = dprime) %>%
+  select(site, date, bb.sp, dprime.ktype)
 
 # Grouped by plant.family
 bias_family <- biaseval(visit_cover, plant.family, site, date) %>%
-  left_join(site_data) %>%
-  left_join(bb_abundance) %>% # add BB abundance data
-  left_join(fl_abundance) %>% # add fl abundance
-  mutate(criterion = factor(rep("plant.family", n())))
+  rename(dprime.fam = dprime) %>%
+  select(site, date, bb.sp, dprime.fam)
 
 # Collated
-bias <- bind_rows(bias_plantsp, 
-                  bias_ktype, 
-                  bias_family) %>%
-  mutate(bb.sp = factor(bb.sp),
+bias <- full_join(bias_plantsp, bias_ktype) %>%
+  full_join(bias_family) %>%
+  left_join(site_data) %>% # add site data
+  left_join(bb_abundance) %>% # add BB abundance data
+  left_join(fl_abundance) %>% # add fl abundance
+  filter(bb.sp.abund >= 3) %>% # dprime tends to become binary when n is very low; this threshold removes more than half the data points, but almost all those were ones and zeros. These ones and zeros probably don't mean much, and they make the models hard to fit.
+  mutate(bb.sp = factor(bb.sp), 
          yday = yday(date),
-         elev = elev.mean/10) 
-```
-
-## 1.2 Visualize
-```{r}
-# Compare mean bias by criterion
-ggplot(bias, aes(criterion, dprime)) +
-  geom_boxplot()
-
-# Bias ~ elevation * criterion
-ggplot(bias, aes(elev.mean, dprime, color = criterion)) +
-  geom_point(alpha = 0.25) +
-  geom_smooth(se = TRUE)
-
-ggplot(bias, aes(yday, dprime, color = criterion)) +
-  geom_point(alpha = 0.25) +
-  geom_smooth(se = TRUE)
-
-ggplot(bias, aes(elev.mean, dprime, color = criterion)) +
-  geom_point(alpha = 0.25) +
-  geom_smooth(se = FALSE, method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~bb.sp)
-
-ggplot(bias, aes(yday, dprime, color = criterion)) +
-  geom_point(alpha = 0.25) +
-  geom_smooth(se = FALSE, method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~bb.sp)
-
-# Bias ~ year; Blüthgen's d' seems very robust to sampling effects, since it does not vary across years
-ggplot(bias, aes(year, dprime, color = criterion)) +
-  geom_boxplot() 
-
-ggplot(bias, aes(year, dprime, color = criterion)) +
-  geom_boxplot() +
-  facet_wrap(~bb.sp)
-
-# Does bias vary with abundance?
-ggplot(bias, aes(log(bb.sp.abund), dprime, color = criterion)) +
-  #geom_point() +
-  geom_smooth() +
-  facet_wrap(~bb.sp)
-
-ggplot(bias, aes(bb.sp.abund, dprime, color = criterion)) +
-  #geom_point() +
-  geom_smooth() +
-  facet_wrap(~bb.sp, )
-
-ggplot(bias, aes(log(bb.sp.abund), dprime, color = criterion)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth()
-
-ggplot(bias, aes(log(bb.sp.prop.abund), dprime)) +
-  geom_point() +
-  geom_smooth() +
-  facet_wrap(~bb.sp)
+         elev = elev.mean/10) %>% #  scale this down for convenience
+  mutate(yday0 = scale(yday),  # normalized versions of variables
+         elev0 = scale(elev),
+         dprime.sp0 = scale(dprime.sp),
+         dprime.ktype0 = scale(dprime.ktype),
+         dprime.fam0 = scale(dprime.fam)) %>%
+  select(site, date, bb.sp, dprime.sp, dprime.sp0, dprime.ktype, 
+         dprime.ktype0, dprime.fam, dprime.fam0, elev, elev0, 
+         yday, yday0, bb.sp.abund, bb.sp.prop.abund, total.flower.cover)
 ```
 
 ## 1.3 Multi-level model: bias ~ yday * elevation + (1 + elevation | bb.sp)
+### 1.3.1 Preliminary visualization
 ```{r}
 # I am interested both in the variation of bias through elevation and time and in the intercept effect of each bumble bee species
 
+ggplot(bias, aes(dprime.sp)) +
+  geom_histogram()
+
+
 # First, let's look at the distribution of bias per BB sp
-ggplot(filter(bias, criterion == "plant.sp"), aes(dprime)) +
+ggplot(bias, aes(dprime.sp)) +
+  geom_histogram() +
+  facet_wrap(~bb.sp)
+
+ggplot(bias, aes(dprime.ktype)) +
+  geom_histogram() +
+  facet_wrap(~bb.sp)
+
+ggplot(bias, aes(dprime.fam)) +
   geom_histogram() +
   facet_wrap(~bb.sp)
 
 # Now, let's try to get a sense for the shape of the response to elevation and time; we might expect to find nonlinearities here
-ggplot(filter(bias, criterion == "plant.sp"), aes(elev, dprime)) +
+ggplot(bias, aes(elev, dprime.sp)) +
   geom_point() +
   geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
   facet_wrap(~bb.sp)
 
-ggplot(filter(bias, criterion == "plant.sp"), aes(yday, dprime)) +
+ggplot(bias, aes(yday, dprime.sp)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~bb.sp)
+
+ggplot(bias, aes(elev, dprime.ktype)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~bb.sp)
+
+ggplot(bias, aes(yday, dprime.ktype)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~bb.sp)
+
+ggplot(bias, aes(elev, dprime.fam)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~bb.sp)
+
+ggplot(bias, aes(yday, dprime.fam)) +
   geom_point() +
   geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
   facet_wrap(~bb.sp)
 
 # After inspecting these plots, I see no reason to indulge in wiggly models.
-
-# # This model includes a global interaction term for yday and elevation, with a varying intercept for bb.sp and a varying slow for elev | bb.sp. I think this should give me all the estimation I'm interested in. It's tricky to make it converge, though.
-# brm.plantsp11 <- brm(dprime ~ yday * elev + (1 + elev | bb.sp), 
-#                   control = list(max_treedepth = 10),
-#                   cores = 4,
-#                   iter = 4000,
-#                   #family = "skew_normal",
-#                   file = "../output/brm_plantsp11",
-#                   data = filter(bias, criterion ==  "plant.sp"))
-# 
-# summary(brm.plantsp11)
-# prior_summary(brm.plantsp11)
-# plot(brm.plantsp11)
-# parnames(brm.plantsp11)
-# mcmc_plot(brm.plantsp11, pars = c("^r_"))
-# mcmc_plot(brm.plantsp11, pars = c("elev"))
-# mcmc_plot(brm.plantsp11, pars = c("^b_"))
-# mcmc_plot(brm.plantsp11)
-# conditional_effects(brm.plantsp11)
-# pp_check(brm.plantsp11)
-# bayes_R2(brm.plantsp11)
-# hypothesis(brm.plantsp11, "b_elev = 0", class = NULL)
-# 
-# # Alternatively, we can drop the varying slope term to simplify the model a bit. Still doesn't quite converge.
-# brm.plantsp1 <- brm(dprime ~ yday * elev + (1 | bb.sp), 
-#                   control = list(max_treedepth = 10),
-#                   cores = 4,
-#                   iter = 2000,
-#                   file = "../output/brm_plantsp1",
-#                   data = filter(bias, criterion ==  "plant.sp"))
-# 
-# summary(brm.plantsp1)
-# prior_summary(brm.plantsp1)
-# plot(brm.plantsp1)
-# parnames(brm.plantsp1)
-# mcmc_plot(brm.plantsp1, pars = c("^r_"))
-# mcmc_plot(brm.plantsp1, pars = c("elev"))
-# mcmc_plot(brm.plantsp1, pars = c("^b_"))
-# mcmc_plot(brm.plantsp1)
-# conditional_effects(brm.plantsp1)
-# pp_check(brm.plantsp1)
-# bayes_R2(brm.plantsp1)
-# hypothesis(brm.plantsp1, "b_elev = 0", class = NULL)
-# 
-# # We can simplify the model still more by dropping the yday*elev interaction term. Now it converges. But I think the takeaway is that neither elevation noy yday give us a clear signal with respect  to dprime.
-# brm.plantsp2 <- brm(dprime ~ yday + elev + (1 | bb.sp), 
-#                   control = list(max_treedepth = 10),
-#                   cores = 4,
-#                   iter = 2000,
-#                   file = "../output/brm_plantsp2",
-#                   data = filter(bias, criterion ==  "plant.sp"))
-# 
-# summary(brm.plantsp2)
-# prior_summary(brm.plantsp2)
-# plot(brm.plantsp2)
-# parnames(brm.plantsp2)
-# mcmc_plot(brm.plantsp2, pars = c("^r_"))
-# mcmc_plot(brm.plantsp2, pars = c("elev"))
-# mcmc_plot(brm.plantsp2, pars = c("^b_"))
-# mcmc_plot(brm.plantsp2)
-# conditional_effects(brm.plantsp2)
-# pp_check(brm.plantsp2)
-# bayes_R2(brm.plantsp2)
-# hypothesis(brm.plantsp2, "b_elev = 0", class = NULL)
-
-# This, I think, would also be a legitimate way to specify the model, but it would not tell us anything about elevation or time. It's the simplest, and that's nice. Well-behaved. Captures about twice as much variance as the previous model, and it wins the WAIC context easily.
-brm.plantsp0 <- brm(dprime ~ 1 + (1 | bb.sp) + (1 | site),
-                  control = list(max_treedepth = 10),
-                  cores = 4,
-                  iter = 2000,
-                  file = "../output/brm_plantsp0",
-                  data = filter(bias, criterion ==  "plant.sp"))
-
-summary(brm.plantsp0)
-plot(brm.plantsp0)
-parnames(brm.plantsp0)
-
-# Out of curiosity, let's see what we get from the lme4 approach to the same model; we can use this as a sanity check of sorts. If the results of lme4 differ dramatically from those of brms, we might wonder why.
-lme4.plantsp0 <- lmer(dprime ~ 1 + (1 | bb.sp) + (1 | site),
-                      data = filter(bias, criterion ==  "plant.sp"))
-
-summary(lme4.plantsp0)
-#plot_model(lme4.plantsp0, type = "pred")
-plot_model(lme4.plantsp0, type = "re")
-
-lme4.plantsp1 <- lmer(dprime ~ elev * yday + (1 | bb.sp) + (1 | site),
-                      data = filter(bias, criterion ==  "plant.sp"))
-
-summary(lme4.plantsp1)
-plot_model(lme4.plantsp1, type = "pred")
-plot_model(lme4.plantsp1, type = "pred", terms = c("yday", "elev"))
-plot_model(lme4.plantsp1, type = "re")
-
-AIC(lme4.plantsp1)
-AIC(lme4.plantsp0)
-
-
-# 
-# # I guess the message here is that both bb.sp and site contribute to the variation of dprime, but site more so. Biologically, I think the meaning of prime variation by site is that some sites have greater relative abundance of *attractive* flora than others. A site with loads of something that is never visited and a little bit of clover will yield a high dprime, while a site with a high abundance of attractive floral would yield a low dprime.
-# mcmc_plot(brm.plantsp0, pars = c("^r_"))
-# mcmc_plot(brm.plantsp0, pars = c("^r_bb.sp")) 
-# ggsave("../output/brm.plantsp0_plot1.png")
-# mcmc_plot(brm.plantsp0, pars = c("^b_"))
-# pp_check(brm.plantsp0)
-# bayes_R2(brm.plantsp0)
-# 
-# # Another option would be to drop just elevation from the model. This runs clean. Doesn't explain much more variance than the simpler model, though.
-# brm.plantsp00 <- brm(dprime ~ yday + (1 | bb.sp) + (1 | site),
-#                   control = list(max_treedepth = 10),
-#                   cores = 4,
-#                   iter = 2000,
-#                   file = "../output/brm_plantsp00",
-#                   data = filter(bias, criterion ==  "plant.sp"))
-# 
-# summary(brm.plantsp00)
-# plot(brm.plantsp00)
-# parnames(brm.plantsp00)
-# mcmc_plot(brm.plantsp00, pars = c("^r_"))
-# mcmc_plot(brm.plantsp00, pars = c("^b_"))
-# conditional_effects(brm.plantsp00)
-# pp_check(brm.plantsp00)
-# bayes_R2(brm.plantsp00)
-# 
-# # Let's do a formal comparison of the last three models
-# waic(brm.plantsp2, brm.plantsp0, brm.plantsp00)
-# 
-# # The one including yday is a *slight* winner, but the margin is so small as to be meaningless. I think the simplest model is the one we want (brm.plantsp0).
-# 
-# # Let's try the same model now, but for ktype.
-# brm.ktype0 <- brm(dprime ~ 1 + (1 | bb.sp) + (1 | site),
-#                   control = list(max_treedepth = 10),
-#                   cores = 4,
-#                   iter = 2000,
-#                   family = "skew_normal",
-#                   file = "../output/brm_ktype0",
-#                   data = filter(bias, criterion ==  "ktype"))
-# 
-# summary(brm.ktype0)
-# plot(brm.ktype0)
-# parnames(brm.ktype0)
-# mcmc_plot(brm.ktype0, pars = c("^r_"))
-# mcmc_plot(brm.ktype0, pars = c("^b_"))
-# conditional_effects(brm.ktype0)
-# pp_check(brm.ktype0)
-# bayes_R2(brm.ktype0)
 ```
 
-## 1.4 Define hypotheses
+### 1.3.3 brms models
+There's a lot I don't understand about the standardization of variables in the context of Bayesian MLM, but for now I have opted to scale and center the predictor variables but not the response. My reason for scaling and centering the predictors is that is massively speeds up estimation and enables the interaction model to converge (it would not converge with raw variables). My reason for not scaling the response is that it doesn't change the outcome of the model (I've checked) and I am interested in seeing the global intercept for d' on its native scale so that I can compare it with previously reported values. Right now, I am using all default priors. This means flat priors for global effects and student priors for varying effects (I think). My understanding is that brms internally scales priors to match the scale of the data. If I want to define my own priors, which I know I really should, particularly to replace the flat priors on the global effects, then I need to understand how the scaling of the variables affects the specification of the prior.
 ```{r}
-# Is d' different from 0?
-H1 <- paste("Intercept = 0")
+# elev*yday interaction model
+brm_dprime.sp00 <- brm(dprime.sp ~ elev0 * yday0 + (1 | bb.sp),
+                       #+ (1 | site),
+                       cores = 4,
+                       iter = 2000,
+                       family = "skew_normal", # this accounts for a slight left-skew in the posterior
+                       file = "../output/brm_dprime.sp00",
+                       data = bias)
 
-# Are some species more biased in their foraging than others? 
-H.bss_gers <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[gers,Intercept]")
-H.bss_hort <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[hort,Intercept]")
-H.bss_humi <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[humi,Intercept]")
-H.bss_hypn <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[hypn,Intercept]")
-H.bss_jone <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[jone,Intercept]")
-H.bss_lapi <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[lapi,Intercept]")
-H.bss_mend <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[mend,Intercept]")
-H.bss_mont <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[mont,Intercept]")
-H.bss_muci <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[muci,Intercept]")
-H.bss_pasc <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[pasc,Intercept]")
-H.bss_prat <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[prat,Intercept]")
-H.bss_psit <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[psit,Intercept]")
-H.bss_pyre <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[pyre,Intercept]")
-H.bss_soro <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[soro,Intercept]")
-H.bss_wurf <- paste("r_bb.sp[bss,Intercept] = r_bb.sp[wurf,Intercept]")
+summary(brm_dprime.sp00)
+prior_summary(brm_dprime.sp00)
+parnames(brm_dprime.sp00)
+pp_check(brm_dprime.sp00)
+bayes_R2(brm_dprime.sp00)
 
-H.gers_hort <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[hort,Intercept]")
-H.gers_humi <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[humi,Intercept]")
-H.gers_hypn <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[hypn,Intercept]")
-H.gers_jone <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[jone,Intercept]")
-H.gers_lapi <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[lapi,Intercept]")
-H.gers_mend <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[mend,Intercept]")
-H.gers_mont <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[mont,Intercept]")
-H.gers_muci <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[muci,Intercept]")
-H.gers_pasc <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[pasc,Intercept]")
-H.gers_prat <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[prat,Intercept]")
-H.gers_psit <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[psit,Intercept]")
-H.gers_pyre <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[pyre,Intercept]")
-H.gers_soro <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[soro,Intercept]")
-H.gers_wurf <- paste("r_bb.sp[gers,Intercept] = r_bb.sp[wurf,Intercept]")
+# Intercept-only model
+brm_dprime.sp01 <- brm(dprime.sp ~ 1 + (1 | bb.sp) + (1 | site),
+                       cores = 4,
+                       iter = 2000,
+                       family = "skew_normal",
+                       file = "../output/brm_dprime.sp01",
+                       data = bias)
 
-H.hort_humi <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[humi,Intercept]")
-H.hort_hypn <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[hypn,Intercept]")
-H.hort_jone <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[jone,Intercept]")
-H.hort_lapi <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[lapi,Intercept]")
-H.hort_mend <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[mend,Intercept]")
-H.hort_mont <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[mont,Intercept]")
-H.hort_muci <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[muci,Intercept]")
-H.hort_pasc <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[pasc,Intercept]")
-H.hort_prat <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[prat,Intercept]")
-H.hort_psit <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[psit,Intercept]")
-H.hort_pyre <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[pyre,Intercept]")
-H.hort_soro <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[soro,Intercept]")
-H.hort_wurf <- paste("r_bb.sp[hort,Intercept] = r_bb.sp[wurf,Intercept]")
+summary(brm_dprime.sp01)
+prior_summary(brm_dprime.sp01)
+parnames(brm_dprime.sp01)
+pp_check(brm_dprime.sp01)
+bayes_R2(brm_dprime.sp01)
 
-H.humi_hypn <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[hypn,Intercept]")
-H.humi_jone <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[jone,Intercept]")
-H.humi_lapi <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[lapi,Intercept]")
-H.humi_mend <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[mend,Intercept]")
-H.humi_mont <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[mont,Intercept]")
-H.humi_muci <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[muci,Intercept]")
-H.humi_pasc <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[pasc,Intercept]")
-H.humi_prat <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[prat,Intercept]")
-H.humi_psit <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[psit,Intercept]")
-H.humi_pyre <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[pyre,Intercept]")
-H.humi_soro <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[soro,Intercept]")
-H.humi_wurf <- paste("r_bb.sp[humi,Intercept] = r_bb.sp[wurf,Intercept]")
-
-H.hypn_jone <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[jone,Intercept]")
-H.hypn_lapi <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[lapi,Intercept]")
-H.hypn_mend <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[mend,Intercept]")
-H.hypn_mont <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[mont,Intercept]")
-H.hypn_muci <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[muci,Intercept]")
-H.hypn_pasc <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[pasc,Intercept]")
-H.hypn_prat <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[prat,Intercept]")
-H.hypn_psit <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[psit,Intercept]")
-H.hypn_pyre <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[pyre,Intercept]")
-H.hypn_soro <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[soro,Intercept]")
-H.hypn_wurf <- paste("r_bb.sp[hypn,Intercept] = r_bb.sp[wurf,Intercept]")
-
-H.jone_lapi <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[lapi,Intercept]")
-H.jone_mend <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[mend,Intercept]")
-H.jone_mont <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[mont,Intercept]")
-H.jone_muci <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[muci,Intercept]")
-H.jone_pasc <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[pasc,Intercept]")
-H.jone_prat <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[prat,Intercept]")
-H.jone_psit <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[psit,Intercept]")
-H.jone_pyre <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[pyre,Intercept]")
-H.jone_soro <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[soro,Intercept]")
-H.jone_wurf <- paste("r_bb.sp[jone,Intercept] = r_bb.sp[wurf,Intercept]")
-
-H.lapi_mend <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[mend,Intercept]")
-H.lapi_mont <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[mont,Intercept]")
-H.lapi_muci <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[muci,Intercept]")
-H.lapi_pasc <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[pasc,Intercept]")
-H.lapi_prat <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[prat,Intercept]")
-H.lapi_psit <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[psit,Intercept]")
-H.lapi_pyre <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[pyre,Intercept]")
-H.lapi_soro <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[soro,Intercept]")
-H.lapi_wurf <- paste("r_bb.sp[lapi,Intercept] = r_bb.sp[wurf,Intercept]")
-
-H.mend_mont <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[mont,Intercept]")
-H.mend_muci <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[muci,Intercept]")
-H.mend_pasc <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[pasc,Intercept]")
-H.mend_prat <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[prat,Intercept]")
-H.mend_psit <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[psit,Intercept]")
-H.mend_pyre <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[pyre,Intercept]")
-H.mend_soro <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[soro,Intercept]")
-H.mend_wurf <- paste("r_bb.sp[mend,Intercept] = r_bb.sp[wurf,Intercept]")
-
-H.mont_muci <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[muci,Intercept]")
-H.mont_pasc <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[pasc,Intercept]")
-H.mont_prat <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[prat,Intercept]")
-H.mont_psit <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[psit,Intercept]")
-H.mont_pyre <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[pyre,Intercept]")
-H.mont_soro <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[soro,Intercept]")
-H.mont_wurf <- paste("r_bb.sp[mont,Intercept] = r_bb.sp[wurf,Intercept]")
-
-H.muci_pasc <- paste("r_bb.sp[muci,Intercept] = r_bb.sp[pasc,Intercept]")
-H.muci_prat <- paste("r_bb.sp[muci,Intercept] = r_bb.sp[prat,Intercept]")
-H.muci_psit <- paste("r_bb.sp[muci,Intercept] = r_bb.sp[psit,Intercept]")
-H.muci_pyre <- paste("r_bb.sp[muci,Intercept] = r_bb.sp[pyre,Intercept]")
-H.muci_soro <- paste("r_bb.sp[muci,Intercept] = r_bb.sp[soro,Intercept]")
-H.muci_wurf <- paste("r_bb.sp[muci,Intercept] = r_bb.sp[wurf,Intercept]")
-
-
-H.pasc_prat <- paste("r_bb.sp[pasc,Intercept] = r_bb.sp[prat,Intercept]")
-H.pasc_psit <- paste("r_bb.sp[pasc,Intercept] = r_bb.sp[psit,Intercept]")
-H.pasc_pyre <- paste("r_bb.sp[pasc,Intercept] = r_bb.sp[pyre,Intercept]")
-H.pasc_soro <- paste("r_bb.sp[pasc,Intercept] = r_bb.sp[soro,Intercept]")
-H.pasc_wurf <- paste("r_bb.sp[pasc,Intercept] = r_bb.sp[wurf,Intercept]")
-
-
-H.prat_psit <- paste("r_bb.sp[prat,Intercept] = r_bb.sp[psit,Intercept]")
-H.prat_pyre <- paste("r_bb.sp[prat,Intercept] = r_bb.sp[pyre,Intercept]")
-H.prat_soro <- paste("r_bb.sp[prat,Intercept] = r_bb.sp[soro,Intercept]")
-H.prat_wurf <- paste("r_bb.sp[prat,Intercept] = r_bb.sp[wurf,Intercept]")
-
-
-H.psit_pyre <- paste("r_bb.sp[psit,Intercept] = r_bb.sp[pyre,Intercept]")
-H.psit_soro <- paste("r_bb.sp[psit,Intercept] = r_bb.sp[soro,Intercept]")
-H.psit_wurf <- paste("r_bb.sp[psit,Intercept] = r_bb.sp[wurf,Intercept]")
-
-H.pyre_soro <- paste("r_bb.sp[pyre,Intercept] = r_bb.sp[soro,Intercept]")
-H.pyre_wurf <- paste("r_bb.sp[pyre,Intercept] = r_bb.sp[wurf,Intercept]")
-
-H.soro_wurf <- paste("r_bb.sp[soro,Intercept] = r_bb.sp[wurf,Intercept]")
+# Compare interaction model and intercept-only model. This favors the intercept-only model.
+loo(brm_dprime.sp00, brm_dprime.sp01)
 ```
 
-## 1.5 Test contrasts
+#### 1.3.3.1 Plot
 ```{r}
-### Plant.sp
-hypothesis(brm.plantsp, H1)
+get_variables(brm_dprime.sp01)
 
-hypothesis(brm.plantsp, H.bss_gers, class = "")
-hypothesis(brm.plantsp, H.bss_hort, class = "")
-hypothesis(brm.plantsp, H.bss_humi, class = "")
-hypothesis(brm.plantsp, H.bss_hypn, class = "")
-hypothesis(brm.plantsp, H.bss_jone, class = "")
-hypothesis(brm.plantsp, H.bss_lapi, class = "")
-hypothesis(brm.plantsp, H.bss_mend, class = "")
-hypothesis(brm.plantsp, H.bss_mont, class = "")
-hypothesis(brm.plantsp, H.bss_muci, class = "")
-hypothesis(brm.plantsp, H.bss_pasc, class = "")
-hypothesis(brm.plantsp, H.bss_prat, class = "")
-hypothesis(brm.plantsp, H.bss_psit, class = "")
-hypothesis(brm.plantsp, H.bss_pyre, class = "")
-hypothesis(brm.plantsp, H.bss_soro, class = "")
-hypothesis(brm.plantsp, H.bss_wurf, class = "")
+brm_dprime.sp01_plotframe <- brm_dprime.sp01 %>%
+  spread_draws(b_Intercept, r_bb.sp[condition, term]) %>% 
+  mutate(condition_mean = b_Intercept + r_bb.sp)
 
-hypothesis(brm.plantsp, H.gers_hort, class = "")
-hypothesis(brm.plantsp, H.gers_humi, class = "")
-hypothesis(brm.plantsp, H.gers_hypn, class = "")
-hypothesis(brm.plantsp, H.gers_jone, class = "")
-hypothesis(brm.plantsp, H.gers_lapi, class = "")
-hypothesis(brm.plantsp, H.gers_mend, class = "")
-hypothesis(brm.plantsp, H.gers_mont, class = "")
-hypothesis(brm.plantsp, H.gers_muci, class = "")
-hypothesis(brm.plantsp, H.gers_pasc, class = "")
-hypothesis(brm.plantsp, H.gers_prat, class = "")
-hypothesis(brm.plantsp, H.gers_psit, class = "")
-hypothesis(brm.plantsp, H.gers_pyre, class = "")
-hypothesis(brm.plantsp, H.gers_soro, class = "")
-hypothesis(brm.plantsp, H.gers_wurf, class = "")
+brm_dprime.sp01_plotframe2 <- brm_dprime.sp01 %>%
+  spread_draws(b_Intercept, r_site[condition, term]) %>% 
+  mutate(condition_mean = b_Intercept + r_site)
 
-hypothesis(brm.plantsp, H.hort_humi, class = "")
-hypothesis(brm.plantsp, H.hort_hypn, class = "")
-hypothesis(brm.plantsp, H.hort_jone, class = "")
-hypothesis(brm.plantsp, H.hort_lapi, class = "")
-hypothesis(brm.plantsp, H.hort_mend, class = "")
-hypothesis(brm.plantsp, H.hort_mont, class = "")
-hypothesis(brm.plantsp, H.hort_muci, class = "")
-hypothesis(brm.plantsp, H.hort_pasc, class = "")
-hypothesis(brm.plantsp, H.hort_prat, class = "")
-hypothesis(brm.plantsp, H.hort_psit, class = "")
-hypothesis(brm.plantsp, H.hort_pyre, class = "")
-hypothesis(brm.plantsp, H.hort_soro, class = "")
-hypothesis(brm.plantsp, H.hort_wurf, class = "")
+brm_dprime.sp01_subplot1 <- ggplot(brm_dprime.sp01_plotframe, aes(condition_mean, condition)) +
+  stat_halfeye() +
+  ylab("Bumble bee species") +
+  xlab("Discrimination (d')") +
+  theme_light() 
 
-hypothesis(brm.plantsp, H.humi_hypn, class = "")
-hypothesis(brm.plantsp, H.humi_jone, class = "")
-hypothesis(brm.plantsp, H.humi_lapi, class = "")
-hypothesis(brm.plantsp, H.humi_mend, class = "")
-hypothesis(brm.plantsp, H.humi_mont, class = "")
-hypothesis(brm.plantsp, H.humi_muci, class = "")
-hypothesis(brm.plantsp, H.humi_pasc, class = "")
-hypothesis(brm.plantsp, H.humi_prat, class = "")
-hypothesis(brm.plantsp, H.humi_psit, class = "")
-hypothesis(brm.plantsp, H.humi_pyre, class = "")
-hypothesis(brm.plantsp, H.humi_soro, class = "")
-hypothesis(brm.plantsp, H.humi_wurf, class = "")
+brm_dprime.sp01_subplot2 <- ggplot(brm_dprime.sp01_plotframe2, aes(condition_mean, condition)) +
+  stat_halfeye() +
+  ylab("Site") +
+  xlab("Discrimination (d')") +
+  theme_light()
 
-hypothesis(brm.plantsp, H.hypn_jone, class = "")
-hypothesis(brm.plantsp, H.hypn_lapi, class = "")
-hypothesis(brm.plantsp, H.hypn_mend, class = "")
-hypothesis(brm.plantsp, H.hypn_mont, class = "")
-hypothesis(brm.plantsp, H.hypn_muci, class = "")
-hypothesis(brm.plantsp, H.hypn_pasc, class = "")
-hypothesis(brm.plantsp, H.hypn_prat, class = "")
-hypothesis(brm.plantsp, H.hypn_psit, class = "")
-hypothesis(brm.plantsp, H.hypn_pyre, class = "")
-hypothesis(brm.plantsp, H.hypn_soro, class = "")
-hypothesis(brm.plantsp, H.hypn_wurf, class = "")
+brm_dprime.sp01_plot1 <- brm_dprime.sp01_subplot1 | brm_dprime.sp01_subplot2
 
-hypothesis(brm.plantsp, H.jone_lapi, class = "")
-hypothesis(brm.plantsp, H.jone_mend, class = "")
-hypothesis(brm.plantsp, H.jone_mont, class = "")
-hypothesis(brm.plantsp, H.jone_muci, class = "")
-hypothesis(brm.plantsp, H.jone_pasc, class = "")
-hypothesis(brm.plantsp, H.jone_prat, class = "")
-hypothesis(brm.plantsp, H.jone_psit, class = "")
-hypothesis(brm.plantsp, H.jone_pyre, class = "")
-hypothesis(brm.plantsp, H.jone_soro, class = "")
-hypothesis(brm.plantsp, H.jone_wurf, class = "")
-
-hypothesis(brm.plantsp, H.lapi_mend, class = "")
-hypothesis(brm.plantsp, H.lapi_mont, class = "")
-hypothesis(brm.plantsp, H.lapi_muci, class = "")
-hypothesis(brm.plantsp, H.lapi_pasc, class = "")
-hypothesis(brm.plantsp, H.lapi_prat, class = "")
-hypothesis(brm.plantsp, H.lapi_psit, class = "")
-hypothesis(brm.plantsp, H.lapi_pyre, class = "")
-hypothesis(brm.plantsp, H.lapi_soro, class = "")
-hypothesis(brm.plantsp, H.lapi_wurf, class = "")
-
-hypothesis(brm.plantsp, H.mend_mont, class = "")
-hypothesis(brm.plantsp, H.mend_muci, class = "")
-hypothesis(brm.plantsp, H.mend_pasc, class = "")
-hypothesis(brm.plantsp, H.mend_prat, class = "")
-hypothesis(brm.plantsp, H.mend_psit, class = "")
-hypothesis(brm.plantsp, H.mend_pyre, class = "")
-hypothesis(brm.plantsp, H.mend_soro, class = "")
-hypothesis(brm.plantsp, H.mend_wurf, class = "")
-
-hypothesis(brm.plantsp, H.mont_muci, class = "")
-hypothesis(brm.plantsp, H.mont_pasc, class = "")
-hypothesis(brm.plantsp, H.mont_prat, class = "")
-hypothesis(brm.plantsp, H.mont_psit, class = "")
-hypothesis(brm.plantsp, H.mont_pyre, class = "")
-hypothesis(brm.plantsp, H.mont_soro, class = "")
-hypothesis(brm.plantsp, H.mont_wurf, class = "")
-
-hypothesis(brm.plantsp, H.muci_pasc, class = "")
-hypothesis(brm.plantsp, H.muci_prat, class = "")
-hypothesis(brm.plantsp, H.muci_psit, class = "")
-hypothesis(brm.plantsp, H.muci_pyre, class = "")
-hypothesis(brm.plantsp, H.muci_soro, class = "")
-hypothesis(brm.plantsp, H.muci_wurf, class = "")
-
-hypothesis(brm.plantsp, H.pasc_prat, class = "")
-hypothesis(brm.plantsp, H.pasc_psit, class = "")
-hypothesis(brm.plantsp, H.pasc_pyre, class = "")
-hypothesis(brm.plantsp, H.pasc_soro, class = "")
-hypothesis(brm.plantsp, H.pasc_wurf, class = "")
-
-hypothesis(brm.plantsp, H.prat_psit, class = "")
-hypothesis(brm.plantsp, H.prat_pyre, class = "")
-hypothesis(brm.plantsp, H.prat_soro, class = "")
-hypothesis(brm.plantsp, H.prat_wurf, class = "")
-
-hypothesis(brm.plantsp, H.psit_pyre, class = "")
-hypothesis(brm.plantsp, H.psit_soro, class = "")
-hypothesis(brm.plantsp, H.psit_wurf, class = "")
-
-hypothesis(brm.plantsp, H.pyre_soro, class = "")
-hypothesis(brm.plantsp, H.pyre_wurf, class = "")
-
-hypothesis(brm.plantsp, H.soro_wurf, class = "")
-
-### Kugler type
-hypothesis(brm.ktype, H1)
-
-hypothesis(brm.ktype, H.bss_gers, class = "")
-hypothesis(brm.ktype, H.bss_hort, class = "")
-hypothesis(brm.ktype, H.bss_humi, class = "")
-hypothesis(brm.ktype, H.bss_hypn, class = "")
-hypothesis(brm.ktype, H.bss_jone, class = "")
-hypothesis(brm.ktype, H.bss_lapi, class = "")
-hypothesis(brm.ktype, H.bss_mend, class = "")
-hypothesis(brm.ktype, H.bss_mont, class = "")
-hypothesis(brm.ktype, H.bss_muci, class = "")
-hypothesis(brm.ktype, H.bss_pasc, class = "")
-hypothesis(brm.ktype, H.bss_prat, class = "")
-hypothesis(brm.ktype, H.bss_psit, class = "")
-hypothesis(brm.ktype, H.bss_pyre, class = "")
-hypothesis(brm.ktype, H.bss_soro, class = "")
-hypothesis(brm.ktype, H.bss_wurf, class = "")
-
-hypothesis(brm.ktype, H.gers_hort, class = "")
-hypothesis(brm.ktype, H.gers_humi, class = "")
-hypothesis(brm.ktype, H.gers_hypn, class = "")
-hypothesis(brm.ktype, H.gers_jone, class = "")
-hypothesis(brm.ktype, H.gers_lapi, class = "")
-hypothesis(brm.ktype, H.gers_mend, class = "")
-hypothesis(brm.ktype, H.gers_mont, class = "")
-hypothesis(brm.ktype, H.gers_muci, class = "")
-hypothesis(brm.ktype, H.gers_pasc, class = "")
-hypothesis(brm.ktype, H.gers_prat, class = "")
-hypothesis(brm.ktype, H.gers_psit, class = "")
-hypothesis(brm.ktype, H.gers_pyre, class = "")
-hypothesis(brm.ktype, H.gers_soro, class = "")
-hypothesis(brm.ktype, H.gers_wurf, class = "")
-
-hypothesis(brm.ktype, H.hort_humi, class = "")
-hypothesis(brm.ktype, H.hort_hypn, class = "")
-hypothesis(brm.ktype, H.hort_jone, class = "")
-hypothesis(brm.ktype, H.hort_lapi, class = "")
-hypothesis(brm.ktype, H.hort_mend, class = "")
-hypothesis(brm.ktype, H.hort_mont, class = "")
-hypothesis(brm.ktype, H.hort_muci, class = "")
-hypothesis(brm.ktype, H.hort_pasc, class = "")
-hypothesis(brm.ktype, H.hort_prat, class = "")
-hypothesis(brm.ktype, H.hort_psit, class = "")
-hypothesis(brm.ktype, H.hort_pyre, class = "")
-hypothesis(brm.ktype, H.hort_soro, class = "")
-hypothesis(brm.ktype, H.hort_wurf, class = "")
-
-hypothesis(brm.ktype, H.humi_hypn, class = "")
-hypothesis(brm.ktype, H.humi_jone, class = "")
-hypothesis(brm.ktype, H.humi_lapi, class = "")
-hypothesis(brm.ktype, H.humi_mend, class = "")
-hypothesis(brm.ktype, H.humi_mont, class = "")
-hypothesis(brm.ktype, H.humi_muci, class = "")
-hypothesis(brm.ktype, H.humi_pasc, class = "")
-hypothesis(brm.ktype, H.humi_prat, class = "")
-hypothesis(brm.ktype, H.humi_psit, class = "")
-hypothesis(brm.ktype, H.humi_pyre, class = "")
-hypothesis(brm.ktype, H.humi_soro, class = "")
-hypothesis(brm.ktype, H.humi_wurf, class = "")
-
-hypothesis(brm.ktype, H.hypn_jone, class = "")
-hypothesis(brm.ktype, H.hypn_lapi, class = "")
-hypothesis(brm.ktype, H.hypn_mend, class = "")
-hypothesis(brm.ktype, H.hypn_mont, class = "")
-hypothesis(brm.ktype, H.hypn_muci, class = "")
-hypothesis(brm.ktype, H.hypn_pasc, class = "")
-hypothesis(brm.ktype, H.hypn_prat, class = "")
-hypothesis(brm.ktype, H.hypn_psit, class = "")
-hypothesis(brm.ktype, H.hypn_pyre, class = "")
-hypothesis(brm.ktype, H.hypn_soro, class = "")
-hypothesis(brm.ktype, H.hypn_wurf, class = "")
-
-hypothesis(brm.ktype, H.jone_lapi, class = "")
-hypothesis(brm.ktype, H.jone_mend, class = "")
-hypothesis(brm.ktype, H.jone_mont, class = "")
-hypothesis(brm.ktype, H.jone_muci, class = "")
-hypothesis(brm.ktype, H.jone_pasc, class = "")
-hypothesis(brm.ktype, H.jone_prat, class = "")
-hypothesis(brm.ktype, H.jone_psit, class = "")
-hypothesis(brm.ktype, H.jone_pyre, class = "")
-hypothesis(brm.ktype, H.jone_soro, class = "")
-hypothesis(brm.ktype, H.jone_wurf, class = "")
-
-hypothesis(brm.ktype, H.lapi_mend, class = "")
-hypothesis(brm.ktype, H.lapi_mont, class = "")
-hypothesis(brm.ktype, H.lapi_muci, class = "")
-hypothesis(brm.ktype, H.lapi_pasc, class = "")
-hypothesis(brm.ktype, H.lapi_prat, class = "")
-hypothesis(brm.ktype, H.lapi_psit, class = "")
-hypothesis(brm.ktype, H.lapi_pyre, class = "")
-hypothesis(brm.ktype, H.lapi_soro, class = "")
-hypothesis(brm.ktype, H.lapi_wurf, class = "")
-
-hypothesis(brm.ktype, H.mend_mont, class = "")
-hypothesis(brm.ktype, H.mend_muci, class = "")
-hypothesis(brm.ktype, H.mend_pasc, class = "")
-hypothesis(brm.ktype, H.mend_prat, class = "")
-hypothesis(brm.ktype, H.mend_psit, class = "")
-hypothesis(brm.ktype, H.mend_pyre, class = "")
-hypothesis(brm.ktype, H.mend_soro, class = "")
-hypothesis(brm.ktype, H.mend_wurf, class = "")
-
-hypothesis(brm.ktype, H.mont_muci, class = "")
-hypothesis(brm.ktype, H.mont_pasc, class = "")
-hypothesis(brm.ktype, H.mont_prat, class = "")
-hypothesis(brm.ktype, H.mont_psit, class = "")
-hypothesis(brm.ktype, H.mont_pyre, class = "")
-hypothesis(brm.ktype, H.mont_soro, class = "")
-hypothesis(brm.ktype, H.mont_wurf, class = "")
-
-hypothesis(brm.ktype, H.muci_pasc, class = "")
-hypothesis(brm.ktype, H.muci_prat, class = "")
-hypothesis(brm.ktype, H.muci_psit, class = "")
-hypothesis(brm.ktype, H.muci_pyre, class = "")
-hypothesis(brm.ktype, H.muci_soro, class = "")
-hypothesis(brm.ktype, H.muci_wurf, class = "")
-
-hypothesis(brm.ktype, H.pasc_prat, class = "")
-hypothesis(brm.ktype, H.pasc_psit, class = "")
-hypothesis(brm.ktype, H.pasc_pyre, class = "")
-hypothesis(brm.ktype, H.pasc_soro, class = "")
-hypothesis(brm.ktype, H.pasc_wurf, class = "")
-
-hypothesis(brm.ktype, H.prat_psit, class = "")
-hypothesis(brm.ktype, H.prat_pyre, class = "")
-hypothesis(brm.ktype, H.prat_soro, class = "")
-hypothesis(brm.ktype, H.prat_wurf, class = "")
-
-hypothesis(brm.ktype, H.psit_pyre, class = "")
-hypothesis(brm.ktype, H.psit_soro, class = "")
-hypothesis(brm.ktype, H.psit_wurf, class = "")
-
-hypothesis(brm.ktype, H.pyre_soro, class = "")
-hypothesis(brm.ktype, H.pyre_wurf, class = "")
-
-hypothesis(brm.ktype, H.soro_wurf, class = "")
-
-### Plant family
-hypothesis(brm.family, H1)
-
-hypothesis(brm.family, H.bss_gers, class = "")
-hypothesis(brm.family, H.bss_hort, class = "")
-hypothesis(brm.family, H.bss_humi, class = "")
-hypothesis(brm.family, H.bss_hypn, class = "")
-hypothesis(brm.family, H.bss_jone, class = "")
-hypothesis(brm.family, H.bss_lapi, class = "")
-hypothesis(brm.family, H.bss_mend, class = "")
-hypothesis(brm.family, H.bss_mont, class = "")
-hypothesis(brm.family, H.bss_muci, class = "")
-hypothesis(brm.family, H.bss_pasc, class = "")
-hypothesis(brm.family, H.bss_prat, class = "")
-hypothesis(brm.family, H.bss_psit, class = "")
-hypothesis(brm.family, H.bss_pyre, class = "")
-hypothesis(brm.family, H.bss_soro, class = "")
-hypothesis(brm.family, H.bss_wurf, class = "")
-
-hypothesis(brm.family, H.gers_hort, class = "")
-hypothesis(brm.family, H.gers_humi, class = "")
-hypothesis(brm.family, H.gers_hypn, class = "")
-hypothesis(brm.family, H.gers_jone, class = "")
-hypothesis(brm.family, H.gers_lapi, class = "")
-hypothesis(brm.family, H.gers_mend, class = "")
-hypothesis(brm.family, H.gers_mont, class = "")
-hypothesis(brm.family, H.gers_muci, class = "")
-hypothesis(brm.family, H.gers_pasc, class = "")
-hypothesis(brm.family, H.gers_prat, class = "")
-hypothesis(brm.family, H.gers_psit, class = "")
-hypothesis(brm.family, H.gers_pyre, class = "")
-hypothesis(brm.family, H.gers_soro, class = "")
-hypothesis(brm.family, H.gers_wurf, class = "")
-
-hypothesis(brm.family, H.hort_humi, class = "")
-hypothesis(brm.family, H.hort_hypn, class = "")
-hypothesis(brm.family, H.hort_jone, class = "")
-hypothesis(brm.family, H.hort_lapi, class = "")
-hypothesis(brm.family, H.hort_mend, class = "")
-hypothesis(brm.family, H.hort_mont, class = "")
-hypothesis(brm.family, H.hort_muci, class = "")
-hypothesis(brm.family, H.hort_pasc, class = "")
-hypothesis(brm.family, H.hort_prat, class = "")
-hypothesis(brm.family, H.hort_psit, class = "")
-hypothesis(brm.family, H.hort_pyre, class = "")
-hypothesis(brm.family, H.hort_soro, class = "")
-hypothesis(brm.family, H.hort_wurf, class = "")
-
-hypothesis(brm.family, H.humi_hypn, class = "")
-hypothesis(brm.family, H.humi_jone, class = "")
-hypothesis(brm.family, H.humi_lapi, class = "")
-hypothesis(brm.family, H.humi_mend, class = "")
-hypothesis(brm.family, H.humi_mont, class = "")
-hypothesis(brm.family, H.humi_muci, class = "")
-hypothesis(brm.family, H.humi_pasc, class = "")
-hypothesis(brm.family, H.humi_prat, class = "")
-hypothesis(brm.family, H.humi_psit, class = "")
-hypothesis(brm.family, H.humi_pyre, class = "")
-hypothesis(brm.family, H.humi_soro, class = "")
-hypothesis(brm.family, H.humi_wurf, class = "")
-
-hypothesis(brm.family, H.hypn_jone, class = "")
-hypothesis(brm.family, H.hypn_lapi, class = "")
-hypothesis(brm.family, H.hypn_mend, class = "")
-hypothesis(brm.family, H.hypn_mont, class = "")
-hypothesis(brm.family, H.hypn_muci, class = "")
-hypothesis(brm.family, H.hypn_pasc, class = "")
-hypothesis(brm.family, H.hypn_prat, class = "")
-hypothesis(brm.family, H.hypn_psit, class = "")
-hypothesis(brm.family, H.hypn_pyre, class = "")
-hypothesis(brm.family, H.hypn_soro, class = "")
-hypothesis(brm.family, H.hypn_wurf, class = "")
-
-hypothesis(brm.family, H.jone_lapi, class = "")
-hypothesis(brm.family, H.jone_mend, class = "")
-hypothesis(brm.family, H.jone_mont, class = "")
-hypothesis(brm.family, H.jone_muci, class = "")
-hypothesis(brm.family, H.jone_pasc, class = "")
-hypothesis(brm.family, H.jone_prat, class = "")
-hypothesis(brm.family, H.jone_psit, class = "")
-hypothesis(brm.family, H.jone_pyre, class = "")
-hypothesis(brm.family, H.jone_soro, class = "")
-hypothesis(brm.family, H.jone_wurf, class = "")
-
-hypothesis(brm.family, H.lapi_mend, class = "")
-hypothesis(brm.family, H.lapi_mont, class = "")
-hypothesis(brm.family, H.lapi_muci, class = "")
-hypothesis(brm.family, H.lapi_pasc, class = "")
-hypothesis(brm.family, H.lapi_prat, class = "")
-hypothesis(brm.family, H.lapi_psit, class = "")
-hypothesis(brm.family, H.lapi_pyre, class = "")
-hypothesis(brm.family, H.lapi_soro, class = "")
-hypothesis(brm.family, H.lapi_wurf, class = "")
-
-hypothesis(brm.family, H.mend_mont, class = "")
-hypothesis(brm.family, H.mend_muci, class = "")
-hypothesis(brm.family, H.mend_pasc, class = "")
-hypothesis(brm.family, H.mend_prat, class = "")
-hypothesis(brm.family, H.mend_psit, class = "")
-hypothesis(brm.family, H.mend_pyre, class = "")
-hypothesis(brm.family, H.mend_soro, class = "")
-hypothesis(brm.family, H.mend_wurf, class = "")
-
-hypothesis(brm.family, H.mont_muci, class = "")
-hypothesis(brm.family, H.mont_pasc, class = "")
-hypothesis(brm.family, H.mont_prat, class = "")
-hypothesis(brm.family, H.mont_psit, class = "")
-hypothesis(brm.family, H.mont_pyre, class = "")
-hypothesis(brm.family, H.mont_soro, class = "")
-hypothesis(brm.family, H.mont_wurf, class = "")
-
-hypothesis(brm.family, H.muci_pasc, class = "")
-hypothesis(brm.family, H.muci_prat, class = "")
-hypothesis(brm.family, H.muci_psit, class = "")
-hypothesis(brm.family, H.muci_pyre, class = "")
-hypothesis(brm.family, H.muci_soro, class = "")
-hypothesis(brm.family, H.muci_wurf, class = "")
-
-hypothesis(brm.family, H.pasc_prat, class = "")
-hypothesis(brm.family, H.pasc_psit, class = "")
-hypothesis(brm.family, H.pasc_pyre, class = "")
-hypothesis(brm.family, H.pasc_soro, class = "")
-hypothesis(brm.family, H.pasc_wurf, class = "")
-
-hypothesis(brm.family, H.prat_psit, class = "")
-hypothesis(brm.family, H.prat_pyre, class = "")
-hypothesis(brm.family, H.prat_soro, class = "")
-hypothesis(brm.family, H.prat_wurf, class = "")
-
-hypothesis(brm.family, H.psit_pyre, class = "")
-hypothesis(brm.family, H.psit_soro, class = "")
-hypothesis(brm.family, H.psit_wurf, class = "")
-
-hypothesis(brm.family, H.pyre_soro, class = "")
-hypothesis(brm.family, H.pyre_wurf, class = "")
-
-hypothesis(brm.family, H.soro_wurf, class = "")
+ggsave(brm_dprime.sp01_plot1, file = "../output/brm_dprime.sp01_plot1.png")
 ```
-
 
 # 2. Explaining bias
-
-## 2.1 Defining bias
-
-Deciding exactly how to represent bias turns out to be rather tricky. I am trying out a few options right now.   
-
-1. Bias could  be treated simply as the Euclidean difference between prop.flower.cover and prop.visits. This has the effect of weighting bias by flower.cover, particularly negative bias, since an abundant plant can have a greater negative bias (because it is farther from 0) than a rare plant. Euclidean bias is bounded between -1 and 1. Its symmetry is a nice property that sets it apart from proportional or fold-change bias. If, for whatever reason, I decided that a log-transformation of this measure were desirable, I think I could simply add a constant of 1 to all values, which would move the boundary up to (0, 2). I think the biggest problem with measuring bias in this way is that it makes no distinction between a plant that was visited a little and one that was visited not at all, and that could be an important biological difference. For example, consider two plants, one with a proportional abundance = 0.01 and proportional visitation = 0.01, and the second with proportional abundance = 0.01 and proportional visitation = 0.00. These will look identical in our analysis, but it is possible that the unvisited plant would not have been visited no matter how high its abundance was. **For starters, though, I am going to proceed with this metric because it is the simplest. And because DJ thought it was a good idea.**
-
-2. Alternatively, bias could be calculated as a simple proportion: prop.visits/prop.flower.cover. If anything, this might tend to reverse the weighting, since a small Euclidean change in a rare species would be a large proportional change. Proportional change has a lower boundary of 0 and no upper boundary. This approach highlights cases of positive bias, but it is even worse than euclidean bias in terms of obscuring the distinction between plants visited slightly and those visited not at all. Worse in a sense. In another sense, it is better than euclidean bias, because with proportional visitation a plant visited 0 times is at least numerical distinguishable from one visited 1 time (visited plants will always have non-zero proportional bias). 
-
-3. Similarly to proportional bias, I could calculate bias as fold change. This converges to be virtually identical to proportional change as bias becomes more positive, but fold change has a lower bound of -1 instead of 0. 
-
-4. If the distinction between plants that were visited and those that were not is what we're most interested in, we could simply treat bias as binary. This, of course, comes at the price of not being able to distinguish a plant that received 0.01 proportional visitation and one that recevied  0.99 proportional visitation, and this distinction is arguably important. 
-
-5. An interesting option is to first separate visited from unvisited plants, set the bias of unvisited plants to 0, and then exponentiate the euclidean bias of all visited plant species. This has some desirable properties. First, it clearly distinguished visited plants from unvisited ones. Second, it assigns plants visited perfectly in proportion to their abundance a sensible bias of 1 (just like proportional bias). Thus, plants with a psotive bias are > 1 (bounded at 2.718282 -- okay, so that's a bit inelegant), those with a negative bias are < 1 (bounded at 0.367895), and those not visited at all = 0. 
-
-6. The problem with the option above is that is adds weight to positive bias. Another approach is to separate the unvisited plants from the visited, set unvisited bias = 0, and visited bias = prop.visits - prop.flower.cover + 1. The +1 serves to make the distribution positive, with 1 represening perfect proportionality between visitation and floral abundance. This creates a symmetrically bounded distribution between 0 (not inclusive) and 2 (inclusive), plus the true zeros from the unvisited plants. It feels a bit...slapped together, though.
-
-*We will adopt the term representation to avoid confusion with the object defined above.*
-
-## 2.2 Function for calculating bias per group (= criterion)
+## 2.1 Calculate visitation probability per plant speces/ktype/family
 ```{r}
-biaseval_group <- function(x, criterion) {
-  
-  criterion <- enquo(criterion)
-  
-  x %>%
-    mutate(criterion = factor(!!criterion)) %>% # having this as a factor will help with modeling later on
-    group_by(site, date, bb.sp, criterion) %>%
-    summarize(flower.cover = sum(flower.cover), # get raw floer cover and visits by group
-              visits = sum(visits)) %>%
-    group_by(site, date, bb.sp) %>%
-    mutate(prop.flower.cover = flower.cover/sum(flower.cover), # get proportional flower cover and visits by group
-           prop.visits = visits/sum(visits)) %>%
-    mutate(bias = prop.visits - prop.flower.cover, # bias as difference
-           bias.prop = prop.visits/prop.flower.cover, # bias as proportion
-           bias.fold = bias/prop.flower.cover, # bias as fold change
-           bias.bin = if_else(bias > 0, 1, 0), # bias as binary
-           bias.exp = if_else(visits == 0, 0, exp(prop.visits - prop.flower.cover)),  # bias as exponentiated difference
-           bias.split = if_else(visits == 0, 0, (prop.visits - prop.flower.cover + 1))) %>%
-    mutate(yday = yday(date)) %>%
-    select(site, date, yday, bb.sp, criterion, 
-           bias, bias.prop, bias.fold, bias.bin, bias.exp, bias.split,
-           visits, flower.cover, prop.visits, prop.flower.cover)
-}
-```
-
-## 2.3 Calculate visitation probability per plant speces/ktype/family
-```{r}
-visit_prob <- visit_cover %>%
+pvis_ktype <- visit_cover %>%
   group_by(site, date, bb.sp, plant.sp) %>%
-  summarize(flower.cover = sum(flower.cover), # get raw flower cover and visits by group
+  summarize(flower.cover = sum(flower.cover), # get raw flower cover and visits by site*date*bb.sp*plant.sp
             visits = sum(visits)) %>%
   group_by(site, date) %>%
-  mutate(prop.flower.cover = flower.cover/sum(flower.cover), # get proportional flower cover and visits by group
-         prop.visits = visits/sum(visits),
-         visits.bin = factor(if_else(visits > 0, 1, 0))) %>%
+  mutate(prop.flower.cover = flower.cover/sum(flower.cover), # proportional flower cover
+         prop.visits = visits/sum(visits), # proportional visits
+         visits.bin = factor(if_else(visits > 0, 1, 0))) %>% # binary visits
   group_by(site, date, bb.sp) %>%
-  mutate(bb.sp.abund = sum(visits)) %>%
-  left_join(fl_traits) %>%
-  left_join(bb_traits) %>%
-  select(site, date, bb.sp, plant.sp, visits.bin, prop.flower.cover, k.type.ss, bb.sp.abund, pbl.w.class2) %>%
-  mutate(k.type.ss = factor(k.type.ss))
-
-
-# Pooled across BB spp
-visit_prob_pooled <- visit_cover %>%
-  group_by(site, date, plant.sp) %>%
-  summarize(flower.cover = sum(flower.cover), # get raw floer cover and visits by group
-            visits = sum(visits)) %>%
-  group_by(site, date) %>%
-  mutate(prop.flower.cover = flower.cover/sum(flower.cover), # get proportional flower cover and visits by group
-         prop.visits = visits/sum(visits),
-         bb.abund = sum(visits),
-         visits.bin = factor(if_else(visits > 0, 1, 0))) %>%
-  mutate(yday = yday(date)) %>%
-  left_join(fl_traits) %>%
-  mutate(k.type.ss = factor(k.type.ss))
-
-
-# 
-# representation_ktype <- biaseval_group(visit_cover, k.type.ss) %>%
-#   left_join(site_data) %>%
-#   rename(group = criterion) %>%
-#   mutate(criterion = rep("ktype", n()))
-# 
-# bias_group_family <- biaseval_group(visit_cover, plant.family) %>%
-#   left_join(site_data) %>%
-#   rename(group = criterion) %>%
-#   mutate(criterion = rep("plant.family", n()))
-# 
-# bias_group <- bind_rows(bias_group_plantsp, bias_group_ktype, bias_group_family)
-# 
-# ggplot(bias_group, aes(prop.flower.cover, prop.visits)) +
-#   geom_point(alpha = 0.1) +
-#   #geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
-#   geom_smooth(method = "lm") +
-#   geom_abline(slope = 1, color = "red", linetype = "dashed") +
-#   facet_wrap(~criterion)
-# 
-# ggplot(bias_group, aes(log(prop.flower.cover), prop.visits)) +
-#   geom_point(alpha = 0.1) +
-#   geom_smooth() +
-#   facet_wrap(~criterion)
-# 
-# ggplot(filter(bias_group, criterion == "ktype"), aes(prop.flower.cover, prop.visits)) +
-#   geom_point(alpha = 0.1) +
-#   geom_smooth() +
-#   geom_abline(slope = 1, color = "red", linetype = "dashed") +
-#   facet_wrap(~group)
+  mutate(bb.sp.abund = sum(visits)) %>% # abundance of each BB sp. per site-date
+  ungroup() %>%
+  left_join(fl_traits) %>% # add floral traits
+  left_join(bb_traits) %>% # add BB traits
+  mutate(k.type.ss = factor(k.type.ss), # recode variables
+         pbl.w.class2 = factor(pbl.w.class2),
+         visits = as.integer(visits)) %>%
+  filter(!k.type.ss %in% c("9", "10")) %>% # Drop ktypes 9 and 10 since both are extremely rare
+  left_join(site_data)  %>%
+  mutate(prop.flower.cover0 = scale(prop.flower.cover), # normalized predictors
+         bb.sp.abund0 = scale(bb.sp.abund),
+         elev.mean0 = scale(elev.mean),
+         yday = yday(date), # and add yday variable
+         yday0 = scale(yday)) %>%
+  select(site, elev.mean0, elev.mean, elev.class2, date, yday, yday0, bb.sp, plant.sp, visits, 
+         visits.bin, prop.visits, prop.flower.cover, prop.flower.cover0,
+         k.type.ss, bb.sp.abund, bb.sp.abund0, pbl.w.class2) 
 ```
 
-## 2.4 Visualize
-```{r}
-# Check the distribution of bias
-ggplot(bias_group_ktype, aes(bias)) +
-  geom_histogram()
+## 2.2 Multi-level models
 
-ggplot(bias_group_ktype, aes(bias)) +
-  geom_histogram() +
-  facet_wrap(~criterion)
-
-ggplot(bias_group_family, aes(bias)) +
-  geom_histogram()
-
-ggplot(bias_group_family, aes(bias)) +
-  geom_histogram() +
-  facet_wrap(~criterion)
-
-# Bias by Kugler morphotype
-ggplot(bias_group_ktype, aes(group, bias)) +
-  geom_boxplot()
-
-ggplot(bias_group_ktype, aes(group, bias)) +
-  geom_boxplot() +
-  facet_wrap(~bb.sp)
-
-ggplot(bias_group_ktype, aes(bb.sp, bias)) +
-  geom_boxplot() +
-  facet_wrap(~group)
-
-ggplot(bias_group_ktype, aes(elev.mean, bias)) +
-  #geom_point() +
-  geom_smooth(method = gam, formula = y ~ s(x, k = 5)) +
-  facet_wrap(~group)
-
-# Bias by plant family
-ggplot(bias_group_family, aes(group, bias)) +
-  geom_boxplot()
-
-ggplot(bias_group_family, aes(group, bias)) +
-  geom_boxplot() +
-  facet_wrap(~bb.sp)
-
-ggplot(bias_group_family, aes(bb.sp, bias)) +
-  geom_boxplot() +
-  facet_wrap(~group)
-
-ggplot(bias_group_family, aes(elev.mean, bias)) +
-  #geom_point() +
-  geom_smooth(method = gam, formula = y ~ s(x, k = 5)) +
-  facet_wrap(~group)
-```
-
-
-## 2.5 Multi-level models
-My approach will be to fit models using both brms and lme4, partly as a learning exercise, partly to enable quicker model development, partly as a sanity check / back-up plan.
-
-### Preliminary visualization
+### 2.2.1 Preliminary visualization
 The tons of zeros are due to the lots of plant species that were present at very low abundance and received few or zero visits. This might not be ideal. We could opt for one of our alternative bias measure, like fold change, which all give something like a poisson distribution, but I don't know if this would be an improvement. We could also filter our data to include only plants that were above some threshold of relative abundance, say, 1%.
 ```{r}
-# Bias
-ggplot(representation, aes(k.type.ss, bias)) +
-  geom_violin()
-
-# Bias.fold
-ggplot(representation, aes(k.type.ss, bias.fold)) +
-  geom_violin()
-
-# Bias.exp
-ggplot(representation, aes(k.type.ss, bias.exp)) +
-  geom_violin()
-
-# Bias.bin
-ggplot(representation, aes(k.type.ss, fill = bias.bin)) +
-  geom_bar()
+# Visit.prop
+ggplot(filter(pvis_ktype, prop.flower.cover >= 0.05), aes(prop.visits)) +
+  geom_histogram()
 
 # Visits.bin
-ggplot(representation, aes(k.type.ss, fill = visits.bin)) +
+ggplot(pvis_ktype, aes(k.type.ss, fill = visits.bin)) +
   geom_bar()
 
-ggplot(visit_prob_pooled, aes(k.type.ss, fill = visits.bin)) +
-  geom_bar(position = "fill")
-
-
-# Bias filtered
-ggplot(filter(representation, prop.flower.cover >= 0.05), aes(k.type.ss, bias)) +
-  geom_violin()
-
-ggplot(filter(representation, visits > 0), aes(k.type.ss, bias)) +
-  geom_violin()
+ggplot(pvis_ktype, aes(elev.mean, prop.visits)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(bb.sp~k.type.ss)
 
 # Visits.bin filtered
-ggplot(filter(representation, prop.flower.cover >= 0.05), aes(k.type.ss, fill = visits.bin)) +
+ggplot(filter(pvis_ktype, prop.flower.cover >= 0.05), aes(k.type.ss, fill = visits.bin)) +
   geom_bar()
 ```
 
-
-### lme4 models
-We will drop ktypes 9 and 10 from these models since both are vanishingly rare
+### 2.2.2 brms models
 ```{r}
-# This model does not parse by tongue length
-glmer_vp00 <- glmer(visits.bin ~ prop.flower.cover + bb.sp.abund + (1 | k.type.ss) + (1 | site),
-                    family  = "binomial",
-                    data = filter(visit_prob, !k.type.ss %in% c("9", "10")))
+# Poisson models of raw visit counts
+brm_pvis00 <- brm(visits ~ prop.flower.cover0 + 
+                    bb.sp.abund0 + 
+                    (1 | k.type.ss) + 
+                    (1 | site) + 
+                    (1 | bb.sp),
+                  #control = list(adapt_delta = 0.99),
+                  family = "poisson",
+                  file = "./output/brm_pvis00b",
+                  chains = 4,
+                  #cores = 4,
+                  iter = 2000,
+                  data = pvis_ktype)
 
-plot_model(glmer_vp00, type = "pred")
-plot_model(glmer_vp00, type = "re")
+summary(brm_pvis00)
+prior_summary(brm_pvis00)
+parnames(brm_pvis00)
+mcmc_plot(brm_pvis00, pars = c("^r_k"))
+mcmc_plot(brm_pvis00, pars = c("^r_s"))
+mcmc_plot(brm_pvis00, pars = c("^b_"))
+mcmc_plot(brm_pvis00)
+conditional_effects(brm_pvis00)
+pp_check(brm_pvis00)
+bayes_R2(brm_pvis00)
 
-# This model does 
-glmer_vp01 <- glmer(visits.bin ~ prop.flower.cover + bb.sp.abund + (1 | k.type.ss:pbl.w.class2) + (1 | site),
-                    family  = "binomial",
-                    data = filter(visit_prob, !k.type.ss %in% c("9", "10")))
+# Perhaps I should add the bb.sp varying intercept effect; otherwise, I think I could be accused of pseudo replication.
+brm_pvis11 <- brm(visits ~ prop.flower.cover0 + 
+                    bb.sp.abund0 + 
+                    (1 | k.type.ss:pbl.w.class2) + 
+                    (1 | site) +
+                    (1 | bb.sp),
+                  family = "poisson",
+                  file = "../output/brm_pvis11",
+                  chains = 4,
+                  #cores = 4,
+                  iter = 2000,
+                  data = pvis_ktype)
 
-plot_model(glmer_vp01, type = "pred")
-plot_model(glmer_vp01, type = "re")
+summary(brm_pvis11)
+prior_summary(brm_pvis11)
+parnames(brm_pvis11)
+mcmc_plot(brm_pvis11, pars = c("^r_k"))
+mcmc_plot(brm_pvis11, pars = c("^r_b"))
+mcmc_plot(brm_pvis11, pars = c("^b_"))
+mcmc_plot(brm_pvis11)
+conditional_effects(brm_pvis11)
+pp_check(brm_pvis11)
+bayes_R2(brm_pvis11)
 ```
 
-
-### brms models
+#### 2.2.2.1 Plot
 ```{r}
-# This model does not parse by tongue length
-brm_representation00 <- brm(visits.bin ~ prop.flower.cover + bb.sp.abund + (1 | k.type.ss) + (1 | site),
-                            family = "bernoulli",
-                            file = "../output/brm_vp00",
-                            chains = 4,
-                            cores = 4,
-                            iter = 2000,
-                            data = filter(visit_prob, !k.type.ss %in% c("9", "10")))
+# Note that the intercept is on the log scale, so if you want to transform it back to predicted # visits, you have to exponentiate it. I think.
 
-summary(brm_representation00)
-prior_summary(brm_representation00)
-parnames(brm_representation00)
-mcmc_plot(brm_representation00, pars = c("^r_k"))
-mcmc_plot(brm_representation00, pars = c("elev"))
-mcmc_plot(brm_representation00, pars = c("^b_"))
-mcmc_plot(brm_representation00)
-conditional_effects(brm_representation00)
-pp_check(brm_representation00)
-bayes_R2(brm_representation00)
+## Interaction model
+brm_pvis11_plotframe <- brm_pvis11 %>%
+  spread_draws(b_Intercept, `r_k.type.ss:pbl.w.class2`[condition, term]) %>% # the back ticks are necessary to escape the :
+  rename(r_ktype.pbl = `r_k.type.ss:pbl.w.class2`) %>%
+  mutate(condition_mean = b_Intercept + r_ktype.pbl) %>%
+  separate(condition, c("ktype", "pbl.class"), sep = "_", remove = FALSE) %>%
+  mutate(pbl.class = case_when(
+    pbl.class == "1" ~ "short",
+    pbl.class == "2" ~ "med",
+    pbl.class == "3" ~ "long")
+    ) %>%
+  mutate(ktype = case_when(
+    ktype == "0" ~ "NA (0)",
+    ktype == "1" ~ "Disc (1)",
+    ktype == "2" ~ "Funnel (2)",
+    ktype == "3" ~ "Bell (3)",
+    ktype == "4" ~ "Stalk-disc (4)",
+    ktype == "5" ~ "Lip (5)",
+    ktype == "6" ~ "Flag (6)",
+    ktype == "7" ~ "Head (7)")
+  ) %>%
+  mutate(ktype = factor(ktype,
+                        levels = c("Disc (1)", "Funnel (2)", "Bell (3)", "Stalk-disc (4)",
+                                   "Lip (5)", "Flag (6)", "Head (7)", "NA (0)")))
 
-hypothesis(brm_representation00, "r_k.type.ss[0,Intercept] = r_k.type.ss[1,Intercept]", class = NULL)
-hypothesis(brm_representation00, "r_k.type.ss[1,Intercept] = r_k.type.ss[2,Intercept]", class = NULL)
-hypothesis(brm_representation00, "r_k.type.ss[6,Intercept] = r_k.type.ss[5,Intercept]", class = NULL)
-hypothesis(brm_representation00, "r_k.type.ss[6,Intercept] = r_k.type.ss[5,Intercept]", class = NULL)
-hypothesis(brm_representation00, "r_k.type.ss[6,Intercept] = r_k.type.ss[5,Intercept]", class = NULL)
+# ggplot(brm_pvis11_plotframe, aes(condition_mean, pbl.class, color = pbl.class, fill = pbl.class)) +
+#   stat_pointinterval() +
+#   #stat_halfeye(alpha = 0.5, interval_alpha = 1, point_alpha = 1, size = 1, .width = 0.95) +
+#   facet_grid(ktype ~ .) +
+#   theme_light() +
+#   labs(color = "Tongue length", x = "Visits (log-scale)") +
+#   guides(fill = FALSE) +
+#   theme(axis.title.y=element_blank(),
+#         axis.text.y=element_blank(),
+#         axis.ticks.y=element_blank())
 
-# This model does
-brm_representation01 <- brm(visits.bin ~ prop.flower.cover + bb.sp.abund + (1 | k.type.ss:pbl.w.class2) + (1 | site),
-                            family = "bernoulli",
-                            file = "../output/brm_vp01",
-                            chains = 4,
-                            cores = 4,
-                            iter = 2000,
-                            data = filter(visit_prob, !k.type.ss %in% c("9", "10")))
+ggplot(brm_pvis11_plotframe, aes(condition_mean, pbl.class, color = pbl.class, fill = pbl.class)) +
+  #stat_pointinterval() +
+  stat_halfeye(alpha = 0.4, interval_alpha = 1, point_alpha = 1) +
+  facet_wrap(~ktype, scales = "free") +
+  theme_light() +
+  labs(color = "Tongue length", x = "Visits (log-scale)") +
+  guides(fill = FALSE) +
+  theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+ggsave(file = "../output/brm_pvis11_plot1.png", width = 7, height = 5.5)
 
 
+# Just ktype model
+brm_pvis00_plotframe <- brm_pvis00 %>%
+  spread_draws(b_Intercept, r_k.type.ss[condition, term]) %>% # the back ticks are necessary to escape the :
+  mutate(condition_mean = b_Intercept + r_k.type.ss) %>%
+  mutate(ktype = case_when(
+    condition == "0" ~ "NA",
+    condition == "1" ~ "Disc",
+    condition == "2" ~ "Funnel",
+    condition == "3" ~ "Bell",
+    condition == "4" ~ "Stalk-disc",
+    condition == "5" ~ "Lip",
+    condition == "6" ~ "Flag",
+    condition == "7" ~ "Head")
+  ) %>%
+  mutate(ktype = factor(ktype,
+                        levels = c("Disc", "Funnel", "Bell", "Stalk-disc",
+                                   "Lip", "Flag", "Head", "NA")))
 
+ggplot(brm_pvis00_plotframe, aes(condition_mean, ktype)) +
+  stat_halfeye() +
+  theme_light() +
+  guides(fill = FALSE) +
+  xlab("Visits (log-scale)") +
+  ylab("Morphotype")
+
+ggsave(file = "../output/brm_pvis00_plot1.png", width = 7, height = 5.5)
 ```
 
-## 2.6 Ordination of bias
+### 2.2.3 The lability of bias: How does the foraging bias of each species with respect to each morphotype vary through elevation and time?
 ```{r}
-rep_matrix.ktype <- representation %>%
-  group_by(bb.sp, k.type.ss) %>%
-  summarize(bias = mean(bias)) %>%
-  pivot_wider(values_from = bias, names_from = k.type.ss, values_fill = 0) %>%
-  column_to_rownames("bb.sp")
+ggplot(pvis_ktype, aes(elev.mean, prop.visits)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_grid(bb.sp ~ k.type.ss)
 
-rep_matrix.ktype2 <- representation %>%
-  group_by(bb.sp, k.type.ss) %>%
-  summarize(visit.bin = mean(bias)) %>%
-  pivot_wider(values_from = visit.bin, names_from = k.type.ss, values_fill = 0) %>%
-  column_to_rownames("bb.sp")
+ggplot(pvis_ktype, aes(elev.mean, prop.visits)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_grid(bb.sp ~ k.type.ss)
 
-traits <- bb_traits %>%
-  arrange(bb.sp)
+ggplot(pvis_ktype, aes(yday0, prop.visits)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_grid(bb.sp ~ k.type.ss)
 
-pca.ktype <- rda(rep_matrix.ktype2)
-#ef.ktype <- envfit(pca.ktype ~ pbl.w.class, data = traits)
-#os.ktype <- ordisurf(pca.ktype ~ pbl.w.class, data = traits)
-ef.ktype <- envfit(pca.ktype ~ pbl.w, data = traits)
-os.ktype <- ordisurf(pca.ktype ~ pbl.w, data = traits)
-plot(pca.ktype, type = "t")
-plot(ef.ktype, add = TRUE)
-plot(os.ktype)
+brm_pviselev00 <- brm(visits ~ prop.flower.cover0 + 
+                        bb.sp.abund0 + 
+                        (1 + elev.mean0:yday0 | k.type.ss:bb.sp),
+                      family = "poisson",
+                      file = "../output/brm_pviselev00",
+                      chains = 4,
+                      cores = 4,
+                      iter = 2000,
+                      data = pvis_ktype)
+
+summary(brm_pviselev00)
+prior_summary(brm_pviselev00)
+parnames(brm_pviselev00)
+mcmc_plot(brm_pviselev00, pars = c("^r_k"))
+mcmc_plot(brm_pviselev00, pars = c("^r_s"))
+mcmc_plot(brm_pviselev00, pars = c("^b_"))
+mcmc_plot(brm_pviselev00)
+conditional_effects(brm_pviselev00)
+pp_check(brm_pviselev00)
+bayes_R2(brm_pviselev00)
 ```
-
 
 # 3. Effects of bias
 
 ## 3.1 Relationship between bias(d') and niche overlap
 ### 3.1.1 A function for calculating niche overlap
+Niche overlap (Horn's distance) is first calculated for each species pair and each site-date. Naturally, site-dates in which only one BB species was observed return empty niche overlap matrices and so are excluded from further analysis.  
 ```{r}
 # Niche overlap by sp.pair * site * year
 niche_overlapper <- function(x, criterion) {
@@ -1343,13 +636,14 @@ niche_overlapper <- function(x, criterion) {
     group_by(site, date) %>%
     nest() %>% # nest into list-column
     mutate(data2 = map(data, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
+           richness = map(data, function(x) length(x$bb.sp)),
            dist = map(data2, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
            tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
-    dplyr::select(site, date, tidy_dist) %>% # drop intermediate list-columns
+    #dplyr::select(site, date, tidy_dist) %>% # drop intermediate list-columns
     unnest(cols = c(tidy_dist)) %>%
     rename(bb.sp1 = item1, bb.sp2 = item2) %>%
     mutate(niche.overlap = 1-distance,  # express niche overlap so that 1 = perfect overlap and 0 = no overlap
-           bss = if_else(bb.sp1 == "bss" | bb.sp2 == "bss", TRUE, FALSE),
+           telu = if_else(bb.sp1 == "telu" | bb.sp2 == "telu", TRUE, FALSE),
            pasc = if_else(bb.sp1 == "pasc" | bb.sp2 == "pasc", TRUE, FALSE),
            wurf = if_else(bb.sp1 == "wurf" | bb.sp2 == "wurf", TRUE, FALSE),
            prat = if_else(bb.sp1 == "prat" | bb.sp2 == "prat", TRUE, FALSE),
@@ -1365,15 +659,370 @@ niche_overlapper <- function(x, criterion) {
            hypn = if_else(bb.sp1 == "hypn" | bb.sp2 == "hypn", TRUE, FALSE),
            lapi = if_else(bb.sp1 == "lapi" | bb.sp2 == "lapi", TRUE, FALSE),
            hort = if_else(bb.sp1 == "hort" | bb.sp2 == "hort", TRUE, FALSE))
+}
+```
 
+### 3.1.2 My first question is how niche overlap compares across species pairs
+```{r}
+# Unaggregated niche overlap per species pair; not that this drops a lot of data because of the inner join with bias
+niche_overlap <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  group_by(site, date, bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>%
+  niche_overlapper(plant.sp) %>%
+  mutate(yday = yday(date)) %>%
+  left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>%
+  rename(pbl.w.class2_sp1 = pbl.w.class2) %>%
+  left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
+  rename(pbl.w.class2_sp2 = pbl.w.class2) %>%
+  mutate(same.class = case_when(
+    pbl.w.class2_sp1 == "1" & pbl.w.class2_sp2 == "1" ~ "short:short",
+    pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "2" ~ "med:med",
+    pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "3" ~ "long:long",
+    pbl.w.class2_sp1 == "1" & pbl.w.class2_sp2 == "2" ~ "short:med",
+    pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "1" ~ "short:med",
+    pbl.w.class2_sp1 == "1" & pbl.w.class2_sp2 == "3" ~ "short:long",
+    pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "1" ~ "short:long",
+    pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "3" ~ "med:long",
+    pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "2" ~ "med:long")
+    ) %>%
+  left_join(bb_abundance, by = c("site", "date", "bb.sp1" = "bb.sp")) %>%
+  rename(bb.sp1.abund = bb.sp.abund) %>%
+  left_join(bb_abundance, by = c("site", "date", "bb.sp2" = "bb.sp")) %>%
+  rename(bb.sp2.abund = bb.sp.abund) %>%
+  unite(sp.pair, c(bb.sp1, bb.sp2), sep = "_", remove = FALSE) %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date)) %>%
+  select(site, date, yday, elev.mean, sp.pair, bb.sp1, bb.sp2, bb.sp1.abund, 
+         bb.sp2.abund, niche.overlap, same.class)
+
+# Niche overlap becomes rather binary when one or both species is rare. This is driven especially by singletons.
+ggplot(niche_overlap, aes(sp.pair, niche.overlap)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Let's see if we can improve matters by dropping singletons
+ggplot(filter(niche_overlap, bb.sp1.abund >= 2 & bb.sp1.abund >= 2), 
+       aes(sp.pair, niche.overlap)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Now a threshold of 3
+ggplot(filter(niche_overlap, bb.sp1.abund >= 3 & bb.sp1.abund >= 3), 
+       aes(sp.pair, niche.overlap)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(filter(niche_overlap, bb.sp1.abund >= 3 & bb.sp1.abund >= 3), 
+       aes(same.class, niche.overlap)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Now a threshold of 5...bye, all the species pairs...
+ggplot(filter(niche_overlap, bb.sp1.abund >= 5 & bb.sp1.abund >= 5), 
+       aes(sp.pair, niche.overlap)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(filter(niche_overlap, bb.sp1.abund >= 10 & bb.sp1.abund >= 10), 
+       aes(sp.pair, niche.overlap)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Let's see if there is any influence of site, elevation, yday
+ggplot(filter(niche_overlap, bb.sp1.abund >= 3 & bb.sp1.abund >= 3), 
+       aes(site, niche.overlap)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(filter(niche_overlap, bb.sp1.abund >= 3 & bb.sp1.abund >= 3), 
+       aes(elev.mean, niche.overlap)) +
+  geom_point() +
+  geom_smooth() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(filter(niche_overlap, bb.sp1.abund >= 3 & bb.sp1.abund >= 3), 
+       aes(yday, niche.overlap)) +
+  geom_point() +
+  geom_smooth() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Abundance relatonships
+ggplot(niche_overlap, aes(log(bb.sp1.abund), log(bb.sp2.abund))) +
+  geom_point() +
+  geom_smooth(se = FALSE) +
+  facet_wrap(~sp.pair)
+
+#
+ggplot(niche_overlap, aes(same.class, niche.overlap)) +
+  geom_boxplot() 
+
+# Now for what is probably a pretty naive model
+
+brm_niche00 <- brm(niche.overlap ~ bb.sp1.abund*bb.sp2.abund + 
+                     (1 | sp.pair) + 
+                     (1 | same.class) + 
+                     (1 | site),
+                   chains = 4,
+                   cores = 4,
+                   iter = 2000,
+                   file = "../output/brm_niche00",
+                   data = filter(niche_overlap, bb.sp1.abund >= 1 & bb.sp1.abund >= 1))
+
+parnames(brm_niche02)
+conditional_effects(brm_niche02)
+mcmc_plot(brm_niche02, pars = c("^r_sp"))
+mcmc_plot(brm_niche02, pars = c("^r_sa"))
+mcmc_plot(brm_niche02, pars = c("^b_"))
+hypothesis(brm_niche02, "dprime = 0")
+pp_check(brm_niche02)
+bayes_R2(brm_niche02)
+
+```
+
+### 3.1.3 Now I'd be interested to know how niche overlap relates to dprime
+```{r}
+niche_overlap_bias <- niche_overlap %>%
+  inner_join(bias, by = c("site", "date", c("bb.sp1" = "bb.sp"))) %>%
+  rename(dprime.sp1 = dprime.sp) %>%
+  inner_join(bias, by = c("site", "date", c("bb.sp2" = "bb.sp"))) %>%
+  rename(dprime.sp2 = dprime.sp) %>%
+  select(site, date, bb.sp1, bb.sp2, bb.sp1.abund, bb.sp2.abund, 
+         dprime.sp1, dprime.sp2, niche.overlap, same.class)
+
+
+# When bias is high, it could mean that there are few good options on which all (or many) BB species converge. But apparently it doesn't. When bias is high, BB spp are biased toward DIFFERENT flora, and thus their niches diverge. 
+ggplot(niche_overlap_bias, aes(dprime.sp, mean.niche.overlap)) +
+  geom_point(alpha = 0.1) +
+  geom_smooth(method = "lm") +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = TRUE) +
+  facet_wrap(~bb.sp) +
+  ylim(c(0,1))
+
+brm.bias_niche <- brm(mean.niche.overlap ~ dprime.sp + (1 + dprime.sp | bb.sp) + (1 + dprime.sp | site),
+                     cores = 4,
+                     chains = 4,
+                     iter = 2000,
+                     file = "../output/brm_bias_nicheoverlap",
+                     data = bias_nicheoverlap)
+
+parnames(brm.bias_niche)
+conditional_effects(brm.bias_niche)
+mcmc_plot(brm.bias_niche, pars = c("^r_"))
+hypothesis(brm.bias_niche, "dprime = 0")
+pp_check(brm.bias_niche)
+bayes_R2(brm.bias_niche)
+
+
+brm.dprime_niche00 <- brm(mean.niche.overlap ~ dprime.sp + (1 | bb.sp) + (1 | site),
+                     cores = 4,
+                     chains = 4,
+                     iter = 2000,
+                     file = "../output/brm_bias_niche00",
+                     data = bias_nicheoverlap)
+
+parnames(brm.dprime_niche00)
+conditional_effects(brm.dprime_niche00)
+mcmc_plot(brm.dprime_niche00, pars = c("^r_bb"))
+mcmc_plot(brm.dprime_niche00, pars = c("^b_"))
+hypothesis(brm.dprime_niche00, "dprime = 0")
+pp_check(brm.dprime_niche00)
+bayes_R2(brm.dprime_niche00)
+```
+
+## 3.2 Ordination of dietary niche
+```{r}
+# Aggregated by mean proportional visitation
+
+# We will use the whole dataset this time, since there is no need to align visitation to floral surveying
+visitation1 <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  group_by(site, date, bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>%
+  group_by(site, date, bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
+  group_by(bb.sp, plant.sp) %>%
+  summarize(mean.prop.visits = mean(prop.visits)) %>%
+  pivot_wider(names_from = plant.sp, values_from = mean.prop.visits, values_fill = 0) %>%
+  column_to_rownames("bb.sp")
+
+visitation2 <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  group_by(site, date, bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>%
+  group_by(site, date, bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
+  unite(id, c(site, date, bb.sp)) %>%
+  select(-visits) %>%
+  pivot_wider(names_from = plant.sp, values_from = prop.visits, values_fill = 0) %>%
+  column_to_rownames("id")
+
+# Aggregated
+pcoa_horn1 <- capscale(visitation1 ~ 1, distance = "horn")
+pcoa_horn1.fort1 <- fortify(pcoa_horn1, axes = 1:2) %>%
+  filter(Score == "species") %>%
+  rename(plant.sp = Label) %>%
+  left_join(fl_traits)
+pcoa_horn1.fort2 <- fortify(pcoa_horn1, axes = 1:2) %>%
+  filter(Score == "sites") %>%
+  rename(bb.sp = Label) %>%
+  left_join(bb_traits)
+
+ggplot(pcoa_horn1.fort2, aes(MDS1, MDS2)) +
+  geom_text(aes(label = bb.sp)) +
+  coord_fixed()
+
+# Disaggregated
+pcoa_horn <- capscale(visitation2 ~ 1, distance = "horn")
+pcoa_horn.fort <- fortify(pcoa_horn, axes = 1:2)
+pcoa_horn.fort1 <- pcoa_horn.fort %>%
+  filter(Score == "species") %>%
+  rename(plant.sp = Label) %>%
+  left_join(fl_traits)
+pcoa_horn.fort2 <- pcoa_horn.fort %>%
+  filter(Score == "sites") %>%
+  separate(Label, c("site", "date", "bb.sp"), sep = "_") %>%
+  left_join(bb_traits)
+
+ggplot(pcoa_horn.fort1, aes(MDS1, MDS2, color = factor(k.type.ss))) +
+  geom_point(alpha = 0.25) +
+  coord_fixed() 
+
+ggplot(pcoa_horn.fort2, aes(MDS1, MDS2, color = factor(pbl.w.class2))) +
+  geom_point(alpha = 0.5) +
+  coord_fixed() 
+
+ggplot(pcoa_horn.fort2, aes(MDS1, MDS2, color = factor(pbl.w.class2))) +
+  geom_density2d() +
+  coord_fixed() 
+
+
+
+
+
+
+
+
+
+
+
+visitation3 <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  group_by(bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>%
+  group_by(bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits))
+
+visitation_aggregate2 <- visitation2 %>%
+  group_by(bb.sp, plant.sp) %>%
+  summarize(mean.prop.visits = mean(prop.visits)) %>%
+  pivot_wider(names_from = plant.sp, values_from = mean.prop.visits, values_fill = 0) %>%
+  column_to_rownames("bb.sp")
+
+visitation_aggregate3 <- visitation3 %>%
+  pivot_wider(names_from = plant.sp, values_from = prop.visits, values_fill = 0) %>%
+  column_to_rownames("bb.sp")
+
+bb_traits2 <- bb_traits %>%
+  select(bb.sp, pbl.w.class2) %>%
+  arrange(bb.sp)
+
+pcoa_horn <- capscale(visitation_aggregate ~ 1, distance = "horn")
+envfit_horn <- envfit(pcoa_horn ~ pbl.w.class2, data = bb_traits2)
+plot(pcoa_horn, type = "t")
+plot(envfit_horn, add = TRUE)
+pcoa_horn.fort <- fortify(pcoa_horn, axes = 1:2)
+
+
+# What if I did not aggregate the data?
+visit_cover_prop.plantsp2 <- visit_cover %>%
+  filter(bb.sp %in% c("pasc", "prat", "telu", "soro", "wurf", "psit")) %>%
+  select(site, date, bb.sp, plant.sp, k.type.ss, visits, flower.cover) %>%
+  group_by(site, date, bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
+  group_by(site, date, plant.sp) %>%
+  mutate(prop.flower.cover = flower.cover/sum(flower.cover)) %>%
+  unite(id, c(site, date, bb.sp), remove = TRUE) %>%
+  select(id, plant.sp, prop.visits) %>%
+  pivot_wider(names_from = plant.sp, values_from = prop.visits, values_fill = 0) %>%
+  column_to_rownames("id")
+
+traits <- bb_traits %>%
+  filter(bb.sp %in% c("pasc", "prat", "telu", "soro", "wurf", "psit")) %>%
+  select(bb.sp, pbl.w.class2) %>%
+  arrange(bb.sp)
+
+pcoa_horn2 <- capscale(visit_cover_prop.plantsp2 ~ 1, distance = "horn")
+envfit_horn2 <- envfit(pcoa_horn2 ~ pbl.w.class2, data = traits)
+plot(pcoa_horn2, type = "t")
+plot(envfit_horn2, add = TRUE)
+
+pcoa_horn2_fort <- fortify(pcoa_horn2) 
+
+pcoa_horn2_plot <- pcoa_horn2_fort %>%
+  filter(Score == "sites") %>%
+  separate(Label, c("site", "date", "bb.sp"), sep = "_") %>%
+  mutate(date = ymd(date)) %>%
+  mutate(yday = yday(date))
+
+ggplot(pcoa_horn2_plot, aes(MDS1, MDS2, color = bb.sp)) +
+  geom_point() +
+  coord_fixed() 
+
+ggplot(pcoa_horn2_plot, aes(MDS1, MDS2, color = yday)) +
+  geom_point() +
+  coord_fixed() 
+```
+
+# Trash can
+
+```{r}
+niche_overlapper <- function(x, criterion) {
+    
+  criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
+  
+  no1 <- x %>%
+    group_by(bb.sp, !!criterion, site, date) %>% # group by site-year and BB-FL pair
+    summarize(visits = sum(visits)) %>%
+    group_by(bb.sp, site, date) %>% # group by site-year and BB species
+    mutate(prop.visits = visits/sum(visits)) %>% # get proportional interaction frequency for each BB-FL pair
+    select(site, date, bb.sp, !!criterion, prop.visits) %>%
+    pivot_wider(names_from = !!criterion, values_from = prop.visits, values_fill = 0) %>% # spread into the kind of array vegan likes
+    group_by(site, date) %>%
+    nest() %>% # nest into list-column
+    mutate(data2 = map(data, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
+           richness = map(data, function(x) length(x$bb.sp)),
+           dist = map(data2, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
+           tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
+    #dplyr::select(site, date, tidy_dist) %>% # drop intermediate list-columns
+    unnest(cols = c(tidy_dist)) %>%
+    rename(bb.sp1 = item1, bb.sp2 = item2) %>%
+    mutate(niche.overlap = 1-distance,  # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+           telu = if_else(bb.sp1 == "telu" | bb.sp2 == "telu", TRUE, FALSE),
+           pasc = if_else(bb.sp1 == "pasc" | bb.sp2 == "pasc", TRUE, FALSE),
+           wurf = if_else(bb.sp1 == "wurf" | bb.sp2 == "wurf", TRUE, FALSE),
+           prat = if_else(bb.sp1 == "prat" | bb.sp2 == "prat", TRUE, FALSE),
+           soro = if_else(bb.sp1 == "soro" | bb.sp2 == "soro", TRUE, FALSE),
+           humi = if_else(bb.sp1 == "humi" | bb.sp2 == "humi", TRUE, FALSE),
+           muci = if_else(bb.sp1 == "muci" | bb.sp2 == "muci", TRUE, FALSE),
+           pyre = if_else(bb.sp1 == "pyre" | bb.sp2 == "pyre", TRUE, FALSE),
+           mont = if_else(bb.sp1 == "mont" | bb.sp2 == "mont", TRUE, FALSE),
+           mend = if_else(bb.sp1 == "mend" | bb.sp2 == "mend", TRUE, FALSE),
+           psit = if_else(bb.sp1 == "psit" | bb.sp2 == "psit", TRUE, FALSE),
+           gers = if_else(bb.sp1 == "gers" | bb.sp2 == "gers", TRUE, FALSE),
+           jone = if_else(bb.sp1 == "jone" | bb.sp2 == "jone", TRUE, FALSE),
+           hypn = if_else(bb.sp1 == "hypn" | bb.sp2 == "hypn", TRUE, FALSE),
+           lapi = if_else(bb.sp1 == "lapi" | bb.sp2 == "lapi", TRUE, FALSE),
+           hort = if_else(bb.sp1 == "hort" | bb.sp2 == "hort", TRUE, FALSE))
+  
   no <- list(
     
-  no_bss <- no1 %>%
-    group_by(site, date, bss) %>% 
+  no_telu <- no1 %>%
+    group_by(site, date, telu) %>% 
     summarize(mean.niche.overlap = mean(niche.overlap),
               max.niche.overlap = max(niche.overlap)) %>%
-    mutate(bb.sp = rep("bss", n())) %>%
-    filter(bss == TRUE),
+    mutate(bb.sp = rep("telu", n())) %>%
+    filter(telu == TRUE),
   
   no_pasc <- no1 %>%
     group_by(site, date, pasc) %>%
@@ -1483,80 +1132,52 @@ niche_overlapper <- function(x, criterion) {
     
     bind_rows() %>%
     select(site, date, bb.sp, mean.niche.overlap, max.niche.overlap)
-  }
+}
 ```
 
-### 3.1.2 Calculate niche overlap: NOT READY FOR INTERPRETATION YET
+## 2.1 Defining bias
+
+Deciding exactly how to represent bias turns out to be rather tricky. I am trying out a few options right now.   
+
+1. Bias could  be treated simply as the Euclidean difference between prop.flower.cover and prop.visits. This has the effect of weighting bias by flower.cover, particularly negative bias, since an abundant plant can have a greater negative bias (because it is farther from 0) than a rare plant. Euclidean bias is bounded between -1 and 1. Its symmetry is a nice property that sets it apart from proportional or fold-change bias. If, for whatever reason, I decided that a log-transformation of this measure were desirable, I think I could simply add a constant of 1 to all values, which would move the boundary up to (0, 2). I think the biggest problem with measuring bias in this way is that it makes no distinction between a plant that was visited a little and one that was visited not at all, and that could be an important biological difference. For example, consider two plants, one with a proportional abundance = 0.01 and proportional visitation = 0.01, and the second with proportional abundance = 0.01 and proportional visitation = 0.00. These will look identical in our analysis, but it is possible that the unvisited plant would not have been visited no matter how high its abundance was. **For starters, though, I am going to proceed with this metric because it is the simplest. And because DJ thought it was a good idea.**
+
+2. Alternatively, bias could be calculated as a simple proportion: prop.visits/prop.flower.cover. If anything, this might tend to reverse the weighting, since a small Euclidean change in a rare species would be a large proportional change. Proportional change has a lower boundary of 0 and no upper boundary. This approach highlights cases of positive bias, but it is even worse than euclidean bias in terms of obscuring the distinction between plants visited slightly and those visited not at all. Worse in a sense. In another sense, it is better than euclidean bias, because with proportional visitation a plant visited 0 times is at least numerical distinguishable from one visited 1 time (visited plants will always have non-zero proportional bias). 
+
+3. Similarly to proportional bias, I could calculate bias as fold change. This converges to be virtually identical to proportional change as bias becomes more positive, but fold change has a lower bound of -1 instead of 0. 
+
+4. If the distinction between plants that were visited and those that were not is what we're most interested in, we could simply treat bias as binary. This, of course, comes at the price of not being able to distinguish a plant that received 0.01 proportional visitation and one that recevied  0.99 proportional visitation, and this distinction is arguably important. 
+
+5. An interesting option is to first separate visited from unvisited plants, set the bias of unvisited plants to 0, and then exponentiate the euclidean bias of all visited plant species. This has some desirable properties. First, it clearly distinguished visited plants from unvisited ones. Second, it assigns plants visited perfectly in proportion to their abundance a sensible bias of 1 (just like proportional bias). Thus, plants with a psotive bias are > 1 (bounded at 2.718282 -- okay, so that's a bit inelegant), those with a negative bias are < 1 (bounded at 0.367895), and those not visited at all = 0. 
+
+6. The problem with the option above is that is adds weight to positive bias. Another approach is to separate the unvisited plants from the visited, set unvisited bias = 0, and visited bias = prop.visits - prop.flower.cover + 1. The +1 serves to make the distribution positive, with 1 represening perfect proportionality between visitation and floral abundance. This creates a symmetrically bounded distribution between 0 (not inclusive) and 2 (inclusive), plus the true zeros from the unvisited plants. It feels a bit...slapped together, though.
+
+*We will adopt the term representation to avoid confusion with the object defined above.*
+
+## 2.2 Function for calculating bias per group (= criterion)
 ```{r}
-niche_overlap_plant.sp <- niche_overlapper(visit_cover, plant.sp)
-
-niche_overlap_ktype <- niche_overlapper(visit_cover, k.type.ss)
-
-niche_overlap_plant.family <- niche_overlapper(visit_cover, plant.family)
-
-niche_overlap <- bind_rows(no_plant.sp, 
-                           no_ktype, 
-                           no_plant.family)
-
-# When bias is high, it could mean that there are few good options on which all (or many) BB species converge. But apparently it doesn't. When bias is high, BB spp are biased toward DIFFERENT flora, and thus their niches diverge. 
-ggplot(bias, aes(dprime, mean.niche.overlap, color = criterion)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth(method = "lm") +
-  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
-  facet_wrap(~bb.sp) +
-  ylim(c(0,1))
-
-ggplot(bias, aes(dprime, max.niche.overlap, color = criterion)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth(method = "lm") +
-  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
-  facet_wrap(~bb.sp) +
-  ylim(c(0,1))
-
-ggplot(bias, aes(log(total.flower.cover), dprime, color = criterion)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth(method = "lm") +
-  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
-  facet_wrap(~bb.sp) +
-  ylim(c(0,1))
-
-ggplot(bias, aes(log(total.flower.cover), mean.niche.overlap, color = criterion)) +
-  geom_point(alpha = 0.1) +
-  geom_smooth(method = "lm") +
-  #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
-  facet_wrap(~bb.sp) +
-  ylim(c(0,1))
-
-
-brm.bias_niche <- brm(mean.niche.overlap ~ 1 + dprime + (1 | bb.sp),
-                     cores = 3,
-                     data = filter(bias, criterion == "ktype"))
-
-parnames(brm.bias_niche)
-conditional_effects(brm.bias_nich)
-hypothesis(brm.bias_niche, "dprime = 0")
-pp_check(brm.bias_niche)
+biaseval_group <- function(x, criterion) {
+  
+  criterion <- enquo(criterion)
+  
+  x %>%
+    mutate(criterion = factor(!!criterion)) %>% # having this as a factor will help with modeling later on
+    group_by(site, date, bb.sp, criterion) %>%
+    summarize(flower.cover = sum(flower.cover), # get raw floer cover and visits by group
+              visits = sum(visits)) %>%
+    group_by(site, date, bb.sp) %>%
+    mutate(prop.flower.cover = flower.cover/sum(flower.cover), # get proportional flower cover and visits by group
+           prop.visits = visits/sum(visits)) %>%
+    mutate(bias = prop.visits - prop.flower.cover, # bias as difference
+           bias.prop = prop.visits/prop.flower.cover, # bias as proportion
+           bias.fold = bias/prop.flower.cover, # bias as fold change
+           bias.bin = if_else(bias > 0, 1, 0), # bias as binary
+           bias.exp = if_else(visits == 0, 0, exp(prop.visits - prop.flower.cover)),  # bias as exponentiated difference
+           bias.split = if_else(visits == 0, 0, (prop.visits - prop.flower.cover + 1))) %>%
+    mutate(yday = yday(date)) %>%
+    select(site, date, yday, bb.sp, criterion, 
+           bias, bias.prop, bias.fold, bias.bin, bias.exp, bias.split,
+           visits, flower.cover, prop.visits, prop.flower.cover)
+}
 ```
-
-## 3.2 Ordination of dietary niche
-```{r}
-rep_matrix.ktype <- representation %>%
-  group_by(bb.sp, k.type.ss) %>%
-  summarize(bias = mean(bias)) %>%
-  pivot_wider(values_from = bias, names_from = k.type.ss, values_fill = 0) %>%
-  column_to_rownames("bb.sp")
-
-traits <- bb_traits %>%
-  arrange(bb.sp)
-
-pca.ktype <- rda(rep_matrix.ktype)
-#ef.ktype <- envfit(pca.ktype ~ pbl.w.class, data = traits)
-#os.ktype <- ordisurf(pca.ktype ~ pbl.w.class, data = traits)
-ef.ktype <- envfit(pca.ktype ~ pbl.w, data = traits)
-os.ktype <- ordisurf(pca.ktype ~ pbl.w, data = traits)
-plot(pca.ktype, type = "t")
-plot(ef.ktype, add = TRUE)
-plot(os.ktype)
 ```
-
 
