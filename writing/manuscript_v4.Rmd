@@ -106,7 +106,9 @@ knitr::include_graphics("../output/brm_pvis11_plot1.png")
 ```
 
 ## 3.3. Consequences of bias for niche relationships
-
+```{r fig4, echo = FALSE,  fig.cap = paste("Principal coordinates ordination of bumble bee visitation pooled across all samples.")}
+knitr::include_graphics("../output/pcoa_aggregate.png")
+```
 
 # 4. Discussion
 

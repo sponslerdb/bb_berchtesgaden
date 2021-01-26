@@ -660,11 +660,108 @@ niche_overlapper <- function(x, criterion) {
            lapi = if_else(bb.sp1 == "lapi" | bb.sp2 == "lapi", TRUE, FALSE),
            hort = if_else(bb.sp1 == "hort" | bb.sp2 == "hort", TRUE, FALSE))
 }
+
+# Aggregating over site
+niche_overlapper2 <- function(x, criterion) {
+    
+  criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
+  
+  no1 <- x %>%
+    group_by(bb.sp, !!criterion, site) %>% # group by site-year and BB-FL pair
+    summarize(visits = sum(visits)) %>%
+    group_by(bb.sp, site) %>% # group by site-year and BB species
+    mutate(prop.visits = visits/sum(visits)) %>% # get proportional interaction frequency for each BB-FL pair
+    select(site, bb.sp, !!criterion, prop.visits) %>%
+    pivot_wider(names_from = !!criterion, values_from = prop.visits, values_fill = 0) %>% # spread into the kind of array vegan likes
+    group_by(site) %>%
+    nest() %>% # nest into list-column
+    mutate(data2 = map(data, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
+           richness = map(data, function(x) length(x$bb.sp)),
+           dist = map(data2, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
+           tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
+    #dplyr::select(site, date, tidy_dist) %>% # drop intermediate list-columns
+    unnest(cols = c(tidy_dist)) %>%
+    rename(bb.sp1 = item1, bb.sp2 = item2) %>%
+    mutate(niche.overlap = 1-distance,  # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+           telu = if_else(bb.sp1 == "telu" | bb.sp2 == "telu", TRUE, FALSE),
+           pasc = if_else(bb.sp1 == "pasc" | bb.sp2 == "pasc", TRUE, FALSE),
+           wurf = if_else(bb.sp1 == "wurf" | bb.sp2 == "wurf", TRUE, FALSE),
+           prat = if_else(bb.sp1 == "prat" | bb.sp2 == "prat", TRUE, FALSE),
+           soro = if_else(bb.sp1 == "soro" | bb.sp2 == "soro", TRUE, FALSE),
+           humi = if_else(bb.sp1 == "humi" | bb.sp2 == "humi", TRUE, FALSE),
+           muci = if_else(bb.sp1 == "muci" | bb.sp2 == "muci", TRUE, FALSE),
+           pyre = if_else(bb.sp1 == "pyre" | bb.sp2 == "pyre", TRUE, FALSE),
+           mont = if_else(bb.sp1 == "mont" | bb.sp2 == "mont", TRUE, FALSE),
+           mend = if_else(bb.sp1 == "mend" | bb.sp2 == "mend", TRUE, FALSE),
+           psit = if_else(bb.sp1 == "psit" | bb.sp2 == "psit", TRUE, FALSE),
+           gers = if_else(bb.sp1 == "gers" | bb.sp2 == "gers", TRUE, FALSE),
+           jone = if_else(bb.sp1 == "jone" | bb.sp2 == "jone", TRUE, FALSE),
+           hypn = if_else(bb.sp1 == "hypn" | bb.sp2 == "hypn", TRUE, FALSE),
+           lapi = if_else(bb.sp1 == "lapi" | bb.sp2 == "lapi", TRUE, FALSE),
+           hort = if_else(bb.sp1 == "hort" | bb.sp2 == "hort", TRUE, FALSE))
+}
+
+niche_overlapper3 <- function(x, criterion) {
+    
+  criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
+  
+  no1 <- x %>%
+    group_by(bb.sp, !!criterion, site) %>% # group by site-year and BB-FL pair
+    summarize(visits = sum(visits)) %>%
+    select(site, bb.sp, !!criterion, visits) %>%
+    pivot_wider(names_from = !!criterion, values_from = visits, values_fill = 0) %>% # spread into the kind of array vegan likes
+    group_by(site) %>%
+    nest() %>% # nest into list-column
+    mutate(data2 = map(data, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
+           richness = map(data, function(x) length(x$bb.sp)),
+           dist = map(data2, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
+           tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
+    #dplyr::select(site, date, tidy_dist) %>% # drop intermediate list-columns
+    unnest(cols = c(tidy_dist)) %>%
+    rename(bb.sp1 = item1, bb.sp2 = item2) %>%
+    mutate(niche.overlap = 1-distance,  # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+           telu = if_else(bb.sp1 == "telu" | bb.sp2 == "telu", TRUE, FALSE),
+           pasc = if_else(bb.sp1 == "pasc" | bb.sp2 == "pasc", TRUE, FALSE),
+           wurf = if_else(bb.sp1 == "wurf" | bb.sp2 == "wurf", TRUE, FALSE),
+           prat = if_else(bb.sp1 == "prat" | bb.sp2 == "prat", TRUE, FALSE),
+           soro = if_else(bb.sp1 == "soro" | bb.sp2 == "soro", TRUE, FALSE),
+           humi = if_else(bb.sp1 == "humi" | bb.sp2 == "humi", TRUE, FALSE),
+           muci = if_else(bb.sp1 == "muci" | bb.sp2 == "muci", TRUE, FALSE),
+           pyre = if_else(bb.sp1 == "pyre" | bb.sp2 == "pyre", TRUE, FALSE),
+           mont = if_else(bb.sp1 == "mont" | bb.sp2 == "mont", TRUE, FALSE),
+           mend = if_else(bb.sp1 == "mend" | bb.sp2 == "mend", TRUE, FALSE),
+           psit = if_else(bb.sp1 == "psit" | bb.sp2 == "psit", TRUE, FALSE),
+           gers = if_else(bb.sp1 == "gers" | bb.sp2 == "gers", TRUE, FALSE),
+           jone = if_else(bb.sp1 == "jone" | bb.sp2 == "jone", TRUE, FALSE),
+           hypn = if_else(bb.sp1 == "hypn" | bb.sp2 == "hypn", TRUE, FALSE),
+           lapi = if_else(bb.sp1 == "lapi" | bb.sp2 == "lapi", TRUE, FALSE),
+           hort = if_else(bb.sp1 == "hort" | bb.sp2 == "hort", TRUE, FALSE))
+}
 ```
 
 ### 3.1.2 My first question is how niche overlap compares across species pairs
+#### 3.1.2.1 Calculate pairwise niche overlap
 ```{r}
-# Unaggregated niche overlap per species pair; not that this drops a lot of data because of the inner join with bias
+# Get bb.sp abundances; this time without filtering out the sites without matching floral data
+bb_abundance2 <-  read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  group_by(site, date, bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>%
+  group_by(site, date, bb.sp) %>%
+  summarize(bb.sp.abund = sum(visits)) %>%
+  group_by(site, date) %>%
+  mutate(bb.sp.prop.abund = bb.sp.abund/sum(bb.sp.abund))
+
+bb_abundance2_agg <-  read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  group_by(site, bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>%
+  group_by(site, bb.sp) %>%
+  summarize(bb.sp.abund = sum(visits)) %>%
+  group_by(site) %>%
+  mutate(bb.sp.prop.abund = bb.sp.abund/sum(bb.sp.abund))
+
+# Un-aggregated niche overlap per species pair per site-date
 niche_overlap <- read_csv("../data/processed_data/network.csv") %>%
   filter(caste != "male") %>% # we will ignore males 
   group_by(site, date, bb.sp, plant.sp) %>%
@@ -686,24 +783,107 @@ niche_overlap <- read_csv("../data/processed_data/network.csv") %>%
     pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "3" ~ "med:long",
     pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "2" ~ "med:long")
     ) %>%
-  left_join(bb_abundance, by = c("site", "date", "bb.sp1" = "bb.sp")) %>%
+  left_join(bb_abundance2, by = c("site", "date", "bb.sp1" = "bb.sp")) %>%
   rename(bb.sp1.abund = bb.sp.abund) %>%
-  left_join(bb_abundance, by = c("site", "date", "bb.sp2" = "bb.sp")) %>%
+  left_join(bb_abundance2, by = c("site", "date", "bb.sp2" = "bb.sp")) %>%
   rename(bb.sp2.abund = bb.sp.abund) %>%
   unite(sp.pair, c(bb.sp1, bb.sp2), sep = "_", remove = FALSE) %>%
   left_join(site_data) %>%
   mutate(yday = yday(date)) %>%
   select(site, date, yday, elev.mean, sp.pair, bb.sp1, bb.sp2, bb.sp1.abund, 
-         bb.sp2.abund, niche.overlap, same.class)
+         bb.sp2.abund, niche.overlap, same.class) %>%
+  mutate(log.bb.sp1.abund = log(bb.sp1.abund),
+         log.bb.sp2.abund = log(bb.sp2.abund))
+
+# Aggregated niche overlap per species pair per site
+niche_overlap2 <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  group_by(site, bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>%
+  niche_overlapper2(plant.sp) %>%
+  left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>%
+  rename(pbl.w.class2_sp1 = pbl.w.class2) %>%
+  left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
+  rename(pbl.w.class2_sp2 = pbl.w.class2) %>%
+  mutate(same.class = case_when(
+    pbl.w.class2_sp1 == "1" & pbl.w.class2_sp2 == "1" ~ "short:short",
+    pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "2" ~ "med:med",
+    pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "3" ~ "long:long",
+    pbl.w.class2_sp1 == "1" & pbl.w.class2_sp2 == "2" ~ "short:med",
+    pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "1" ~ "short:med",
+    pbl.w.class2_sp1 == "1" & pbl.w.class2_sp2 == "3" ~ "short:long",
+    pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "1" ~ "short:long",
+    pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "3" ~ "med:long",
+    pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "2" ~ "med:long")
+    ) %>%
+  left_join(bb_abundance2_agg, by = c("site", "bb.sp1" = "bb.sp")) %>%
+  rename(bb.sp1.abund = bb.sp.abund) %>%
+  left_join(bb_abundance2_agg, by = c("site", "bb.sp2" = "bb.sp")) %>%
+  rename(bb.sp2.abund = bb.sp.abund) %>%
+  unite(sp.pair, c(bb.sp1, bb.sp2), sep = "_", remove = FALSE) %>%
+  left_join(site_data) %>%
+  select(site, elev.mean, sp.pair, bb.sp1, bb.sp2, bb.sp1.abund, 
+         bb.sp2.abund, niche.overlap, same.class) %>%
+  mutate(log.bb.sp1.abund = log(bb.sp1.abund),
+         log.bb.sp2.abund = log(bb.sp2.abund))
+
+write_csv(niche_overlap2, "../hpc_packets/niche_overlap2.csv")
+```
+
+#### 3.1.2.2 Preliminary visualization
+```{r}
+ggplot(niche_overlap, aes(bb.sp1.abund, bb.sp2.abund, color = niche.overlap)) +
+  geom_point() 
+
+ggplot(niche_overlap, aes(bb.sp1.abund, niche.overlap)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
+
+ggplot(niche_overlap, aes(bb.sp2.abund, niche.overlap)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
+
+ggplot(niche_overlap, aes(log.bb.sp1.abund, niche.overlap)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
+
+ggplot(niche_overlap, aes(log.bb.sp2.abund, niche.overlap)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
+
+ggplot(niche_overlap, aes(log.bb.sp2.abund, niche.overlap, color = same.class)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
+
+ggplot(niche_overlap, aes(sqrt(bb.sp2.abund), sqrt(niche.overlap), color = same.class)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
+
+ggplot(niche_overlap, aes(bb.sp2.abund, niche.overlap, color = same.class)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
+
+
+ggplot(niche_overlap, aes(log.bb.sp1.abund, log.bb.sp2.abund, color = niche.overlap)) +
+  geom_point() 
 
 # Niche overlap becomes rather binary when one or both species is rare. This is driven especially by singletons.
 ggplot(niche_overlap, aes(sp.pair, niche.overlap)) +
   geom_violin() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+ggplot(niche_overlap, aes(same.class, niche.overlap)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
 # Let's see if we can improve matters by dropping singletons
 ggplot(filter(niche_overlap, bb.sp1.abund >= 2 & bb.sp1.abund >= 2), 
        aes(sp.pair, niche.overlap)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(filter(niche_overlap, bb.sp1.abund >= 2 & bb.sp1.abund >= 2), 
+       aes(same.class, niche.overlap)) +
   geom_violin() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
@@ -720,12 +900,12 @@ ggplot(filter(niche_overlap, bb.sp1.abund >= 3 & bb.sp1.abund >= 3),
 
 # Now a threshold of 5...bye, all the species pairs...
 ggplot(filter(niche_overlap, bb.sp1.abund >= 5 & bb.sp1.abund >= 5), 
-       aes(sp.pair, niche.overlap)) +
+       aes(same.class, niche.overlap)) +
   geom_violin() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 ggplot(filter(niche_overlap, bb.sp1.abund >= 10 & bb.sp1.abund >= 10), 
-       aes(sp.pair, niche.overlap)) +
+       aes(same.class, niche.overlap)) +
   geom_violin() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
@@ -757,17 +937,119 @@ ggplot(niche_overlap, aes(log(bb.sp1.abund), log(bb.sp2.abund))) +
 ggplot(niche_overlap, aes(same.class, niche.overlap)) +
   geom_boxplot() 
 
-# Now for what is probably a pretty naive model
+ggplot(niche_overlap, aes(sp.pair, niche.overlap)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+# Aggregate by site
+ggplot(niche_overlap2, aes(bb.sp1.abund, niche.overlap)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+ggplot(niche_overlap2, aes(log.bb.sp1.abund, niche.overlap)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+ggplot(niche_overlap2, aes(log.bb.sp1.abund, niche.overlap)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~same.class)
+
+ggplot(niche_overlap2, aes(log.bb.sp1.abund, niche.overlap)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~sp.pair)
+
+ggplot(niche_overlap2, aes(sp.pair, niche.overlap)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(niche_overlap2, aes(sp.pair, niche.overlap)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(niche_overlap2, aes(same.class, niche.overlap)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(niche_overlap2, aes(elev.mean, niche.overlap)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~sp.pair)
+
+ggplot(niche_overlap, aes(niche.overlap)) +
+  geom_histogram() +
+  facet_wrap(~sp.pair)
+
+## raw visits aggregate
+ggplot(niche_overlap3, aes(log.bb.sp1.abund, niche.overlap)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+ggplot(niche_overlap3, aes(same.class, niche.overlap)) +
+  geom_violin() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(niche_overlap2, aes(niche.overlap)) +
+  geom_histogram() +
+  facet_wrap(~sp.pair)
+
+
+```
+
+#### 3.1.2.3 brms model ... still a mess
+```{r}
 brm_niche00 <- brm(niche.overlap ~ bb.sp1.abund*bb.sp2.abund + 
+                     (1 | sp.pair) + 
+                     (1 | same.class) + 
+                     (1 | site),
+                   control = list(adapt_delta = 0.90),
+                   chains = 4,
+                   cores = 4,
+                   iter = 2000,
+                   file = "../output/brm_niche00",
+                   data = niche_overlap)
+
+parnames(brm_niche00)
+conditional_effects(brm_niche00)
+mcmc_plot(brm_niche00, pars = c("^r_sp"))
+mcmc_plot(brm_niche00, pars = c("^r_sa"))
+mcmc_plot(brm_niche00, pars = c("^b_"))
+hypothesis(brm_niche00, "dprime = 0")
+pp_check(brm_niche00)
+bayes_R2(brm_niche00)
+
+# To stabilize niche overlap (avoid lots of  1s and 0s), we will filter the data to include only species pairs in which both species were represented by at least 3 observations.
+brm_niche01 <- brm(niche.overlap ~ bb.sp1.abund*bb.sp2.abund + 
                      (1 | sp.pair) + 
                      (1 | same.class) + 
                      (1 | site),
                    chains = 4,
                    cores = 4,
                    iter = 2000,
-                   file = "../output/brm_niche00",
-                   data = filter(niche_overlap, bb.sp1.abund >= 1 & bb.sp1.abund >= 1))
+                   file = "../output/brm_niche01",
+                   data = filter(niche_overlap, bb.sp1.abund >= 2 & bb.sp1.abund >= 2))
+
+parnames(brm_niche01)
+conditional_effects(brm_niche01)
+mcmc_plot(brm_niche01, pars = c("^r_sp"))
+mcmc_plot(brm_niche01, pars = c("^r_sa"))
+mcmc_plot(brm_niche01, pars = c("^b_"))
+hypothesis(brm_niche01, "dprime = 0")
+pp_check(brm_niche01)
+bayes_R2(brm_niche01)
+
+# Would it help if we log-transformed the bb abundance data and stuck to unfiltered data?
+brm_niche02 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
+                     (1 | sp.pair) + 
+                     (1 | same.class) + 
+                     (1 | site),
+                   #control = list(adapt_delta = 0.90),
+                   chains = 4,
+                   cores = 4,
+                   iter = 2000,
+                   file = "../output/brm_niche02",
+                   data = niche_overlap)
 
 parnames(brm_niche02)
 conditional_effects(brm_niche02)
@@ -778,6 +1060,138 @@ hypothesis(brm_niche02, "dprime = 0")
 pp_check(brm_niche02)
 bayes_R2(brm_niche02)
 
+brm_niche03 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
+                     (1 + log.bb.sp1.abund*log.bb.sp2.abund | sp.pair) + 
+                     (1 | same.class) + 
+                     (1 | site),
+                   #control = list(adapt_delta = 0.90),
+                   chains = 4,
+                   cores = 4,
+                   iter = 2000,
+                   file = "../output/brm_niche03",
+                   data = niche_overlap)
+
+parnames(brm_niche02)
+conditional_effects(brm_niche02)
+mcmc_plot(brm_niche02, pars = c("^r_sp"))
+mcmc_plot(brm_niche02, pars = c("^r_sa"))
+mcmc_plot(brm_niche02, pars = c("^b_"))
+hypothesis(brm_niche02, "dprime = 0")
+pp_check(brm_niche02)
+bayes_R2(brm_niche02)
+
+# A zero-one inflated model might be the key.
+brm_niche04 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
+                     (1 | sp.pair) + 
+                     (1 | same.class) + 
+                     (1 | site),
+                   #control = list(adapt_delta = 0.90),
+                   family = "zero_one_inflated_beta",
+                   chains = 4,
+                   cores = 4,
+                   iter = 2000,
+                   file = "../output/brm_niche04",
+                   data = niche_overlap)
+
+parnames(brm_niche04)
+conditional_effects(brm_niche04)
+mcmc_plot(brm_niche04, pars = c("^r_sp"))
+mcmc_plot(brm_niche04, pars = c("^r_sa"))
+mcmc_plot(brm_niche04, pars = c("^b_"))
+hypothesis(brm_niche04, "dprime = 0")
+pp_check(brm_niche04)
+bayes_R2(brm_niche04)
+
+# Aggregate models
+brm_niche60 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
+                     (1 | sp.pair) + 
+                     (1 | same.class) +
+                     (1 | site),
+                   family = "zero_one_inflated_beta",
+                   chains = 4,
+                   cores = 4,
+                   iter = 2000,
+                   file = "../output/brm_niche60",
+                   data = niche_overlap2)
+
+parnames(brm_niche60)
+conditional_effects(brm_niche60)
+mcmc_plot(brm_niche60, pars = c("^r_sp"))
+mcmc_plot(brm_niche60, pars = c("^r_sa"))
+mcmc_plot(brm_niche60, pars = c("^b_Int"))
+hypothesis(brm_niche60, "dprime = 0")
+pp_check(brm_niche60)
+bayes_R2(brm_niche60)
+
+brm_niche61 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
+                     (1 | sp.pair) + 
+                     (1 | same.class) +
+                     (1 | site),
+                   control = list(adapt_delta = 0.99),
+                   family = "zero_one_inflated_beta",
+                   chains = 4,
+                   cores = 4,
+                   iter = 2000,
+                   file = "../output/brm_niche61", # for local
+                   #file = "./output/brm_niche61", # for HPC
+                   data = niche_overlap2)
+
+parnames(brm_niche61)
+conditional_effects(brm_niche61)
+mcmc_plot(brm_niche61, pars = c("^r_sp"))
+mcmc_plot(brm_niche61, pars = c("^r_sa"))
+mcmc_plot(brm_niche61, pars = c("^b_Int"))
+pp_check(brm_niche61)
+bayes_R2(brm_niche61)
+
+brm_niche62 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
+                     (1 + log.bb.sp1.abund*log.bb.sp2.abund | sp.pair) + 
+                     (1 | same.class) +
+                     (1 | site),
+                   control = list(adapt_delta = 0.99),
+                   family = "zero_one_inflated_beta",
+                   chains = 4,
+                   cores = 4,
+                   iter = 2000,
+                   #file = "../output/brm_niche62", # for local
+                   file = "./output/brm_niche62", # for HPC
+                   data = niche_overlap2)
+```
+
+#### 3.2.2.4 Plot model
+```{r}
+## Sp.pair and same class, for convenience
+sp_pair_class <- niche_overlap2 %>%
+  ungroup() %>%
+  select(sp.pair, same.class) %>%
+  distinct()
+  
+## Tongue length combos
+brm_niche61_plotframe1 <- brm_niche61 %>%
+  spread_draws(b_Intercept, r_same.class[condition, term]) %>% 
+  mutate(condition_mean = b_Intercept + r_same.class) 
+
+ggplot(brm_niche61_plotframe1, aes(condition_mean, reorder(condition, condition_mean))) +
+  stat_halfeye() +
+  ylab("Tongue length combination") +
+  xlab("Niche overlap")
+
+ggsave(file = "../output/brm_niche61_plot1.png", width = 7, height = 5.5)
+
+## Species pairs
+brm_niche61_plotframe2 <- brm_niche61 %>%
+  spread_draws(b_Intercept, r_sp.pair[condition, term]) %>% 
+  mutate(condition_mean = b_Intercept + r_sp.pair) %>%
+  left_join(sp_pair_class, by = c("condition" = "sp.pair"))
+
+ggplot(brm_niche61_plotframe2, aes(condition_mean, 
+                                   reorder(condition, condition_mean), 
+                                   color = same.class)) +
+  stat_pointinterval() +
+  ylab("Species pair") +
+  xlab("Niche overlap")
+
+ggsave(file = "../output/brm_niche61_plot1.png", width = 7, height = 5.5)
 ```
 
 ### 3.1.3 Now I'd be interested to know how niche overlap relates to dprime
@@ -787,7 +1201,7 @@ niche_overlap_bias <- niche_overlap %>%
   rename(dprime.sp1 = dprime.sp) %>%
   inner_join(bias, by = c("site", "date", c("bb.sp2" = "bb.sp"))) %>%
   rename(dprime.sp2 = dprime.sp) %>%
-  select(site, date, bb.sp1, bb.sp2, bb.sp1.abund, bb.sp2.abund, 
+  select(site, date, sp.pair, bb.sp1, bb.sp2, bb.sp1.abund, bb.sp2.abund, 
          dprime.sp1, dprime.sp2, niche.overlap, same.class)
 
 
@@ -796,7 +1210,7 @@ ggplot(niche_overlap_bias, aes(dprime.sp, mean.niche.overlap)) +
   geom_point(alpha = 0.1) +
   geom_smooth(method = "lm") +
   #geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = TRUE) +
-  facet_wrap(~bb.sp) +
+  facet_wrap(~sp.pair) +
   ylim(c(0,1))
 
 brm.bias_niche <- brm(mean.niche.overlap ~ dprime.sp + (1 + dprime.sp | bb.sp) + (1 + dprime.sp | site),
@@ -831,45 +1245,337 @@ bayes_R2(brm.dprime_niche00)
 ```
 
 ## 3.2 Ordination of dietary niche
+Aggregation changes meaning. Don't forget that. When I pool visitation across dates, I am introducing the effects of relative abundance and floral phenology. Species in bloom when BB abundance is high will be over-represented, and vice-versa. And species with a long bloom time will be over-represented, and vice-versa. This isn't necessarily a problem. I just need to make sure I interpret the results the right way. When I pool data like this, I am comparing the "net" diet of species, which includes the effects of abundance and phenology in addition to the effects of floral preferences. I think that is appropriate for this stage of the analysis, but I need to be careful not to assume that what I'm doing here is the same sort of analysis as what I did above without pooling samples. 
+
+### 3.2.1 Fully pooled
 ```{r}
-# Aggregated by mean proportional visitation
+# Fl traits with abbreviated names
+fl_traits2 <- fl_traits %>%
+  left_join(read_csv("../data/processed_data/network.csv")) %>%
+  select(plant.sp, plant.sp.abb, plant.genus, plant.family, k.type.ss, color) %>%
+  mutate(k.type.ss = factor(k.type.ss)) %>%
+  distinct()
 
-# We will use the whole dataset this time, since there is no need to align visitation to floral surveying
-visitation1 <- read_csv("../data/processed_data/network.csv") %>%
-  filter(caste != "male") %>% # we will ignore males 
-  group_by(site, date, bb.sp, plant.sp) %>%
-  summarize(visits = n()) %>%
-  group_by(site, date, bb.sp) %>%
-  mutate(prop.visits = visits/sum(visits)) %>%
-  group_by(bb.sp, plant.sp) %>%
-  summarize(mean.prop.visits = mean(prop.visits)) %>%
-  pivot_wider(names_from = plant.sp, values_from = mean.prop.visits, values_fill = 0) %>%
-  column_to_rownames("bb.sp")
-
+# Totally aggregated; note I'm using the full data, not the aligned and trimmed data. No need for complementary floral survey data.
 visitation2 <- read_csv("../data/processed_data/network.csv") %>%
   filter(caste != "male") %>% # we will ignore males 
-  group_by(site, date, bb.sp, plant.sp) %>%
+  filter(!bb.sp %in% c("humi")) %>% # humi is too rare
+  group_by(bb.sp, plant.sp.abb) %>%
   summarize(visits = n()) %>%
-  group_by(site, date, bb.sp) %>%
+  group_by(bb.sp) %>%
   mutate(prop.visits = visits/sum(visits)) %>%
-  unite(id, c(site, date, bb.sp)) %>%
+  select(-visits) %>%
+  pivot_wider(names_from = plant.sp.abb, values_from = prop.visits, values_fill = 0) %>%
+  column_to_rownames("bb.sp")
+
+# Generate ordination
+pcoa_horn2 <- capscale(visitation2 ~ 1, distance = "horn")
+
+# Get variance explained
+pcoa_horn2_mds1 <- round(pcoa_horn2$CA$eig[[1]] / sum(pcoa_horn2$CA$eig)*100)
+pcoa_horn2_mds2 <- round(pcoa_horn2$CA$eig[[2]] / sum(pcoa_horn2$CA$eig)*100)
+
+# Fortify plants
+pcoa_horn2.fort1 <- fortify(pcoa_horn2, axes = 1:2) %>%
+  filter(Score == "species") %>%
+  rename(plant.sp.abb = Label) %>%
+  left_join(fl_traits2)
+
+# Fortify bees
+pcoa_horn2.fort2 <- fortify(pcoa_horn2, axes = 1:2) %>%
+  filter(Score == "sites") %>%
+  rename(bb.sp = Label) %>%
+  left_join(bb_traits) %>%
+  mutate(pbl.w.class2 = factor(pbl.w.class2)) %>%
+  mutate(pbl.w.class2 = case_when(
+    pbl.w.class2 == "1" ~ "short",
+    pbl.w.class2 == "2" ~ "med",
+    pbl.w.class2 == "3" ~ "long"
+    ))
+
+# Generate convex hulls around tongue length classes
+pcoa_horn2_hulls <- pcoa_horn2.fort2 %>%
+  group_by(pbl.w.class2) %>%
+  slice(chull(MDS1, MDS2))
+  
+# Plot
+ggplot(pcoa_horn2.fort2, aes(MDS1, MDS2, color = pbl.w.class2)) +
+  geom_polygon(data = pcoa_horn2_hulls, 
+               aes(fill = pbl.w.class2, color = NULL),
+               alpha = 0.25) +
+  geom_text(aes(label = bb.sp), key_glyph = "rect") +
+  geom_text_repel(data = filter(pcoa_horn2.fort1, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2), 
+            aes(MDS1, MDS2, label = plant.sp.abb), inherit.aes = FALSE, color = "gray40") +
+  geom_point(data = filter(pcoa_horn2.fort1, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2),
+            aes(MDS1, MDS2, shape = k.type.ss), inherit.aes = FALSE, color = "gray40", size = 3) +
+  scale_shape_discrete() +
+  xlab(paste("MDS1 ", "(", pcoa_horn2_mds1, "%", ")", sep = "")) +
+  ylab(paste("MDS2 ", "(", pcoa_horn2_mds2, "%", ")", sep = "")) +
+  labs(fill = "Tongue length", 
+       shape = "Morphotype") +
+  guides(color = FALSE) +
+  coord_fixed() +
+  theme_light(10)
+
+ggsave("../output/pcoa_aggregate.png")
+```
+
+### 3.2.1 Pooled within elev.class2
+```{r}
+# Fl traits with abbreviated names
+fl_traits2 <- fl_traits %>%
+  left_join(read_csv("../data/processed_data/network.csv")) %>%
+  select(plant.sp, plant.sp.abb, plant.genus, plant.family, k.type.ss, color) %>%
+  mutate(k.type.ss = factor(k.type.ss)) %>%
+  distinct()
+
+# Get visitation
+visitation_low <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  filter(!bb.sp %in% c("humi")) %>% # humi is too rare
+  left_join(site_data) %>%
+  filter(elev.class2 == "low") %>%
+  group_by(bb.sp, plant.sp.abb) %>%
+  summarize(visits = n()) %>%
+  group_by(bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
+  select(-visits) %>%
+  pivot_wider(names_from = plant.sp.abb, values_from = prop.visits, values_fill = 0) %>%
+  column_to_rownames("bb.sp")
+
+visitation_mid <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  filter(!bb.sp %in% c("humi")) %>% # humi is too rare
+  left_join(site_data) %>%
+  filter(elev.class2 == "mid") %>%
+  group_by(bb.sp, plant.sp.abb) %>%
+  summarize(visits = n()) %>%
+  group_by(bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
+  select(-visits) %>%
+  pivot_wider(names_from = plant.sp.abb, values_from = prop.visits, values_fill = 0) %>%
+  column_to_rownames("bb.sp")
+
+visitation_high <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  filter(!bb.sp %in% c("humi")) %>% # humi is too rare
+  left_join(site_data) %>%
+  filter(elev.class2 == "high") %>%
+  group_by(bb.sp, plant.sp.abb) %>%
+  summarize(visits = n()) %>%
+  group_by(bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
+  select(-visits) %>%
+  pivot_wider(names_from = plant.sp.abb, values_from = prop.visits, values_fill = 0) %>%
+  column_to_rownames("bb.sp")
+
+# Generate ordination
+pcoa_horn_low <- capscale(visitation_low ~ 1, distance = "horn")
+pcoa_horn_mid <- capscale(visitation_mid ~ 1, distance = "horn")
+pcoa_horn_high <- capscale(visitation_high ~ 1, distance = "horn")
+
+
+# Get variance explained
+pcoa_horn_low_mds1 <- round(pcoa_horn_low$CA$eig[[1]] / sum(pcoa_horn_low$CA$eig)*100)
+pcoa_horn_low_mds2 <- round(pcoa_horn_low$CA$eig[[2]] / sum(pcoa_horn_low$CA$eig)*100)
+
+pcoa_horn_mid_mds1 <- round(pcoa_horn_mid$CA$eig[[1]] / sum(pcoa_horn_mid$CA$eig)*100)
+pcoa_horn_mid_mds2 <- round(pcoa_horn_mid$CA$eig[[2]] / sum(pcoa_horn_mid$CA$eig)*100)
+
+pcoa_horn_high_mds1 <- round(pcoa_horn_high$CA$eig[[1]] / sum(pcoa_horn_high$CA$eig)*100)
+pcoa_horn_high_mds2 <- round(pcoa_horn_high$CA$eig[[2]] / sum(pcoa_horn_high$CA$eig)*100)
+
+# Fortify plants
+pcoa_horn.fort1_low <- fortify(pcoa_horn_low, axes = 1:2) %>%
+  filter(Score == "species") %>%
+  rename(plant.sp.abb = Label) %>%
+  left_join(fl_traits2)
+
+pcoa_horn.fort1_mid <- fortify(pcoa_horn_mid, axes = 1:2) %>%
+  filter(Score == "species") %>%
+  rename(plant.sp.abb = Label) %>%
+  left_join(fl_traits2)
+
+pcoa_horn.fort1_high <- fortify(pcoa_horn_high, axes = 1:2) %>%
+  filter(Score == "species") %>%
+  rename(plant.sp.abb = Label) %>%
+  left_join(fl_traits2)
+
+# Fortify bees
+pcoa_horn.fort2_low <- fortify(pcoa_horn_low, axes = 1:2) %>%
+  filter(Score == "sites") %>%
+  rename(bb.sp = Label) %>%
+  left_join(bb_traits) %>%
+  mutate(pbl.w.class2 = factor(pbl.w.class2)) %>%
+  mutate(pbl.w.class2 = case_when(
+    pbl.w.class2 == "1" ~ "short",
+    pbl.w.class2 == "2" ~ "med",
+    pbl.w.class2 == "3" ~ "long"
+    ))
+
+pcoa_horn.fort2_mid <- fortify(pcoa_horn_mid, axes = 1:2) %>%
+  filter(Score == "sites") %>%
+  rename(bb.sp = Label) %>%
+  left_join(bb_traits) %>%
+  mutate(pbl.w.class2 = factor(pbl.w.class2)) %>%
+  mutate(pbl.w.class2 = case_when(
+    pbl.w.class2 == "1" ~ "short",
+    pbl.w.class2 == "2" ~ "med",
+    pbl.w.class2 == "3" ~ "long"
+    ))
+
+pcoa_horn.fort2_high <- fortify(pcoa_horn_high, axes = 1:2) %>%
+  filter(Score == "sites") %>%
+  rename(bb.sp = Label) %>%
+  left_join(bb_traits) %>%
+  mutate(pbl.w.class2 = factor(pbl.w.class2)) %>%
+  mutate(pbl.w.class2 = case_when(
+    pbl.w.class2 == "1" ~ "short",
+    pbl.w.class2 == "2" ~ "med",
+    pbl.w.class2 == "3" ~ "long"
+    ))
+
+# Generate convex hulls around tongue length classes
+pcoa_horn_hulls_low <- pcoa_horn.fort2_low %>%
+  group_by(pbl.w.class2) %>%
+  slice(chull(MDS1, MDS2))
+  
+pcoa_horn_hulls_mid <- pcoa_horn.fort2_mid %>%
+  group_by(pbl.w.class2) %>%
+  slice(chull(MDS1, MDS2))
+  
+pcoa_horn_hulls_high <- pcoa_horn.fort2_high %>%
+  group_by(pbl.w.class2) %>%
+  slice(chull(MDS1, MDS2))
+  
+# Plot
+ggplot(pcoa_horn.fort2_low, aes(MDS1, MDS2, color = pbl.w.class2)) +
+  geom_polygon(data = pcoa_horn_hulls_low, 
+               aes(fill = pbl.w.class2, color = NULL),
+               alpha = 0.25) +
+  geom_text(aes(label = bb.sp), key_glyph = "rect") +
+  geom_text_repel(data = filter(pcoa_horn.fort1_low, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2), 
+            aes(MDS1, MDS2, label = plant.sp.abb), inherit.aes = FALSE, color = "gray40") +
+  geom_point(data = filter(pcoa_horn.fort1_low, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2),
+            aes(MDS1, MDS2, shape = k.type.ss), inherit.aes = FALSE, color = "gray40", size = 3) +
+  scale_shape_discrete() +
+  xlab(paste("MDS1 ", "(", pcoa_horn_low_mds1, "%", ")", sep = "")) +
+  ylab(paste("MDS2 ", "(", pcoa_horn_low_mds2, "%", ")", sep = "")) +
+  labs(fill = "Tongue length", 
+       shape = "Morphotype") +
+  guides(color = FALSE) +
+  coord_fixed() +
+  theme_light(10)
+
+ggplot(pcoa_horn.fort2_mid, aes(MDS1, MDS2, color = pbl.w.class2)) +
+  geom_polygon(data = pcoa_horn_hulls_mid, 
+               aes(fill = pbl.w.class2, color = NULL),
+               alpha = 0.25) +
+  geom_text(aes(label = bb.sp), key_glyph = "rect") +
+  geom_text_repel(data = filter(pcoa_horn.fort1_mid, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2), 
+            aes(MDS1, MDS2, label = plant.sp.abb), inherit.aes = FALSE, color = "gray40") +
+  geom_point(data = filter(pcoa_horn.fort1_mid, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2),
+            aes(MDS1, MDS2, shape = k.type.ss), inherit.aes = FALSE, color = "gray40", size = 3) +
+  scale_shape_discrete() +
+  xlab(paste("MDS1 ", "(", pcoa_horn_mid_mds1, "%", ")", sep = "")) +
+  ylab(paste("MDS2 ", "(", pcoa_horn_mid_mds2, "%", ")", sep = "")) +
+  labs(fill = "Tongue length", 
+       shape = "Morphotype") +
+  guides(color = FALSE) +
+  coord_fixed() +
+  theme_light(10)
+
+ggplot(pcoa_horn.fort2_high, aes(MDS1, MDS2, color = pbl.w.class2)) +
+  geom_polygon(data = pcoa_horn_hulls_high, 
+               aes(fill = pbl.w.class2, color = NULL),
+               alpha = 0.25) +
+  geom_text(aes(label = bb.sp), key_glyph = "rect") +
+  geom_text_repel(data = filter(pcoa_horn.fort1_high, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2), 
+            aes(MDS1, MDS2, label = plant.sp.abb), inherit.aes = FALSE, color = "gray40") +
+  geom_point(data = filter(pcoa_horn.fort1_high, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2),
+            aes(MDS1, MDS2, shape = k.type.ss), inherit.aes = FALSE, color = "gray40", size = 3) +
+  scale_shape_discrete() +
+  xlab(paste("MDS1 ", "(", pcoa_horn_high_mds1, "%", ")", sep = "")) +
+  ylab(paste("MDS2 ", "(", pcoa_horn_high_mds2, "%", ")", sep = "")) +
+  labs(fill = "Tongue length", 
+       shape = "Morphotype") +
+  guides(color = FALSE) +
+  coord_fixed() +
+  theme_light(10)
+
+
+ggsave("../output/pcoa_aggregate.png")
+```
+
+
+
+```{r}
+# Totally aggregated
+visitation2 <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  filter(!bb.sp %in% c("humi")) %>% # humi is too rare
+  group_by(bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>%
+  group_by(bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
   select(-visits) %>%
   pivot_wider(names_from = plant.sp, values_from = prop.visits, values_fill = 0) %>%
-  column_to_rownames("id")
+  column_to_rownames("bb.sp")
 
-# Aggregated
-pcoa_horn1 <- capscale(visitation1 ~ 1, distance = "horn")
-pcoa_horn1.fort1 <- fortify(pcoa_horn1, axes = 1:2) %>%
+# Ordinated separately by site
+visitation3 <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  filter(!bb.sp %in% c("humi")) %>% # humi is too rare
+  group_by(site, bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>%
+  group_by(site, bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
+  select(-visits) %>%
+  group_by(site) %>%
+  nest() %>%
+  mutate(data2 = map(data, 
+                     function(x) pivot_wider(x, 
+                                             names_from = plant.sp, 
+                                             values_from = prop.visits, 
+                                             values_fill = 0)),
+         data3 = map(data2, function(x) column_to_rownames(x, "bb.sp")),
+         pcoa = map(data3, function(x) capscale(x ~ 1, distance = "horn")),
+         pcoa_quickplot = map(pcoa, function(x) plot(x, type = "t"))) 
+
+plot(visitation3$pcoa[[1]], type = "t")
+plot(visitation3$pcoa[[2]], type = "t")
+plot(visitation3$pcoa[[3]], type = "t")
+plot(visitation3$pcoa[[4]], type = "t")
+plot(visitation3$pcoa[[5]], type = "t")
+plot(visitation3$pcoa[[6]], type = "t")
+plot(visitation3$pcoa[[7]], type = "t")
+plot(visitation3$pcoa[[8]], type = "t")
+plot(visitation3$pcoa[[9]], type = "t")
+plot(visitation3$pcoa[[10]], type = "t")
+
+  
+# Aggregation 1
+
+# Aggregation 2
+pcoa_horn2 <- capscale(visitation2 ~ 1, distance = "horn")
+plot(pcoa_horn2, type = "t")
+
+pcoa_horn2.fort1 <- fortify(pcoa_horn2, axes = 1:2) %>%
   filter(Score == "species") %>%
   rename(plant.sp = Label) %>%
   left_join(fl_traits)
-pcoa_horn1.fort2 <- fortify(pcoa_horn1, axes = 1:2) %>%
+pcoa_horn2.fort2 <- fortify(pcoa_horn2, axes = 1:2) %>%
   filter(Score == "sites") %>%
   rename(bb.sp = Label) %>%
   left_join(bb_traits)
 
-ggplot(pcoa_horn1.fort2, aes(MDS1, MDS2)) +
+ggplot(pcoa_horn2.fort2, aes(MDS1, MDS2)) +
   geom_text(aes(label = bb.sp)) +
+  coord_fixed()
+
+ggplot(pcoa_horn2.fort2, aes(MDS1, MDS2)) +
+  geom_text(aes(label = bb.sp, color = factor(pbl.w.class2))) +
+  geom_point(aes(color = factor(pbl.w.class2))) +
   coord_fixed()
 
 # Disaggregated
