@@ -259,12 +259,41 @@ bias <- full_join(bias_plantsp, bias_ktype) %>%
          elev = elev.mean/10) %>% #  scale this down for convenience
   mutate(yday0 = scale(yday),  # normalized versions of variables
          elev0 = scale(elev),
+         bb.sp.abund0 = scale(bb.sp.abund),
          dprime.sp0 = scale(dprime.sp),
          dprime.ktype0 = scale(dprime.ktype),
          dprime.fam0 = scale(dprime.fam)) %>%
   select(site, date, bb.sp, dprime.sp, dprime.sp0, dprime.ktype, 
          dprime.ktype0, dprime.fam, dprime.fam0, elev, elev0, 
-         yday, yday0, bb.sp.abund, bb.sp.prop.abund, total.flower.cover)
+         yday, yday0, bb.sp.abund, bb.sp.abund0, bb.sp.prop.abund, total.flower.cover)
+
+bias2 <- full_join(bias_plantsp, bias_ktype) %>%
+  full_join(bias_family) %>%
+  left_join(site_data) %>% # add site data
+  left_join(bb_abundance) %>% # add BB abundance data
+  left_join(fl_abundance) %>% # add fl abundance
+  #filter(bb.sp.abund >= 3) %>% # dprime tends to become binary when n is very low; this threshold removes more than half the data points, but almost all those were ones and zeros. These ones and zeros probably don't mean much, and they make the models hard to fit.
+  mutate(bb.sp = factor(bb.sp), 
+         yday = yday(date),
+         elev = elev.mean/10) %>% #  scale this down for convenience
+  mutate(yday0 = scale(yday),  # normalized versions of variables
+         elev0 = scale(elev),
+         bb.sp.abund0 = scale(bb.sp.abund),
+         dprime.sp0 = scale(dprime.sp),
+         dprime.ktype0 = scale(dprime.ktype),
+         dprime.fam0 = scale(dprime.fam)) %>%
+  select(site, date, bb.sp, dprime.sp, dprime.sp0, dprime.ktype, 
+         dprime.ktype0, dprime.fam, dprime.fam0, elev, elev0, 
+         yday, yday0, bb.sp.abund, bb.sp.abund0, bb.sp.prop.abund, total.flower.cover)
+
+ggplot(bias, aes(dprime.sp)) +
+  geom_histogram()
+
+ggplot(bias1, aes(dprime.sp)) +
+  geom_histogram()
+
+ggplot(bias2, aes(dprime.sp)) +
+  geom_histogram()
 ```
 
 ## 1.3 Multi-level model: bias ~ yday * elevation + (1 + elevation | bb.sp)
@@ -275,6 +304,10 @@ bias <- full_join(bias_plantsp, bias_ktype) %>%
 ggplot(bias, aes(dprime.sp)) +
   geom_histogram()
 
+ggplot(bias2, aes(bb.sp.abund, dprime.sp)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~bb.sp)
 
 # First, let's look at the distribution of bias per BB sp
 ggplot(bias, aes(dprime.sp)) +
@@ -324,68 +357,110 @@ ggplot(bias, aes(yday, dprime.fam)) +
 ```
 
 ### 1.3.3 brms models
-There's a lot I don't understand about the standardization of variables in the context of Bayesian MLM, but for now I have opted to scale and center the predictor variables but not the response. My reason for scaling and centering the predictors is that is massively speeds up estimation and enables the interaction model to converge (it would not converge with raw variables). My reason for not scaling the response is that it doesn't change the outcome of the model (I've checked) and I am interested in seeing the global intercept for d' on its native scale so that I can compare it with previously reported values. Right now, I am using all default priors. This means flat priors for global effects and student priors for varying effects (I think). My understanding is that brms internally scales priors to match the scale of the data. If I want to define my own priors, which I know I really should, particularly to replace the flat priors on the global effects, then I need to understand how the scaling of the variables affects the specification of the prior.
+There's a lot I don't understand about the standardization of variables in the context of Bayesian MLM, but for now I have opted to scale and center the predictor variables but not the response. My reason for scaling and centering the predictors is that is massively speeds up estimation and enables the interaction model to converge (it would not converge with raw variables). My reason for not scaling the response is that it doesn't change the outcome of the model (I've checked) and I am interested in seeing the global intercept for d' on its original scale so that I can compare it with previously reported values. Right now, I am using all default priors. This means flat priors for global effects and student priors for varying effects (I think). My understanding is that brms internally scales priors to match the scale of the data. If I want to define my own priors, which I know I really should, particularly to replace the flat priors on the global effects, then I need to understand how the scaling of the variables affects the specification of the prior.
+
+I am also opting to use beta regression because it acknowledges the (0,1) boundedness of d'. There is a lovely paper on this topic (Douma and Weedon 2019, MEE), and in it the authors explicitly note that beta regression can be applied to derived metrics that are (0,1) bounded. 
+
+"Although we present beta regression in this review as a method for analysing continuous‐based proportions, there are also many examples for using this techniques to analyse data from derived indices that are bound between 0 and 1 (e.g. an evenness index in Nogueira, González‐Troncoso, and Tolimieri (2016); or a straightness index in Shimada et al. (2016)). In addition, it can be applied to variables that are constrained to the interval a and b as they can be rescaled to [0, 1] through (y − a)/(b − a)."
+
+Importantly, the results of beta regression are on the logit scale, so they have to be back-transformed using the inv_logit_scaled() function.
+
+I've played around with every way I can think of to add elevation as a predictor, but there just isn't an elevation effect to be found, and loo model evaluation always favors a varying site intercept to a fixed elevation effect. I'm removing those models for the time being to clean up my script. I can always run them again if we decide it is important ot show the model selection process for the paper.
 ```{r}
-# elev*yday interaction model
-brm_dprime.sp00 <- brm(dprime.sp ~ elev0 * yday0 + (1 | bb.sp),
-                       #+ (1 | site),
+# Full data
+brm_dprime.sp10 <- brm(dprime.sp ~ yday0 + bb.sp.abund0 + (1 | bb.sp) + (1 | site),
                        cores = 4,
                        iter = 2000,
-                       family = "skew_normal", # this accounts for a slight left-skew in the posterior
+                       family = "zero_one_inflated_beta", # 
+                       file = "../output/brm_dprime.sp10",
+                       data = bias2)
+
+summary(brm_dprime.sp10)
+conditional_effects(brm_dprime.sp10)
+prior_summary(brm_dprime.sp10)
+parnames(brm_dprime.sp10)
+pp_check(brm_dprime.sp10)
+bayes_R2(brm_dprime.sp10)
+mcmc_plot(brm_dprime.sp10, pars = "^r_bb.sp")
+mcmc_plot(brm_dprime.sp10, pars = "^r_site")
+
+# Abundance threshold >= 3
+brm_dprime.sp00 <- brm(dprime.sp ~ yday0 + bb.sp.abund0 + (1 | bb.sp) + (1 | site),
+                       cores = 4,
+                       iter = 2000,
+                       family = "zero_one_inflated_beta", # 
                        file = "../output/brm_dprime.sp00",
                        data = bias)
 
 summary(brm_dprime.sp00)
+conditional_effects(brm_dprime.sp00)
 prior_summary(brm_dprime.sp00)
 parnames(brm_dprime.sp00)
 pp_check(brm_dprime.sp00)
 bayes_R2(brm_dprime.sp00)
-
-# Intercept-only model
-brm_dprime.sp01 <- brm(dprime.sp ~ 1 + (1 | bb.sp) + (1 | site),
-                       cores = 4,
-                       iter = 2000,
-                       family = "skew_normal",
-                       file = "../output/brm_dprime.sp01",
-                       data = bias)
-
-summary(brm_dprime.sp01)
-prior_summary(brm_dprime.sp01)
-parnames(brm_dprime.sp01)
-pp_check(brm_dprime.sp01)
-bayes_R2(brm_dprime.sp01)
-
-# Compare interaction model and intercept-only model. This favors the intercept-only model.
-loo(brm_dprime.sp00, brm_dprime.sp01)
+mcmc_plot(brm_dprime.sp00, pars = "^r_bb.sp")
+mcmc_plot(brm_dprime.sp00, pars = "^r_site")
 ```
 
 #### 1.3.3.1 Plot
 ```{r}
-get_variables(brm_dprime.sp01)
+# Full data with zero- one-inflation
+get_variables(brm_dprime.sp10)
 
-brm_dprime.sp01_plotframe <- brm_dprime.sp01 %>%
+brm_dprime.sp10_plotframe <- brm_dprime.sp10 %>%
   spread_draws(b_Intercept, r_bb.sp[condition, term]) %>% 
-  mutate(condition_mean = b_Intercept + r_bb.sp)
+  mutate(condition_mean = b_Intercept + r_bb.sp) %>%
+  mutate(condition_mean_invlogit = inv_logit_scaled(condition_mean))
 
-brm_dprime.sp01_plotframe2 <- brm_dprime.sp01 %>%
+brm_dprime.sp10_plotframe2 <- brm_dprime.sp10 %>%
   spread_draws(b_Intercept, r_site[condition, term]) %>% 
-  mutate(condition_mean = b_Intercept + r_site)
+  mutate(condition_mean = b_Intercept + r_site) %>%
+  mutate(condition_mean_invlogit = inv_logit_scaled(condition_mean))
 
-brm_dprime.sp01_subplot1 <- ggplot(brm_dprime.sp01_plotframe, aes(condition_mean, condition)) +
+brm_dprime.sp10_subplot1 <- ggplot(brm_dprime.sp10_plotframe, aes(condition_mean_invlogit, condition)) +
   stat_halfeye() +
   ylab("Bumble bee species") +
   xlab("Discrimination (d')") +
   theme_light() 
 
-brm_dprime.sp01_subplot2 <- ggplot(brm_dprime.sp01_plotframe2, aes(condition_mean, condition)) +
+brm_dprime.sp10_subplot2 <- ggplot(brm_dprime.sp10_plotframe2, aes(condition_mean_invlogit, condition)) +
   stat_halfeye() +
   ylab("Site") +
   xlab("Discrimination (d')") +
   theme_light()
 
-brm_dprime.sp01_plot1 <- brm_dprime.sp01_subplot1 | brm_dprime.sp01_subplot2
+brm_dprime.sp10_plot1 <- brm_dprime.sp10_subplot1 | brm_dprime.sp10_subplot2
 
-ggsave(brm_dprime.sp01_plot1, file = "../output/brm_dprime.sp01_plot1.png")
+ggsave(brm_dprime.sp10_plot1, file = "../output/brm_dprime.sp10_plot1.png")
+
+# Subsetted data with skew normal 
+get_variables(brm_dprime.sp00)
+
+brm_dprime.sp00_plotframe <- brm_dprime.sp00 %>%
+  spread_draws(b_Intercept, r_bb.sp[condition, term]) %>% 
+  mutate(condition_mean = b_Intercept + r_bb.sp) %>%
+  mutate(condition_mean_invlogit = inv_logit_scaled(condition_mean))
+
+brm_dprime.sp00_plotframe2 <- brm_dprime.sp00 %>%
+  spread_draws(b_Intercept, r_site[condition, term]) %>% 
+  mutate(condition_mean = b_Intercept + r_site) %>%
+  mutate(condition_mean_invlogit = inv_logit_scaled(condition_mean))
+
+brm_dprime.sp00_subplot1 <- ggplot(brm_dprime.sp00_plotframe, aes(condition_mean_invlogit, condition)) +
+  stat_halfeye() +
+  ylab("Bumble bee species") +
+  xlab("Discrimination (d')") +
+  theme_light() 
+
+brm_dprime.sp00_subplot2 <- ggplot(brm_dprime.sp00_plotframe2, aes(condition_mean_invlogit, condition)) +
+  stat_halfeye() +
+  ylab("Site") +
+  xlab("Discrimination (d')") +
+  theme_light()
+
+brm_dprime.sp00_plot1 <- brm_dprime.sp00_subplot1 | brm_dprime.sp00_subplot2
+
+ggsave(brm_dprime.sp00_plot1, file = "../output/brm_dprime.sp00_plot1.png")
 ```
 
 # 2. Explaining bias
@@ -444,6 +519,18 @@ ggplot(filter(pvis_ktype, prop.flower.cover >= 0.05), aes(k.type.ss, fill = visi
 
 ### 2.2.2 brms models
 ```{r}
+# Zero- one-inflated beta regression
+brm_pvis01 <- brm(prop.visits ~ prop.flower.cover0 + 
+                    (1 | k.type.ss) + 
+                    (1 | site) + 
+                    (1 | bb.sp),
+                  family = "zero_one_inflated_beta",
+                  file = "./output/brm_pvis01",
+                  chains = 4,
+                  cores = 4,
+                  iter = 2000,
+                  data = pvis_ktype)
+
 # Poisson models of raw visit counts
 brm_pvis00 <- brm(visits ~ prop.flower.cover0 + 
                     bb.sp.abund0 + 
@@ -452,7 +539,7 @@ brm_pvis00 <- brm(visits ~ prop.flower.cover0 +
                     (1 | bb.sp),
                   #control = list(adapt_delta = 0.99),
                   family = "poisson",
-                  file = "./output/brm_pvis00b",
+                  file = "../output/brm_pvis00",
                   chains = 4,
                   #cores = 4,
                   iter = 2000,
@@ -1203,6 +1290,20 @@ niche_overlap_bias <- niche_overlap %>%
   rename(dprime.sp2 = dprime.sp) %>%
   select(site, date, sp.pair, bb.sp1, bb.sp2, bb.sp1.abund, bb.sp2.abund, 
          dprime.sp1, dprime.sp2, niche.overlap, same.class)
+
+niche_overlap_bias2 <- niche_overlap %>%
+  inner_join(bias2, by = c("site", "date", c("bb.sp1" = "bb.sp"))) %>%
+  rename(dprime.sp1 = dprime.sp) %>%
+  inner_join(bias, by = c("site", "date", c("bb.sp2" = "bb.sp"))) %>%
+  rename(dprime.sp2 = dprime.sp) %>%
+  select(site, date, sp.pair, bb.sp1, bb.sp2, bb.sp1.abund, bb.sp2.abund, 
+         dprime.sp1, dprime.sp2, niche.overlap, same.class)
+
+ggplot(niche_overlap_bias, aes(dprime.sp1, dprime.sp2, color = niche.overlap)) +
+  geom_point() 
+
+ggplot(niche_overlap_bias, aes(log(bb.sp1.abund), log(bb.sp2.abund), color = niche.overlap)) +
+  geom_point() 
 
 
 # When bias is high, it could mean that there are few good options on which all (or many) BB species converge. But apparently it doesn't. When bias is high, BB spp are biased toward DIFFERENT flora, and thus their niches diverge. 
