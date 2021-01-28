@@ -464,10 +464,10 @@ ggsave(brm_dprime.sp00_plot1, file = "../output/brm_dprime.sp00_plot1.png")
 ```
 
 # 2. Explaining bias
-## 2.1 Calculate visitation probability per plant speces/ktype/family
+## 2.1 Calculate visitation probability per plant morphotype. Instead of keeping the plant species resolved, we will pool visitation by morphotype. The problem with not pooling by morphotype is that more species-rich morphotypes will be penalized simply because their visitation is diluted across more species.
 ```{r}
 pvis_ktype <- visit_cover %>%
-  group_by(site, date, bb.sp, plant.sp) %>%
+  group_by(site, date, bb.sp, k.type.ss) %>%
   summarize(flower.cover = sum(flower.cover), # get raw flower cover and visits by site*date*bb.sp*plant.sp
             visits = sum(visits)) %>%
   group_by(site, date) %>%
@@ -477,108 +477,343 @@ pvis_ktype <- visit_cover %>%
   group_by(site, date, bb.sp) %>%
   mutate(bb.sp.abund = sum(visits)) %>% # abundance of each BB sp. per site-date
   ungroup() %>%
-  left_join(fl_traits) %>% # add floral traits
   left_join(bb_traits) %>% # add BB traits
   mutate(k.type.ss = factor(k.type.ss), # recode variables
          pbl.w.class2 = factor(pbl.w.class2),
          visits = as.integer(visits)) %>%
   filter(!k.type.ss %in% c("9", "10")) %>% # Drop ktypes 9 and 10 since both are extremely rare
   left_join(site_data)  %>%
+  ungroup() %>%
   mutate(prop.flower.cover0 = scale(prop.flower.cover), # normalized predictors
          bb.sp.abund0 = scale(bb.sp.abund),
          elev.mean0 = scale(elev.mean),
          yday = yday(date), # and add yday variable
          yday0 = scale(yday)) %>%
-  select(site, elev.mean0, elev.mean, elev.class2, date, yday, yday0, bb.sp, plant.sp, visits, 
-         visits.bin, prop.visits, prop.flower.cover, prop.flower.cover0,
-         k.type.ss, bb.sp.abund, bb.sp.abund0, pbl.w.class2) 
+  select(site, elev.mean0, elev.mean, elev.class2, date, yday, yday0, 
+         bb.sp, k.type.ss, visits, visits.bin, prop.visits, prop.flower.cover, 
+         prop.flower.cover0, bb.sp.abund, bb.sp.abund0, pbl.w.class2)
+
+write_csv(pvis_ktype, "../hpc_packets/pvis_ktype.csv")
+
+# We can also pool across BB spp. to focus just on how much visitation each ktype gets
+pvis_ktype_pool <- visit_cover %>%
+  group_by(site, date, k.type.ss) %>%
+  summarize(flower.cover = sum(flower.cover), # get raw flower cover and visits by site*date*bb.sp*plant.sp
+            visits = sum(visits)) %>%
+  group_by(site, date) %>%
+  mutate(prop.flower.cover = flower.cover/sum(flower.cover), # proportional flower cover
+         prop.visits = visits/sum(visits), # proportional visits
+         visits.bin = factor(if_else(visits > 0, 1, 0))) %>% # binary visits
+  group_by(site, date) %>%
+  mutate(bb.abund = sum(visits)) %>% # abundance of each BB sp. per site-date
+  ungroup() %>%
+  mutate(k.type.ss = factor(k.type.ss), # recode variables
+         visits = as.integer(visits)) %>%
+  filter(!k.type.ss %in% c("9", "10")) %>% # Drop ktypes 9 and 10 since both are extremely rare
+  left_join(site_data)  %>%
+  ungroup() %>%
+  mutate(prop.flower.cover0 = scale(prop.flower.cover), # normalized predictors
+         bb.abund0 = scale(bb.abund),
+         elev.mean0 = scale(elev.mean),
+         yday = yday(date), # and add yday variable
+         yday0 = scale(yday)) %>%
+  select(site, elev.mean0, elev.mean, elev.class2, date, yday, yday0, 
+         k.type.ss, visits, visits.bin, prop.visits, prop.flower.cover, 
+         prop.flower.cover0, bb.abund, bb.abund0)
+
+pvis_ktype_sitepool <- pvis_ktype %>%
+  group_by(site, elev.mean, bb.sp, pbl.w.class2, k.type.ss) %>%
+  summarize(mean.prop.visits = mean(prop.visits),
+            mean.prop.flower.cover = mean(prop.flower.cover))
+
+pvis_ktype_sitepool2 <- pvis_ktype %>%
+  group_by(site, elev.mean, bb.sp, pbl.w.class2, k.type.ss) %>%
+  summarize(mean.prop.visits = weighted.mean(prop.visits, bb.sp.abund),
+            mean.prop.flower.cover = mean(prop.flower.cover))
+
+ggplot(pvis_ktype_sitepool, aes(mean.prop.flower.cover, mean.prop.visits)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_wrap(~k.type.ss)
+
+ggplot(pvis_ktype_sitepool, aes(mean.prop.visits)) +
+  geom_histogram() +
+  facet_grid(pbl.w.class2~k.type.ss)
+
+ggplot(pvis_ktype_sitepool2, aes(mean.prop.visits)) +
+  geom_histogram() +
+  facet_grid(pbl.w.class2~k.type.ss)
 ```
 
 ## 2.2 Multi-level models
-
-### 2.2.1 Preliminary visualization
-The tons of zeros are due to the lots of plant species that were present at very low abundance and received few or zero visits. This might not be ideal. We could opt for one of our alternative bias measure, like fold change, which all give something like a poisson distribution, but I don't know if this would be an improvement. We could also filter our data to include only plants that were above some threshold of relative abundance, say, 1%.
+### I think the structure of my data necessitates a complex model design. My observations of prop.visits ~ pbl.w.class:k.type.ss are repeated within BB species, and therefore not independent. Moreover, my observations are repeated within sites, adding another layer of non-independence. I think this means I need to include varying intercept terms for both BB sp and site. 
+### I did some visualization, and it is also clear that the slope of prop.visits ~ prop.flower.cover varies strongly with pbl.w.class:ktype. This is very informative, and it makes good sense. 
 ```{r}
-# Visit.prop
-ggplot(filter(pvis_ktype, prop.flower.cover >= 0.05), aes(prop.visits)) +
-  geom_histogram()
-
-# Visits.bin
-ggplot(pvis_ktype, aes(k.type.ss, fill = visits.bin)) +
-  geom_bar()
-
-ggplot(pvis_ktype, aes(elev.mean, prop.visits)) +
-  geom_point() +
-  geom_smooth() +
-  facet_grid(bb.sp~k.type.ss)
-
-# Visits.bin filtered
-ggplot(filter(pvis_ktype, prop.flower.cover >= 0.05), aes(k.type.ss, fill = visits.bin)) +
-  geom_bar()
-```
-
-### 2.2.2 brms models
-```{r}
-# Zero- one-inflated beta regression
-brm_pvis01 <- brm(prop.visits ~ prop.flower.cover0 + 
-                    (1 | k.type.ss) + 
-                    (1 | site) + 
-                    (1 | bb.sp),
+brm_pvis62 <- brm(mean.prop.visits ~ mean.prop.flower.cover + 
+                    (1 + mean.prop.flower.cover | k.type.ss:pbl.w.class2) + 
+                    (1 + mean.prop.flower.cover | k.type.ss:bb.sp),
                   family = "zero_one_inflated_beta",
-                  file = "./output/brm_pvis01",
+                  file = "../output/brm_pvis62",
+                  #file = "brm_pvis61",
+                  chains = 4,
+                  cores = 4,
+                  iter = 2000,
+                  data = pvis_ktype_sitepool2)
+bayes_R2(brm_pvis62)
+
+brm_pvis61 <- brm(mean.prop.visits ~ mean.prop.flower.cover + 
+                    (1 + mean.prop.flower.cover | k.type.ss:pbl.w.class2) + 
+                    (1 + mean.prop.flower.cover | k.type.ss:bb.sp),
+                  family = "zero_one_inflated_beta",
+                  file = "../output/brm_pvis61",
+                  #file = "brm_pvis61",
+                  chains = 4,
+                  cores = 4,
+                  iter = 2000,
+                  data = pvis_ktype_sitepool)
+
+summary(brm_pvis61)
+prior_summary(brm_pvis61)
+parnames(brm_pvis61)
+mcmc_plot(brm_pvis61, pars = c("^r_k"))
+mcmc_plot(brm_pvis61, pars = c("^r_s"))
+mcmc_plot(brm_pvis61)
+conditional_effects(brm_pvis61)
+pp_check(brm_pvis61)
+bayes_R2(brm_pvis61)
+mcmc_plot(brm_pvis50, pars = c("r_k.type.ss:pbl.w.class2[0_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[0_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[0_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[1_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[1_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[1_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[2_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[2_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[2_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[3_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[3_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[3_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[4_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[4_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[4_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[5_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[5_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[5_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[6_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[6_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[6_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[7_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[7_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[7_3,prop.flower.cover0]"),
+          fixed = TRUE)
+
+mcmc_plot(brm_pvis50, pars = c("r_k.type.ss:pbl.w.class2[0_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[0_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[0_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[1_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[1_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[1_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[2_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[2_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[2_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[3_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[3_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[3_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[4_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[4_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[4_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[5_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[5_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[5_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[6_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[6_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[6_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[7_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[7_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[7_3,Intercept]"),
+          fixed = TRUE)
+
+brm_pvis60 <- brm(prop.visits ~ prop.flower.cover0 + 
+                    (1 + prop.flower.cover0 | k.type.ss:pbl.w.class2) + 
+                    (1 + prop.flower.cover0 | k.type.ss:site) +
+                    (1 + prop.flower.cover0 | k.type.ss:bb.sp),
+                  family = "zero_one_inflated_beta",
+                  file = "../output/brm_pvis60",
+                  #file = "brm_pvis60",
+                  chains = 4,
+                  cores = 4,
+                  iter = 2000,
+                  data = pvis_ktype)
+bayes_R2(brm_pvis60)
+conditional_effects(brm_pvis60)
+mcmc_plot(brm_pvis60, pars = c("^b_"))
+mcmc_plot(brm_pvis60, pars = c("r_k.type.ss:pbl.w.class2[0_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[0_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[0_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[1_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[1_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[1_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[2_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[2_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[2_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[3_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[3_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[3_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[4_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[4_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[4_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[5_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[5_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[5_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[6_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[6_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[6_3,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[7_1,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[7_2,Intercept]",
+                               "r_k.type.ss:pbl.w.class2[7_3,Intercept]"),
+          fixed = TRUE)
+mcmc_plot(brm_pvis60, pars = c("r_k.type.ss:pbl.w.class2[0_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[0_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[0_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[1_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[1_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[1_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[2_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[2_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[2_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[3_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[3_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[3_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[4_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[4_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[4_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[5_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[5_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[5_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[6_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[6_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[6_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[7_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[7_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[7_3,prop.flower.cover0]"),
+          fixed = TRUE)
+
+brm_pvis50 <- brm(prop.visits ~ prop.flower.cover0 + 
+                    (1 + prop.flower.cover0 | k.type.ss:pbl.w.class2) + 
+                    (1 | k.type.ss:site) +
+                    (1 | k.type.ss:bb.sp),
+                  family = "zero_one_inflated_beta",
+                  file = "../output/brm_pvis50",
+                  #file = "brm_pvis50",
                   chains = 4,
                   cores = 4,
                   iter = 2000,
                   data = pvis_ktype)
 
-# Poisson models of raw visit counts
-brm_pvis00 <- brm(visits ~ prop.flower.cover0 + 
-                    bb.sp.abund0 + 
+summary(brm_pvis50)
+prior_summary(brm_pvis50)
+get_variables(brm_pvis50)
+mcmc_plot(brm_pvis50, pars = c("r_k.type.ss:pbl.w.class2[2_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[2_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[2_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[3_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[3_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[3_3,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[6_1,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[6_2,prop.flower.cover0]",
+                               "r_k.type.ss:pbl.w.class2[6_3,prop.flower.cover0]"),
+          fixed = TRUE)
+
+mcmc_plot(brm_pvis50, pars = c("r_k.type.ss:bb.sp[3_gers,Intercept]",
+                               "r_k.type.ss:bb.sp[3_hort,Intercept]",
+                               "r_k.type.ss:bb.sp[3_hypn,Intercept]",
+                               "r_k.type.ss:bb.sp[3_humi,Intercept]",
+                               "r_k.type.ss:bb.sp[3_jone,Intercept]",
+                               "r_k.type.ss:bb.sp[3_lapi,Intercept]",
+                               "r_k.type.ss:bb.sp[3_mend,Intercept]",
+                               "r_k.type.ss:bb.sp[3_mont,Intercept]",
+                               "r_k.type.ss:bb.sp[3_muci,Intercept]",
+                               "r_k.type.ss:bb.sp[3_pasc,Intercept]",
+                               "r_k.type.ss:bb.sp[3_prat,Intercept]",
+                               "r_k.type.ss:bb.sp[3_psit,Intercept]",
+                               "r_k.type.ss:bb.sp[3_pyre,Intercept]",
+                               "r_k.type.ss:bb.sp[3_soro,Intercept]",
+                               "r_k.type.ss:bb.sp[3_telu,Intercept]",
+                               "r_k.type.ss:bb.sp[3_wurf,Intercept]"),
+          fixed = TRUE)
+
+mcmc_plot(brm_pvis50, pars = c("r_k.type.ss:bb.sp[6_gers,Intercept]",
+                               "r_k.type.ss:bb.sp[6_hort,Intercept]",
+                               "r_k.type.ss:bb.sp[6_hypn,Intercept]",
+                               "r_k.type.ss:bb.sp[6_humi,Intercept]",
+                               "r_k.type.ss:bb.sp[6_jone,Intercept]",
+                               "r_k.type.ss:bb.sp[6_lapi,Intercept]",
+                               "r_k.type.ss:bb.sp[6_mend,Intercept]",
+                               "r_k.type.ss:bb.sp[6_mont,Intercept]",
+                               "r_k.type.ss:bb.sp[6_muci,Intercept]",
+                               "r_k.type.ss:bb.sp[6_pasc,Intercept]",
+                               "r_k.type.ss:bb.sp[6_prat,Intercept]",
+                               "r_k.type.ss:bb.sp[6_psit,Intercept]",
+                               "r_k.type.ss:bb.sp[6_pyre,Intercept]",
+                               "r_k.type.ss:bb.sp[6_soro,Intercept]",
+                               "r_k.type.ss:bb.sp[6_telu,Intercept]",
+                               "r_k.type.ss:bb.sp[6_wurf,Intercept]"),
+          fixed = TRUE)
+
+mcmc_plot(brm_pvis50, pars = c("^r_k.type.ss:site"))
+mcmc_plot(brm_pvis50)
+conditional_effects(brm_pvis50)
+pp_check(brm_pvis50)
+bayes_R2(brm_pvis50)
+
+## BB spp. pooled, only interested in comparing ktypes here
+brm_pvis12 <- brm(prop.visits ~ prop.flower.cover0 + 
                     (1 | k.type.ss) + 
-                    (1 | site) + 
-                    (1 | bb.sp),
-                  #control = list(adapt_delta = 0.99),
-                  family = "poisson",
-                  file = "../output/brm_pvis00",
+                    (1 | site),
+                  family = "zero_one_inflated_beta",
+                  file = "../output/brm_pvis12",
+                  #file = "brm_pvis12",
                   chains = 4,
-                  #cores = 4,
+                  cores = 4,
                   iter = 2000,
-                  data = pvis_ktype)
+                  data = pvis_ktype_pool)
 
-summary(brm_pvis00)
-prior_summary(brm_pvis00)
-parnames(brm_pvis00)
-mcmc_plot(brm_pvis00, pars = c("^r_k"))
-mcmc_plot(brm_pvis00, pars = c("^r_s"))
-mcmc_plot(brm_pvis00, pars = c("^b_"))
-mcmc_plot(brm_pvis00)
-conditional_effects(brm_pvis00)
-pp_check(brm_pvis00)
-bayes_R2(brm_pvis00)
+summary(brm_pvis12)
+prior_summary(brm_pvis12)
+parnames(brm_pvis12)
+mcmc_plot(brm_pvis12, pars = c("^r_k"))
+mcmc_plot(brm_pvis12, pars = c("^r_s"))
+mcmc_plot(brm_pvis12)
+conditional_effects(brm_pvis12)
+pp_check(brm_pvis12)
+bayes_R2(brm_pvis12)
 
-# Perhaps I should add the bb.sp varying intercept effect; otherwise, I think I could be accused of pseudo replication.
-brm_pvis11 <- brm(visits ~ prop.flower.cover0 + 
-                    bb.sp.abund0 + 
-                    (1 | k.type.ss:pbl.w.class2) + 
-                    (1 | site) +
-                    (1 | bb.sp),
-                  family = "poisson",
-                  file = "../output/brm_pvis11",
-                  chains = 4,
-                  #cores = 4,
-                  iter = 2000,
-                  data = pvis_ktype)
 
-summary(brm_pvis11)
-prior_summary(brm_pvis11)
-parnames(brm_pvis11)
-mcmc_plot(brm_pvis11, pars = c("^r_k"))
-mcmc_plot(brm_pvis11, pars = c("^r_b"))
-mcmc_plot(brm_pvis11, pars = c("^b_"))
-mcmc_plot(brm_pvis11)
-conditional_effects(brm_pvis11)
-pp_check(brm_pvis11)
-bayes_R2(brm_pvis11)
+```
+
+```{r}
+# mgcv time
+gam1 <- bam(prop.visits ~ prop.flower.cover0 +
+              te(yday, elev.mean, by = k.type.ss, bs = c("gp", "tp"), k = c(8, 8)),
+            family = "betar",
+            method = "fREML",
+            discrete = TRUE,
+            data = pvis_ktype_pool) %>% getViz()
+
+summary(gam1)
+check.gamViz(gam1)
+plot.gamViz(gam1)
+            
+gam2 <- bam(visits ~ te(yday, elev.mean, by = k.type.ss, bs = c("gp", "tp"), k = c(8, 8)),
+            family = "quasipoisson",
+            method = "fREML",
+            discrete = TRUE,
+            data = pvis_ktype_pool) %>% getViz()
+
+summary(gam2)
+check.gamViz(gam2)
+plot.gamViz(gam2)
+
 ```
 
 #### 2.2.2.1 Plot
@@ -586,16 +821,12 @@ bayes_R2(brm_pvis11)
 # Note that the intercept is on the log scale, so if you want to transform it back to predicted # visits, you have to exponentiate it. I think.
 
 ## Interaction model
-brm_pvis11_plotframe <- brm_pvis11 %>%
+brm_pvi50_plotframe <- brm_pvis50 %>%
   spread_draws(b_Intercept, `r_k.type.ss:pbl.w.class2`[condition, term]) %>% # the back ticks are necessary to escape the :
   rename(r_ktype.pbl = `r_k.type.ss:pbl.w.class2`) %>%
   mutate(condition_mean = b_Intercept + r_ktype.pbl) %>%
+  mutate(condition_mean = inv_logit_scaled(condition_mean)) %>%
   separate(condition, c("ktype", "pbl.class"), sep = "_", remove = FALSE) %>%
-  mutate(pbl.class = case_when(
-    pbl.class == "1" ~ "short",
-    pbl.class == "2" ~ "med",
-    pbl.class == "3" ~ "long")
-    ) %>%
   mutate(ktype = case_when(
     ktype == "0" ~ "NA (0)",
     ktype == "1" ~ "Disc (1)",
@@ -621,7 +852,7 @@ brm_pvis11_plotframe <- brm_pvis11 %>%
 #         axis.text.y=element_blank(),
 #         axis.ticks.y=element_blank())
 
-ggplot(brm_pvis11_plotframe, aes(condition_mean, pbl.class, color = pbl.class, fill = pbl.class)) +
+ggplot(brm_pvi50_plotframe, aes(condition_mean, pbl.class, color = pbl.class, fill = pbl.class)) +
   #stat_pointinterval() +
   stat_halfeye(alpha = 0.4, interval_alpha = 1, point_alpha = 1) +
   facet_wrap(~ktype, scales = "free") +
@@ -664,6 +895,14 @@ ggsave(file = "../output/brm_pvis00_plot1.png", width = 7, height = 5.5)
 ```
 
 ### 2.2.3 The lability of bias: How does the foraging bias of each species with respect to each morphotype vary through elevation and time?
+
+#### We need to do some kind of tensor product gam on this jawn!
+```{r}
+ggplot(pvis_ktype_pool, aes(yday, elev.mean, color = prop.visits)) +
+  geom_point() +
+  facet_wrap(~k.type.ss)
+```
+
 ```{r}
 ggplot(pvis_ktype, aes(elev.mean, prop.visits)) +
   geom_point() +
