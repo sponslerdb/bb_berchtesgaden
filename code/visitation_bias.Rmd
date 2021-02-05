@@ -248,6 +248,7 @@ bias_family <- biaseval(visit_cover, plant.family, site, date) %>%
   select(site, date, bb.sp, dprime.fam)
 
 # Collated
+## Filtered t0 abund >= 3
 bias <- full_join(bias_plantsp, bias_ktype) %>%
   full_join(bias_family) %>%
   left_join(site_data) %>% # add site data
@@ -267,6 +268,7 @@ bias <- full_join(bias_plantsp, bias_ktype) %>%
          dprime.ktype0, dprime.fam, dprime.fam0, elev, elev0, 
          yday, yday0, bb.sp.abund, bb.sp.abund0, bb.sp.prop.abund, total.flower.cover)
 
+## Unfiltered
 bias2 <- full_join(bias_plantsp, bias_ktype) %>%
   full_join(bias_family) %>%
   left_join(site_data) %>% # add site data
@@ -289,11 +291,19 @@ bias2 <- full_join(bias_plantsp, bias_ktype) %>%
 ggplot(bias, aes(dprime.sp)) +
   geom_histogram()
 
-ggplot(bias1, aes(dprime.sp)) +
-  geom_histogram()
-
 ggplot(bias2, aes(dprime.sp)) +
   geom_histogram()
+
+ggplot(filter(bias2, bb.sp.abund >= 5), aes(dprime.sp)) +
+  geom_histogram()
+
+ggplot(filter(bias2, bb.sp.abund >= 10), aes(dprime.sp)) +
+  geom_histogram()
+
+ggplot(filter(bias, bb.sp %in% c("pasc", "prat", "wurf", "soro", "psit", "hort", "telu")), aes(elev, dprime.sp)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~bb.sp)
 ```
 
 ## 1.3 Multi-level model: bias ~ yday * elevation + (1 + elevation | bb.sp)
@@ -366,6 +376,8 @@ I am also opting to use beta regression because it acknowledges the (0,1) bounde
 Importantly, the results of beta regression are on the logit scale, so they have to be back-transformed using the inv_logit_scaled() function.
 
 I've played around with every way I can think of to add elevation as a predictor, but there just isn't an elevation effect to be found, and loo model evaluation always favors a varying site intercept to a fixed elevation effect. I'm removing those models for the time being to clean up my script. I can always run them again if we decide it is important ot show the model selection process for the paper.
+
+#### Call models
 ```{r}
 # Full data
 brm_dprime.sp10 <- brm(dprime.sp ~ yday0 + bb.sp.abund0 + (1 | bb.sp) + (1 | site),
@@ -375,15 +387,6 @@ brm_dprime.sp10 <- brm(dprime.sp ~ yday0 + bb.sp.abund0 + (1 | bb.sp) + (1 | sit
                        file = "../output/brm_dprime.sp10",
                        data = bias2)
 
-summary(brm_dprime.sp10)
-conditional_effects(brm_dprime.sp10)
-prior_summary(brm_dprime.sp10)
-parnames(brm_dprime.sp10)
-pp_check(brm_dprime.sp10)
-bayes_R2(brm_dprime.sp10)
-mcmc_plot(brm_dprime.sp10, pars = "^r_bb.sp")
-mcmc_plot(brm_dprime.sp10, pars = "^r_site")
-
 # Abundance threshold >= 3
 brm_dprime.sp00 <- brm(dprime.sp ~ yday0 + bb.sp.abund0 + (1 | bb.sp) + (1 | site),
                        cores = 4,
@@ -392,17 +395,140 @@ brm_dprime.sp00 <- brm(dprime.sp ~ yday0 + bb.sp.abund0 + (1 | bb.sp) + (1 | sit
                        file = "../output/brm_dprime.sp00",
                        data = bias)
 
-summary(brm_dprime.sp00)
-conditional_effects(brm_dprime.sp00)
-prior_summary(brm_dprime.sp00)
-parnames(brm_dprime.sp00)
+# Abundance threshold >= 5
+brm_dprime.sp20 <- brm(dprime.sp ~ yday + bb.sp.abund + (1 | bb.sp) + (1 | site),
+                       cores = 4,
+                       iter = 2000,
+                       family = "zero_one_inflated_beta", # 
+                       file = "../output/brm_dprime.sp20",
+                       data = filter(bias, bb.sp.abund >= 5))
+
+# Abundance threshold >= 10
+brm_dprime.sp30 <- brm(dprime.sp ~ yday + bb.sp.abund + (1 | bb.sp) + (1 | site),
+                       cores = 4,
+                       iter = 2000,
+                       family = "zero_one_inflated_beta", # 
+                       file = "../output/brm_dprime.sp30",
+                       data = filter(bias, bb.sp.abund >= 10))
+```
+
+#### 1.3.3.1 Evaluate models
+They just explains so little variance... d' is too unstable at low abundance. I just don't think there is much that can be said here. 
+```{r}
+# Full data
+pp_check(brm_dprime.sp10)
+bayes_R2(brm_dprime.sp10)
+
+## QQ plot
+qres_dprime10 <- bias2 %>%
+  add_predicted_draws(brm_dprime.sp10, n = 20) %>%
+  summarise(
+    quant_residual = mean(.prediction < dprime.sp)
+  ) 
+
+ggplot(qres_dprime10,
+         aes(sample = quant_residual)) +
+  geom_qq(distribution = stats::qunif) +
+  geom_qq_line(distribution = stats::qunif)
+
+## Predicted vs. data
+pred_vs_data_dprime10 <- bias2 %>%
+  add_predicted_draws(brm_dprime.sp10, n = 20) 
+
+ggplot(pred_vs_data_dprime10, aes(.prediction, dprime.sp)) +
+  geom_point(alpha = 0.25) 
+
+
+# Abundance >= 3
 pp_check(brm_dprime.sp00)
 bayes_R2(brm_dprime.sp00)
+
+## QQ plot
+qres_dprime00 <- bias %>%
+  add_predicted_draws(brm_dprime.sp00, n = 20) %>%
+  summarise(
+    quant_residual = mean(.prediction < dprime.sp)
+  ) 
+
+ggplot(qres_dprime00,
+         aes(sample = quant_residual)) +
+  geom_qq(distribution = stats::qunif) +
+  geom_qq_line(distribution = stats::qunif)
+
+## Predicted vs. data
+pred_vs_data_dprime00 <- bias %>%
+  add_predicted_draws(brm_dprime.sp00, n = 20) 
+
+ggplot(pred_vs_data_dprime00, aes(.prediction, dprime.sp)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "lm")
+
+# Abundance >= 5
+pp_check(brm_dprime.sp20)
+bayes_R2(brm_dprime.sp20)
+
+## QQ plot
+qres_dprime20 <- filter(bias2, bb.sp.abund >= 5) %>%
+  add_predicted_draws(brm_dprime.sp20, n = 20) %>%
+  summarise(
+    quant_residual = mean(.prediction < dprime.sp)
+  ) 
+
+ggplot(qres_dprime20,
+         aes(sample = quant_residual)) +
+  geom_qq(distribution = stats::qunif) +
+  geom_qq_line(distribution = stats::qunif)
+
+## Predicted vs. data
+pred_vs_data_dprime20 <-  filter(bias2, bb.sp.abund >= 5) %>%
+  add_predicted_draws(brm_dprime.sp20, n = 20) 
+
+ggplot(pred_vs_data_dprime20, aes(.prediction, dprime.sp)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "lm")
+
+# Abundance >= 10
+pp_check(brm_dprime.sp30)
+bayes_R2(brm_dprime.sp30)
+
+## QQ plot
+qres_dprime30 <- filter(bias2, bb.sp.abund >= 10) %>%
+  add_predicted_draws(brm_dprime.sp30, n = 20) %>%
+  summarise(
+    quant_residual = mean(.prediction < dprime.sp)
+  ) 
+
+ggplot(qres_dprime30,
+         aes(sample = quant_residual)) +
+  geom_qq(distribution = stats::qunif) +
+  geom_qq_line(distribution = stats::qunif)
+
+## Predicted vs. data
+pred_vs_data_dprime30 <-  filter(bias2, bb.sp.abund >= 10) %>%
+  add_predicted_draws(brm_dprime.sp20, n = 20) 
+
+ggplot(pred_vs_data_dprime30, aes(.prediction, dprime.sp)) +
+  geom_point(alpha = 0.210) +
+  geom_smooth(method = "lm")
+
+
+```
+
+
+#### 1.3.3.2 Preliminary visualization
+```{r}
+# Full data
+conditional_effects(brm_dprime.sp10)
+mcmc_plot(brm_dprime.sp10, pars = "^r_bb.sp")
+mcmc_plot(brm_dprime.sp10, pars = "^r_site")
+
+# Abundance >= 3
+conditional_effects(brm_dprime.sp00)
 mcmc_plot(brm_dprime.sp00, pars = "^r_bb.sp")
 mcmc_plot(brm_dprime.sp00, pars = "^r_site")
 ```
 
-#### 1.3.3.1 Plot
+#### 1.3.3.4 Final visualization
 ```{r}
 # Full data with zero- one-inflation
 get_variables(brm_dprime.sp10)
@@ -433,7 +559,7 @@ brm_dprime.sp10_plot1 <- brm_dprime.sp10_subplot1 | brm_dprime.sp10_subplot2
 
 ggsave(brm_dprime.sp10_plot1, file = "../output/brm_dprime.sp10_plot1.png")
 
-# Subsetted data with skew normal 
+# Subsetted data 
 get_variables(brm_dprime.sp00)
 
 brm_dprime.sp00_plotframe <- brm_dprime.sp00 %>%
@@ -466,367 +592,375 @@ ggsave(brm_dprime.sp00_plot1, file = "../output/brm_dprime.sp00_plot1.png")
 # 2. Explaining bias
 ## 2.1 Calculate visitation probability per plant morphotype. Instead of keeping the plant species resolved, we will pool visitation by morphotype. The problem with not pooling by morphotype is that more species-rich morphotypes will be penalized simply because their visitation is diluted across more species.
 ```{r}
-pvis_ktype <- visit_cover %>%
+prop_visits_ktype <- visit_cover %>%
   group_by(site, date, bb.sp, k.type.ss) %>%
   summarize(flower.cover = sum(flower.cover), # get raw flower cover and visits by site*date*bb.sp*plant.sp
             visits = sum(visits)) %>%
   group_by(site, date) %>%
-  mutate(prop.flower.cover = flower.cover/sum(flower.cover), # proportional flower cover
-         prop.visits = visits/sum(visits), # proportional visits
-         visits.bin = factor(if_else(visits > 0, 1, 0))) %>% # binary visits
+  mutate(prop.flower.cover = flower.cover/sum(flower.cover))%>% # binary visits
   group_by(site, date, bb.sp) %>%
-  mutate(bb.sp.abund = sum(visits)) %>% # abundance of each BB sp. per site-date
+  mutate(prop.visits = visits/sum(visits),
+         bb.sp.abund = sum(visits)) %>% # abundance of each BB sp. per site-date
   ungroup() %>%
   left_join(bb_traits) %>% # add BB traits
-  mutate(k.type.ss = factor(k.type.ss), # recode variables
-         pbl.w.class2 = factor(pbl.w.class2),
-         visits = as.integer(visits)) %>%
-  filter(!k.type.ss %in% c("9", "10")) %>% # Drop ktypes 9 and 10 since both are extremely rare
-  left_join(site_data)  %>%
+  mutate(ktype = factor(k.type.ss), # recode variables
+         tongue = factor(pbl.w.class2),
+         visits = as.integer(visits)) %>% # so we can run a Poisson model
+  left_join(site_data) %>% # add site data
   ungroup() %>%
-  mutate(prop.flower.cover0 = scale(prop.flower.cover), # normalized predictors
-         bb.sp.abund0 = scale(bb.sp.abund),
+  mutate(yday = yday(date),
          elev.mean0 = scale(elev.mean),
-         yday = yday(date), # and add yday variable
-         yday0 = scale(yday)) %>%
-  select(site, elev.mean0, elev.mean, elev.class2, date, yday, yday0, 
-         bb.sp, k.type.ss, visits, visits.bin, prop.visits, prop.flower.cover, 
-         prop.flower.cover0, bb.sp.abund, bb.sp.abund0, pbl.w.class2)
+         yday0 = scale(yday),
+         prop.flower.cover0 = scale(prop.flower.cover),
+         perc.flower.cover = prop.flower.cover*100,
+         bb.sp.abund0 = scale(bb.sp.abund)) %>%
+  select(site, elev.mean, date, yday, bb.sp, ktype, visits, 
+         prop.visits, perc.flower.cover, bb.sp.abund, tongue,
+         elev.mean0, yday0, prop.flower.cover0, bb.sp.abund0) %>%
+  mutate(visits.bin = if_else(visits > 0, 1, 0))
 
-write_csv(pvis_ktype, "../hpc_packets/pvis_ktype.csv")
+write_csv(prop_visits_ktype, "../hpc_packets/prop_visits_ktype.csv")
 
-# We can also pool across BB spp. to focus just on how much visitation each ktype gets
-pvis_ktype_pool <- visit_cover %>%
+prop_visits_ktype_pooled <- visit_cover %>%
   group_by(site, date, k.type.ss) %>%
   summarize(flower.cover = sum(flower.cover), # get raw flower cover and visits by site*date*bb.sp*plant.sp
             visits = sum(visits)) %>%
   group_by(site, date) %>%
-  mutate(prop.flower.cover = flower.cover/sum(flower.cover), # proportional flower cover
-         prop.visits = visits/sum(visits), # proportional visits
-         visits.bin = factor(if_else(visits > 0, 1, 0))) %>% # binary visits
-  group_by(site, date) %>%
-  mutate(bb.abund = sum(visits)) %>% # abundance of each BB sp. per site-date
-  ungroup() %>%
-  mutate(k.type.ss = factor(k.type.ss), # recode variables
+  mutate(prop.flower.cover = flower.cover/sum(flower.cover),
+         prop.visits = visits/sum(visits),
+         bb.abund = sum(visits),
          visits = as.integer(visits)) %>%
-  filter(!k.type.ss %in% c("9", "10")) %>% # Drop ktypes 9 and 10 since both are extremely rare
-  left_join(site_data)  %>%
+  mutate(ktype = factor(k.type.ss)) %>%
+  left_join(site_data) %>% # add site data
   ungroup() %>%
-  mutate(prop.flower.cover0 = scale(prop.flower.cover), # normalized predictors
-         bb.abund0 = scale(bb.abund),
+  mutate(yday = yday(date),
          elev.mean0 = scale(elev.mean),
-         yday = yday(date), # and add yday variable
-         yday0 = scale(yday)) %>%
-  select(site, elev.mean0, elev.mean, elev.class2, date, yday, yday0, 
-         k.type.ss, visits, visits.bin, prop.visits, prop.flower.cover, 
-         prop.flower.cover0, bb.abund, bb.abund0)
+         yday0 = scale(yday),
+         perc.flower.cover = prop.flower.cover*100,
+         prop.flower.cover0 = scale(prop.flower.cover),
+         bb.abund0 = scale(bb.abund)) %>%
+  select(site, elev.mean, date, yday, ktype, visits, 
+         prop.visits, bb.abund, perc.flower.cover,
+         elev.mean0, yday0, prop.flower.cover0, bb.abund0) %>%
+  mutate(visits.bin = if_else(visits > 0, 1, 0))
 
-pvis_ktype_sitepool <- pvis_ktype %>%
-  group_by(site, elev.mean, bb.sp, pbl.w.class2, k.type.ss) %>%
-  summarize(mean.prop.visits = mean(prop.visits),
-            mean.prop.flower.cover = mean(prop.flower.cover))
+write_csv(prop_visits_ktype_pooled, "../hpc_packets/prop_visits_ktype_pool.csv")
 
-pvis_ktype_sitepool2 <- pvis_ktype %>%
-  group_by(site, elev.mean, bb.sp, pbl.w.class2, k.type.ss) %>%
-  summarize(mean.prop.visits = weighted.mean(prop.visits, bb.sp.abund),
-            mean.prop.flower.cover = mean(prop.flower.cover))
-
-ggplot(pvis_ktype_sitepool, aes(mean.prop.flower.cover, mean.prop.visits)) +
-  geom_point() +
-  geom_smooth(method = "lm") +
-  facet_wrap(~k.type.ss)
-
-ggplot(pvis_ktype_sitepool, aes(mean.prop.visits)) +
-  geom_histogram() +
-  facet_grid(pbl.w.class2~k.type.ss)
-
-ggplot(pvis_ktype_sitepool2, aes(mean.prop.visits)) +
-  geom_histogram() +
-  facet_grid(pbl.w.class2~k.type.ss)
 ```
 
 ## 2.2 Multi-level models
-### I think the structure of my data necessitates a complex model design. My observations of prop.visits ~ pbl.w.class:k.type.ss are repeated within BB species, and therefore not independent. Moreover, my observations are repeated within sites, adding another layer of non-independence. I think this means I need to include varying intercept terms for both BB sp and site. 
-### I did some visualization, and it is also clear that the slope of prop.visits ~ prop.flower.cover varies strongly with pbl.w.class:ktype. This is very informative, and it makes good sense. 
+### I tried fitting proportional visitation with beta regression models, but the models performed really badly, with R2 < 1%. I was depressed for some time. But then I realized that the problem was probably caused by low abundance species, which constitute most of my data.  For low-abundance species, and especially singletons, proportional visitation tends to be 100% for a single ktype and 0% for all others. That's tough to model. But using the raw count data, that's not a problem, because we could accurately predict that the visitation of a rare species would be extremely low, and the difference between 1 visit and 0 visits is small. So, I am opting for negbinomial models (these are more robust than Poisson, allowing for overdispersion I think --- loo likes them better than Poisson anyway). The costs are (1) I now have to condition on the interaction of BB abundance and proportional floral abundance and (2) it's theoretically possible to predict more visits than bumble bees. As long as the models converge, I don't think that (1) is a problem. (2) is undesirable, but I don't think it's really that serious, since the point is get our predictions close to reality, even if the actual predictions are impossible. I would rather get an impossible prediction that is close to reality than a possible one that is far from it (say, a prediction of 0% when reality is 100% --- no wonder my beta models flopped!). With the negbinomial models, I'm explaining ~50% of the variance, and I call that a win.
+
+If these models are legit --- and I need to be patient in making sure of that --- then I have a jackpot of inference here. I have the morphotype:bb.sp and morphotype:tongue effects in spades. But a really cool and unexpected finding is that there is a decoupling of the intercept and slope terms. Some morphotypes have high intercepts but low slopes, indicating that they are visited heavily even when they are at relatively low abundance. Others have lower intercepts but response more steeply to prop flower cover. I think I can tell a story about that. Finally, there is substantial site variation, which could be interpreted as lability of bias. 
+
+But these models need to be scrutinized. In particular, I don't really understand the pp.check output. The negbinomial models seem like they might be weirder than the Poisson models. I could always try zero-inflated models if that seems necessary.
+### 2.2.1 Call models
 ```{r}
-brm_pvis62 <- brm(mean.prop.visits ~ mean.prop.flower.cover + 
-                    (1 + mean.prop.flower.cover | k.type.ss:pbl.w.class2) + 
-                    (1 + mean.prop.flower.cover | k.type.ss:bb.sp),
-                  family = "zero_one_inflated_beta",
-                  file = "../output/brm_pvis62",
-                  #file = "brm_pvis61",
+## Exploring the differential bias of bumble bee species and tongue length classes towards floral morphotypes
+### Bernoulli with binarized visitation
+brm_pvis30 <- brm(as.integer(visits.bin) ~
+                    bb.sp.abund*perc.flower.cover + # fixed term: because more abundant flowers will tend to be more visited,and more abundance bees visit more
+                    (1 + perc.flower.cover | ktype:bb.sp) + # a random intercept and random slope for ktype:species; I think I need to model this before I can make conclusions about ktype:pbl.class
+                    (1 + perc.flower.cover | ktype:tongue) + # a random intercept and slope for ktype:tongue
+                    (1 + perc.flower.cover | ktype:site), # a random intercept and slope for ktype:site
+                  family = "bernoulli", 
+                  #file = "../output/brm_prop_visits_ktype_10",  # for running locally
+                  file = "brm_prop_visits_ktype_30", # for running on the HPC
                   chains = 4,
-                  cores = 4,
+                  cores = 12,
                   iter = 2000,
-                  data = pvis_ktype_sitepool2)
-bayes_R2(brm_pvis62)
+                  data = filter(prop_visits_ktype, !ktype %in% c("9", "10")))
 
-brm_pvis61 <- brm(mean.prop.visits ~ mean.prop.flower.cover + 
-                    (1 + mean.prop.flower.cover | k.type.ss:pbl.w.class2) + 
-                    (1 + mean.prop.flower.cover | k.type.ss:bb.sp),
-                  family = "zero_one_inflated_beta",
-                  file = "../output/brm_pvis61",
-                  #file = "brm_pvis61",
+
+### Negbinomial 
+brm_pvis10 <- brm(as.integer(visits) ~
+                    bb.sp.abund*perc.flower.cover + # fixed term: because more abundant flowers will tend to be more visited,and more abundance bees visit more
+                    (1 + perc.flower.cover | ktype:bb.sp) + # a random intercept and random slope for ktype:species; I think I need to model this before I can make conclusions about ktype:pbl.class
+                    (1 + perc.flower.cover | ktype:tongue) + # a random intercept and slope for ktype:tongue
+                    (1 + perc.flower.cover | ktype:site), # a random intercept and slope for ktype:site
+                  family = "negbinomial", 
+                  #file = "../output/brm_prop_visits_ktype_10",  # for running locally
+                  file = "brm_prop_visits_ktype_10", # for running on the HPC
                   chains = 4,
-                  cores = 4,
+                  cores = 12,
                   iter = 2000,
-                  data = pvis_ktype_sitepool)
+                  data = filter(prop_visits_ktype, !ktype %in% c("9", "10")))
 
-summary(brm_pvis61)
-prior_summary(brm_pvis61)
-parnames(brm_pvis61)
-mcmc_plot(brm_pvis61, pars = c("^r_k"))
-mcmc_plot(brm_pvis61, pars = c("^r_s"))
-mcmc_plot(brm_pvis61)
-conditional_effects(brm_pvis61)
-pp_check(brm_pvis61)
-bayes_R2(brm_pvis61)
-mcmc_plot(brm_pvis50, pars = c("r_k.type.ss:pbl.w.class2[0_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[0_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[0_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[1_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[1_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[1_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[2_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[2_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[2_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[3_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[3_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[3_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[4_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[4_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[4_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[5_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[5_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[5_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[6_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[6_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[6_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[7_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[7_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[7_3,prop.flower.cover0]"),
-          fixed = TRUE)
-
-mcmc_plot(brm_pvis50, pars = c("r_k.type.ss:pbl.w.class2[0_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[0_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[0_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[1_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[1_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[1_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[2_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[2_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[2_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[3_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[3_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[3_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[4_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[4_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[4_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[5_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[5_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[5_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[6_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[6_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[6_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[7_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[7_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[7_3,Intercept]"),
-          fixed = TRUE)
-
-brm_pvis60 <- brm(prop.visits ~ prop.flower.cover0 + 
-                    (1 + prop.flower.cover0 | k.type.ss:pbl.w.class2) + 
-                    (1 + prop.flower.cover0 | k.type.ss:site) +
-                    (1 + prop.flower.cover0 | k.type.ss:bb.sp),
-                  family = "zero_one_inflated_beta",
-                  file = "../output/brm_pvis60",
-                  #file = "brm_pvis60",
+### Zero-inflated negbinomial
+brm_pvis11 <- brm(as.integer(visits) ~
+                    bb.sp.abund*perc.flower.cover + # fixed term: because more abundant flowers will tend to be more visited,and more abundance bees visit more
+                    (1 + perc.flower.cover | ktype:bb.sp) + # a random intercept and random slope for ktype:species; I think I need to model this before I can make conclusions about ktype:pbl.class
+                    (1 + perc.flower.cover | ktype:tongue) + # a random intercept and slope for ktype:tongue
+                    (1 + perc.flower.cover | ktype:site), # a random intercept and slope for ktype:site
+                  family = "zero_inflated_negbinomial", 
+                  #file = "../output/brm_prop_visits_ktype_11",  # for running locally
+                  file = "brm_prop_visits_ktype_11", # for running on the HPC
                   chains = 4,
-                  cores = 4,
+                  cores = 12,
                   iter = 2000,
-                  data = pvis_ktype)
-bayes_R2(brm_pvis60)
-conditional_effects(brm_pvis60)
-mcmc_plot(brm_pvis60, pars = c("^b_"))
-mcmc_plot(brm_pvis60, pars = c("r_k.type.ss:pbl.w.class2[0_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[0_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[0_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[1_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[1_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[1_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[2_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[2_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[2_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[3_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[3_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[3_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[4_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[4_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[4_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[5_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[5_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[5_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[6_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[6_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[6_3,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[7_1,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[7_2,Intercept]",
-                               "r_k.type.ss:pbl.w.class2[7_3,Intercept]"),
-          fixed = TRUE)
-mcmc_plot(brm_pvis60, pars = c("r_k.type.ss:pbl.w.class2[0_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[0_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[0_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[1_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[1_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[1_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[2_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[2_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[2_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[3_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[3_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[3_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[4_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[4_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[4_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[5_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[5_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[5_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[6_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[6_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[6_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[7_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[7_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[7_3,prop.flower.cover0]"),
-          fixed = TRUE)
+                  data = filter(prop_visits_ktype, !ktype %in% c("9", "10")))
 
-brm_pvis50 <- brm(prop.visits ~ prop.flower.cover0 + 
-                    (1 + prop.flower.cover0 | k.type.ss:pbl.w.class2) + 
-                    (1 | k.type.ss:site) +
-                    (1 | k.type.ss:bb.sp),
-                  family = "zero_one_inflated_beta",
-                  file = "../output/brm_pvis50",
-                  #file = "brm_pvis50",
+### Poisson
+brm_pvis20 <- brm(as.integer(visits) ~
+                    bb.sp.abund*perc.flower.cover + # fixed term: because more abundant flowers will tend to be more visited,and more abundance bees visit more
+                    (1 + perc.flower.cover | ktype:bb.sp) + # a random intercept and random slope for ktype:species; I think I need to model this before I can make conclusions about ktype:pbl.class
+                    (1 + perc.flower.cover | ktype:tongue) + # a random intercept and slope for ktype:tongue
+                    (1 + perc.flower.cover | ktype:site), # a random intercept and slope for ktype:site
+                  family = "Poisson", # because my proportional data have zeros and ones
+                  #file = "../output/brm_prop_visits_ktype_20",  # for running locally
+                  file = "brm_prop_visits_ktype_20", # for running on the HPC
                   chains = 4,
-                  cores = 4,
+                  cores = 12,
                   iter = 2000,
-                  data = pvis_ktype)
+                  data = filter(prop_visits_ktype, !ktype %in% c("9", "10")))
 
-summary(brm_pvis50)
-prior_summary(brm_pvis50)
-get_variables(brm_pvis50)
-mcmc_plot(brm_pvis50, pars = c("r_k.type.ss:pbl.w.class2[2_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[2_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[2_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[3_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[3_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[3_3,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[6_1,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[6_2,prop.flower.cover0]",
-                               "r_k.type.ss:pbl.w.class2[6_3,prop.flower.cover0]"),
-          fixed = TRUE)
-
-mcmc_plot(brm_pvis50, pars = c("r_k.type.ss:bb.sp[3_gers,Intercept]",
-                               "r_k.type.ss:bb.sp[3_hort,Intercept]",
-                               "r_k.type.ss:bb.sp[3_hypn,Intercept]",
-                               "r_k.type.ss:bb.sp[3_humi,Intercept]",
-                               "r_k.type.ss:bb.sp[3_jone,Intercept]",
-                               "r_k.type.ss:bb.sp[3_lapi,Intercept]",
-                               "r_k.type.ss:bb.sp[3_mend,Intercept]",
-                               "r_k.type.ss:bb.sp[3_mont,Intercept]",
-                               "r_k.type.ss:bb.sp[3_muci,Intercept]",
-                               "r_k.type.ss:bb.sp[3_pasc,Intercept]",
-                               "r_k.type.ss:bb.sp[3_prat,Intercept]",
-                               "r_k.type.ss:bb.sp[3_psit,Intercept]",
-                               "r_k.type.ss:bb.sp[3_pyre,Intercept]",
-                               "r_k.type.ss:bb.sp[3_soro,Intercept]",
-                               "r_k.type.ss:bb.sp[3_telu,Intercept]",
-                               "r_k.type.ss:bb.sp[3_wurf,Intercept]"),
-          fixed = TRUE)
-
-mcmc_plot(brm_pvis50, pars = c("r_k.type.ss:bb.sp[6_gers,Intercept]",
-                               "r_k.type.ss:bb.sp[6_hort,Intercept]",
-                               "r_k.type.ss:bb.sp[6_hypn,Intercept]",
-                               "r_k.type.ss:bb.sp[6_humi,Intercept]",
-                               "r_k.type.ss:bb.sp[6_jone,Intercept]",
-                               "r_k.type.ss:bb.sp[6_lapi,Intercept]",
-                               "r_k.type.ss:bb.sp[6_mend,Intercept]",
-                               "r_k.type.ss:bb.sp[6_mont,Intercept]",
-                               "r_k.type.ss:bb.sp[6_muci,Intercept]",
-                               "r_k.type.ss:bb.sp[6_pasc,Intercept]",
-                               "r_k.type.ss:bb.sp[6_prat,Intercept]",
-                               "r_k.type.ss:bb.sp[6_psit,Intercept]",
-                               "r_k.type.ss:bb.sp[6_pyre,Intercept]",
-                               "r_k.type.ss:bb.sp[6_soro,Intercept]",
-                               "r_k.type.ss:bb.sp[6_telu,Intercept]",
-                               "r_k.type.ss:bb.sp[6_wurf,Intercept]"),
-          fixed = TRUE)
-
-mcmc_plot(brm_pvis50, pars = c("^r_k.type.ss:site"))
-mcmc_plot(brm_pvis50)
-conditional_effects(brm_pvis50)
-pp_check(brm_pvis50)
-bayes_R2(brm_pvis50)
-
-## BB spp. pooled, only interested in comparing ktypes here
-brm_pvis12 <- brm(prop.visits ~ prop.flower.cover0 + 
-                    (1 | k.type.ss) + 
-                    (1 | site),
-                  family = "zero_one_inflated_beta",
-                  file = "../output/brm_pvis12",
-                  #file = "brm_pvis12",
+### Zero-inflated Poisson
+brm_pvis21 <- brm(as.integer(visits) ~
+                    bb.sp.abund*perc.flower.cover + # fixed term: because more abundant flowers will tend to be more visited,and more abundance bees visit more
+                    (1 + perc.flower.cover | ktype:bb.sp) + # a random intercept and random slope for ktype:species; I think I need to model this before I can make conclusions about ktype:pbl.class
+                    (1 + perc.flower.cover | ktype:tongue) + # a random intercept and slope for ktype:tongue
+                    (1 + perc.flower.cover | ktype:site), # a random intercept and slope for ktype:site
+                  family = "zero_inflated_poisson", # because my proportional data have zeros and ones
+                  #file = "../output/brm_prop_visits_ktype_21",  # for running locally
+                  file = "brm_prop_visits_ktype_21", # for running on the HPC
                   chains = 4,
-                  cores = 4,
+                  cores = 12,
                   iter = 2000,
-                  data = pvis_ktype_pool)
+                  data = filter(prop_visits_ktype, !ktype %in% c("9", "10")))
 
-summary(brm_pvis12)
-prior_summary(brm_pvis12)
-parnames(brm_pvis12)
-mcmc_plot(brm_pvis12, pars = c("^r_k"))
-mcmc_plot(brm_pvis12, pars = c("^r_s"))
-mcmc_plot(brm_pvis12)
-conditional_effects(brm_pvis12)
-pp_check(brm_pvis12)
-bayes_R2(brm_pvis12)
+brm_pvis22 <- brm(as.integer(visits) ~
+                    bb.sp.abund*perc.flower.cover + # fixed term: because more abundant flowers will tend to be more visited,and more abundance bees visit more
+                    (1 | ktype:bb.sp) + # a random intercept and random slope for ktype:species; I think I need to model this before I can make conclusions about ktype:pbl.class
+                    (1 + perc.flower.cover | ktype:tongue) + # a random intercept and slope for ktype:tongue
+                    (1 | ktype:site), # a random intercept and slope for ktype:site
+                  family = "zero_inflated_poisson", # because my proportional data have zeros and ones
+                  #file = "../output/brm_prop_visits_ktype_22",  # for running locally
+                  file = "brm_prop_visits_ktype_22", # for running on the HPC
+                  chains = 4,
+                  cores = 12,
+                  iter = 2000,
+                  data = filter(prop_visits_ktype, !ktype %in% c("9", "10")))
+```
+### 2.2.2 Evaluate models
+```{r}
+# Posterior predictive checks
+pp_check(brm_pvis10)
+pp_check(brm_pvis11)
+pp_check(brm_pvis20)
+pp_check(brm_pvis21)
 
+# Predictions vs. data
+## Get predictions
+brm_pvis10_pred <- predict(brm_pvis10) %>%
+  as_tibble()
 
+brm_pvis11_pred <- predict(brm_pvis11) %>%
+  as_tibble()
+
+brm_pvis20_pred <- predict(brm_pvis20) %>%
+  as_tibble()
+
+brm_pvis21_pred <- predict(brm_pvis21) %>%
+  as_tibble()
+
+## Add draws
+qres10 <- filter(prop_visits_ktype, !ktype %in% c("9", "10")) %>%
+  add_predicted_draws(brm_pvis10, n = 10) 
+
+qres11 <- filter(prop_visits_ktype, !ktype %in% c("9", "10")) %>%
+  add_predicted_draws(brm_pvis11, n = 10) 
+
+qres20 <- filter(prop_visits_ktype, !ktype %in% c("9", "10")) %>%
+  add_predicted_draws(brm_pvis20, n = 10)
+
+qres21 <- filter(prop_visits_ktype, !ktype %in% c("9", "10")) %>%
+  add_predicted_draws(brm_pvis21, n = 10) 
+
+## Plot predictions vs. data
+ggplot(qres10, aes(.prediction, visits)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(qres11, aes(.prediction, visits)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(qres20, aes(.prediction, visits)) +
+  geom_point() +
+  geom_smooth()
+
+ggplot(qres21, aes(.prediction, visits)) +
+  geom_point() +
+  geom_smooth()
 ```
 
+### 2.2.3 Preliminary visualization
 ```{r}
-# mgcv time
-gam1 <- bam(prop.visits ~ prop.flower.cover0 +
-              te(yday, elev.mean, by = k.type.ss, bs = c("gp", "tp"), k = c(8, 8)),
-            family = "betar",
-            method = "fREML",
-            discrete = TRUE,
-            data = pvis_ktype_pool) %>% getViz()
+# Negbinmial
+get_variables(brm_pvis10)
+conditional_effects(brm_pvis10)
+mcmc_plot(brm_pvis10, pars = c("^r_ktype:tongue.*Intercept]$"))
+mcmc_plot(brm_pvis10, pars = c("^r_ktype:tongue.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis10, pars = c("^r_ktype:bb.sp.*Intercept]$"))
+mcmc_plot(brm_pvis10, pars = c("^r_ktype:bb.sp.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis10, pars = c("^r_ktype:site.*Intercept]$"))
+mcmc_plot(brm_pvis10, pars = c("^r_ktype:site.*perc.flower.cover]$"))
 
-summary(gam1)
-check.gamViz(gam1)
-plot.gamViz(gam1)
-            
-gam2 <- bam(visits ~ te(yday, elev.mean, by = k.type.ss, bs = c("gp", "tp"), k = c(8, 8)),
-            family = "quasipoisson",
-            method = "fREML",
-            discrete = TRUE,
-            data = pvis_ktype_pool) %>% getViz()
+# Zero-inflated negbinomial
+get_variables(brm_pvis11)
+conditional_effects(brm_pvis11)
+mcmc_plot(brm_pvis11, pars = c("^r_ktype:tongue.*Intercept]$"))
+mcmc_plot(brm_pvis11, pars = c("^r_ktype:tongue.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis11, pars = c("^r_ktype:bb.sp.*Intercept]$"))
+mcmc_plot(brm_pvis11, pars = c("^r_ktype:bb.sp.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis11, pars = c("^r_ktype:site.*Intercept]$"))
+mcmc_plot(brm_pvis11, pars = c("^r_ktype:site.*perc.flower.cover]$"))
 
-summary(gam2)
-check.gamViz(gam2)
-plot.gamViz(gam2)
+# Poisson
+get_variables(brm_pvis20)
+conditional_effects(brm_pvis20)
+mcmc_plot(brm_pvis20, pars = c("^r_ktype:tongue.*Intercept]$"))
+mcmc_plot(brm_pvis20, pars = c("^r_ktype:tongue.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis20, pars = c("^r_ktype:bb.sp.*Intercept]$"))
+mcmc_plot(brm_pvis20, pars = c("^r_ktype:bb.sp.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis20, pars = c("^r_ktype:site.*Intercept]$"))
+mcmc_plot(brm_pvis20, pars = c("^r_ktype:site.*perc.flower.cover]$"))
 
+# zero-inflated Poisson
+get_variables(brm_pvis21)
+conditional_effects(brm_pvis21)
+mcmc_plot(brm_pvis21, pars = c("^r_ktype:tongue.*Intercept]$"))
+mcmc_plot(brm_pvis21, pars = c("^r_ktype:tongue.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis21, pars = c("^r_ktype:bb.sp.*Intercept]$"))
+mcmc_plot(brm_pvis21, pars = c("^r_ktype:bb.sp.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis21, pars = c("^r_ktype:site.*Intercept]$"))
+mcmc_plot(brm_pvis21, pars = c("^r_ktype:site.*perc.flower.cover]$"))
 ```
 
-#### 2.2.2.1 Plot
-```{r}
-# Note that the intercept is on the log scale, so if you want to transform it back to predicted # visits, you have to exponentiate it. I think.
+### 2.2.4 Final visualization
+# Note that the intercept is on the log scale, so if you want to transform it back to predicted # visits, you have to exponentiate it. I think. Here is a helplful conversation involving the esteemed Ben Bolker:
 
-## Interaction model
-brm_pvi50_plotframe <- brm_pvis50 %>%
-  spread_draws(b_Intercept, `r_k.type.ss:pbl.w.class2`[condition, term]) %>% # the back ticks are necessary to escape the :
-  rename(r_ktype.pbl = `r_k.type.ss:pbl.w.class2`) %>%
-  mutate(condition_mean = b_Intercept + r_ktype.pbl) %>%
-  mutate(condition_mean = inv_logit_scaled(condition_mean)) %>%
-  separate(condition, c("ktype", "pbl.class"), sep = "_", remove = FALSE) %>%
+---
+Dear all,
+
+I used the glm.nb with the default values from the MASS package to run a negative binomial regression. Here is a simple example...The question now is how do I report the results, say, for height? Do I simply take the anti logs. i.e. 1.019613 = exp(0.019423)? 
+
+Bolker:
+Yes, exactly. If you look at ?glm.nb you will see that it uses a log link function, and therefore you should exponentiate (anti-log) to back-transform. Natural, not base-10 logs, are used. Don't forget that back-transforming standard errors by themselves is meaningless, you have to back-transform lower and upper confidence limits ...
+
+---
+
+Another conversation, this time with Paul Buerkner
+
+---
+I ultimately want to discuss the results of the model fitting on the linear (not log) parameter scale. Is it fine to simply exp() the estimates (samples) when computing credible intervals etc? Obviously means would be stretched, but quantiles should be invariant.
+
+Buerkner: Yes, this is exactly, how it should be done :-)
+
+---
+
+In my workflow, I think this entails first calculating the conditional mean, then running pointinterval() to get the credible intervals **then** exponentiating the conditional mean and the credible intervals.
+
+##### 2.2.2.1.1 morphotype:tongue intercept
+```{r}
+brm_pvis12_plotframe <- brm_pvis12 %>%
+  spread_draws(b_Intercept, `r_ktype:tongue`[condition, term]) %>% # the back ticks are necessary to escape the :
+  rename(r_ktype.tongue = `r_ktype:tongue`) %>% # get rid of the problematic :
+  filter(term == "Intercept") %>% # drop slope terms for now
+  mutate(condition_mean = b_Intercept + r_ktype.tongue) %>% # get conditional mean
+  group_by(condition) %>% # group by tongue:morpotype pair
+  point_interval(condition_mean, .width = c(0.95, 0.66)) %>% # calculate credible intervals
+  mutate(condition_mean_trans = exp(condition_mean), # exponentiating the estimates gets us back to the response scale (negbinomial uses log link function)
+         .lower_trans = exp(.lower),
+         .upper_trans = exp(.upper)) %>% 
+separate(condition, c("ktype", "tongue"), sep = "_", remove = FALSE) %>% # separate condition term into ktype and tongue
+  mutate(ktype = case_when( # rename
+    ktype == "0" ~ "NA (0)",
+    ktype == "1" ~ "Disc (1)",
+    ktype == "2" ~ "Funnel (2)",
+    ktype == "3" ~ "Bell (3)",
+    ktype == "4" ~ "Stalk-disc (4)",
+    ktype == "5" ~ "Lip (5)",
+    ktype == "6" ~ "Flag (6)",
+    ktype == "7" ~ "Head (7)")
+  ) %>%
+  mutate(ktype = factor(ktype, levels = c("Disc (1)", "Funnel (2)", "Bell (3)", # relevel
+                                          "Stalk-disc (4)","Lip (5)", "Flag (6)", 
+                                          "Head (7)", "NA (0)")))
+
+ggplot(brm_pvis12_plotframe, aes(condition_mean_trans, tongue, 
+                                 xmin = .lower_trans, xmax = .upper_trans,
+                                 color = tongue, fill = tongue)) +
+  geom_pointinterval() +
+  facet_grid(ktype~.) +
+  theme_light() +
+  labs(color = "Tongue length", x = "Mean visits") +
+  guides(fill = FALSE) +
+  theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+ggsave(file = "../output/brm_pvis12_plot1.png", width = 5, height = 7)
+```
+
+##### 2.2.2.1.2 morphotype:bb.sp intercept
+```{r}
+# ktype:bb.sp intercept
+brm_pvis12_plotframe2 <- brm_pvis12 %>%
+  spread_draws(b_Intercept, `r_ktype:bb.sp`[condition, term]) %>% # the back ticks are necessary to escape the :
+  rename(r_ktype.bb.sp = `r_ktype:bb.sp`) %>% # get rid of the problematic :
+  filter(term == "Intercept") %>% # drop slope terms for now
+  mutate(condition_mean = b_Intercept + r_ktype.bb.sp) %>% # get conditional mean
+  group_by(condition) %>% # group by bb.sp:morpotype pair
+  point_interval(condition_mean, .width = c(0.95, 0.66)) %>% # calculate credible intervals
+  mutate(condition_mean_trans = exp(condition_mean), # exponentiating the estimates gets us back to the response scale (negbinomial uses log link function)
+         .lower_trans = exp(.lower),
+         .upper_trans = exp(.upper)) %>% 
+  separate(condition, c("ktype", "bb.sp"), sep = "_", remove = FALSE) %>% # separate condition term into ktype and bb.sp
+  mutate(ktype = case_when( # rename
+    ktype == "0" ~ "NA (0)",
+    ktype == "1" ~ "Disc (1)",
+    ktype == "2" ~ "Funnel (2)",
+    ktype == "3" ~ "Bell (3)",
+    ktype == "4" ~ "Stalk-disc (4)",
+    ktype == "5" ~ "Lip (5)",
+    ktype == "6" ~ "Flag (6)",
+    ktype == "7" ~ "Head (7)")
+  ) %>%
+  mutate(ktype = factor(ktype, levels = c("Disc (1)", "Funnel (2)", "Bell (3)", # relevel
+                                          "Stalk-disc (4)","Lip (5)", "Flag (6)", 
+                                          "Head (7)", "NA (0)"))) %>%
+  left_join(bb_traits)
+
+ggplot(brm_pvis12_plotframe2, aes(condition_mean_trans, bb.sp, 
+                                 xmin = .lower_trans, xmax = .upper_trans,
+                                 color = pbl.w.class2, fill = pbl.w.class2)) +
+  geom_pointinterval() +
+  facet_wrap(~ktype, scales = "free") +
+  theme_light(10) +
+  labs(color = "Tongue length", x = "Mean visits") +
+  guides(fill = FALSE)
+
+ggsave(file = "../output/brm_pvis12_plot2.png", width = 9, height = 6.5)
+
+ggplot(brm_pvis12_plotframe2, aes(condition_mean_trans, ktype, 
+                                 xmin = .lower_trans, xmax = .upper_trans)) +
+  geom_pointinterval() +
+  facet_wrap(~bb.sp, scales = "free") +
+  #facet_grid(ktype~.) 
+  theme_light(10) +
+  labs(color = "Tongue length", x = "Mean visits") +
+  guides(fill = FALSE)
+```
+
+##### 2.2.2.1.3 morphotype:tongue slope
+```{r}
+brm_pvis12_plotframe3 <- brm_pvis12 %>%
+  spread_draws(b_prop.flower.cover0, `r_ktype:tongue`[condition, term]) %>% # the back ticks are necessary to escape the :
+  rename(r_ktype.tongue = `r_ktype:tongue`) %>%
+  filter(term == "prop.flower.cover0") %>%
+  mutate(condition_slope = b_prop.flower.cover0 + r_ktype.tongue) %>%
+  separate(condition, c("ktype", "tongue"), sep = "_", remove = FALSE) %>%
   mutate(ktype = case_when(
     ktype == "0" ~ "NA (0)",
     ktype == "1" ~ "Disc (1)",
@@ -841,21 +975,9 @@ brm_pvi50_plotframe <- brm_pvis50 %>%
                         levels = c("Disc (1)", "Funnel (2)", "Bell (3)", "Stalk-disc (4)",
                                    "Lip (5)", "Flag (6)", "Head (7)", "NA (0)")))
 
-# ggplot(brm_pvis11_plotframe, aes(condition_mean, pbl.class, color = pbl.class, fill = pbl.class)) +
-#   stat_pointinterval() +
-#   #stat_halfeye(alpha = 0.5, interval_alpha = 1, point_alpha = 1, size = 1, .width = 0.95) +
-#   facet_grid(ktype ~ .) +
-#   theme_light() +
-#   labs(color = "Tongue length", x = "Visits (log-scale)") +
-#   guides(fill = FALSE) +
-#   theme(axis.title.y=element_blank(),
-#         axis.text.y=element_blank(),
-#         axis.ticks.y=element_blank())
-
-ggplot(brm_pvi50_plotframe, aes(condition_mean, pbl.class, color = pbl.class, fill = pbl.class)) +
-  #stat_pointinterval() +
-  stat_halfeye(alpha = 0.4, interval_alpha = 1, point_alpha = 1) +
-  facet_wrap(~ktype, scales = "free") +
+ggplot(brm_pvis12_plotframe3, aes(condition_slope, tongue, color = tongue, fill = tongue)) +
+  stat_pointinterval() +
+  facet_grid(ktype~.) +
   theme_light() +
   labs(color = "Tongue length", x = "Visits (log-scale)") +
   guides(fill = FALSE) +
@@ -863,9 +985,46 @@ ggplot(brm_pvi50_plotframe, aes(condition_mean, pbl.class, color = pbl.class, fi
         axis.text.y=element_blank(),
         axis.ticks.y=element_blank())
 
-ggsave(file = "../output/brm_pvis11_plot1.png", width = 7, height = 5.5)
+ggsave(file = "../output/brm_pvis12_plot2.png", width = 7, height = 5.5)
+```
 
 
+# ktype:bb.sp slope
+```{r}
+brm_pvis12_plotframe4 <- brm_pvis12 %>%
+  spread_draws(b_prop.flower.cover0, `r_ktype:bb.sp`[condition, term]) %>% # the back ticks are necessary to escape the :
+  rename(r_ktype.bb.sp = `r_ktype:bb.sp`) %>%
+  filter(term == "prop.flower.cover0") %>%
+  mutate(condition_slope = b_prop.flower.cover0 + r_ktype.bb.sp) %>%
+  separate(condition, c("ktype", "bb.sp"), sep = "_", remove = FALSE) %>%
+  mutate(ktype = case_when(
+    ktype == "0" ~ "NA (0)",
+    ktype == "1" ~ "Disc (1)",
+    ktype == "2" ~ "Funnel (2)",
+    ktype == "3" ~ "Bell (3)",
+    ktype == "4" ~ "Stalk-disc (4)",
+    ktype == "5" ~ "Lip (5)",
+    ktype == "6" ~ "Flag (6)",
+    ktype == "7" ~ "Head (7)")
+  ) %>%
+  mutate(ktype = factor(ktype,
+                        levels = c("Disc (1)", "Funnel (2)", "Bell (3)", "Stalk-disc (4)",
+                                   "Lip (5)", "Flag (6)", "Head (7)", "NA (0)"))) %>%
+  left_join(bb_traits)
+
+
+ggplot(brm_pvis12_plotframe4, aes(condition_slope, bb.sp, color = pbl.w.class2)) +
+  stat_pointinterval() +
+  facet_wrap(~ktype, scales = "free") +
+  theme_light() +
+  labs(color = "Tongue length", x = "Visits (log-scale)") +
+  guides(fill = FALSE)
+
+ggsave(file = "../output/brm_pvis12_plot1.png", width = 7, height = 5.5)
+```
+
+##### 2.2.2.1.2 Ktype-only model 
+```{r}
 # Just ktype model
 brm_pvis00_plotframe <- brm_pvis00 %>%
   spread_draws(b_Intercept, r_k.type.ss[condition, term]) %>% # the back ticks are necessary to escape the :
@@ -892,9 +1051,39 @@ ggplot(brm_pvis00_plotframe, aes(condition_mean, ktype)) +
   ylab("Morphotype")
 
 ggsave(file = "../output/brm_pvis00_plot1.png", width = 7, height = 5.5)
+
+# What I could do here that I haven't done yet is to plot the predicted curves, incorporating all the slope and intercept information.
+ggplot(filter(prop_visits_ktype,!ktype %in% c("9", "10")), aes(bb.sp.abund, prop.flower.cover, size = visits, color = tongue)) +
+  geom_point(alpha = 0.15) +
+  facet_wrap(~ktype) +
+  theme_light()
 ```
 
 ### 2.2.3 The lability of bias: How does the foraging bias of each species with respect to each morphotype vary through elevation and time?
+```{r}
+# mgcv time
+gam1 <- bam(prop.visits ~ prop.flower.cover0 +
+              te(yday, elev.mean, by = k.type.ss, bs = c("gp", "tp"), k = c(8, 8)),
+            family = "betar",
+            method = "fREML",
+            discrete = TRUE,
+            data = pvis_ktype_pool) %>% getViz()
+
+summary(gam1)
+check.gamViz(gam1)
+plot.gamViz(gam1)
+            
+gam2 <- bam(visits ~ te(yday, elev.mean, by = k.type.ss, bs = c("gp", "tp"), k = c(8, 8)),
+            family = "quasipoisson",
+            method = "fREML",
+            discrete = TRUE,
+            data = pvis_ktype_pool) %>% getViz()
+
+summary(gam2)
+check.gamViz(gam2)
+plot.gamViz(gam2)
+
+```
 
 #### We need to do some kind of tensor product gam on this jawn!
 ```{r}
@@ -941,6 +1130,106 @@ pp_check(brm_pviselev00)
 bayes_R2(brm_pviselev00)
 ```
 
+
+## A related question: do bumble bee species adjust their morphotype preferences along an elevation gradient? Or maybe through time?
+```{r}
+# Conceptual plot
+ggplot(filter(prop_visits_ktype, bb.sp == "prat"), aes(elev.mean, (prop.visits - (perc.flower.cover/100)))) +
+  geom_point() +
+  facet_wrap(~ktype, scales = "free") +
+  geom_smooth()
+
+ggplot(filter(prop_visits_ktype, bb.sp == "pasc"), aes(elev.mean, (prop.visits - (perc.flower.cover/100)))) +
+  geom_point() +
+  facet_wrap(~ktype, scales = "free") +
+  geom_smooth()
+
+ggplot(filter(prop_visits_ktype, bb.sp == "wurf"), aes(elev.mean, (prop.visits - (perc.flower.cover/100)))) +
+  geom_point() +
+  facet_wrap(~ktype, scales = "free") +
+  geom_smooth()
+
+ggplot(filter(prop_visits_ktype, bb.sp == "soro"), aes(elev.mean, (prop.visits - (perc.flower.cover/100)))) +
+  geom_point() +
+  facet_wrap(~ktype, scales = "free") +
+  geom_smooth()
+
+ggplot(filter(prop_visits_ktype, bb.sp == "telu"), aes(elev.mean, (prop.visits - (perc.flower.cover/100)))) +
+  geom_point() +
+  facet_wrap(~ktype, scales = "free") +
+  geom_smooth()
+
+ggplot(filter(prop_visits_ktype, bb.sp == "hort"), aes(elev.mean, (prop.visits - (perc.flower.cover/100)))) +
+  geom_point() +
+  facet_wrap(~ktype, scales = "free") +
+  geom_smooth()
+ 
+# brms model
+brm_pvis_elev00 <- brm(as.integer(visits) ~
+                    bb.sp.abund*perc.flower.cover + # fixed term: because more abundant flowers will tend to be more visited,and more abundance bees visit more
+                    (1 + perc.flower.cover + elev.mean0 | ktype:bb.sp), # a random intercept and random slope for ktype:species; I think I need to model this before I can make conclusions about ktype:pbl.class
+                  family = "zero_inflated_poisson", # because my proportional data have zeros and ones
+                  #file = "../output/brm_prop_visits_elev00",  # for running locally
+                  file = "brm_prop_visits_elev00", # for running on the HPC
+                  chains = 4,
+                  cores = 12,
+                  iter = 2000,
+                  data = filter(prop_visits_ktype, !ktype %in% c("9", "10")))
+
+# an mgcv approach
+library(mgcv)
+library(mgcViz)
+gam_data <- prop_visits_ktype %>%
+  filter(!ktype %in% c("0", "1", "9", "10") &
+           bb.sp %in% c("telu", "prat", "pasc", "hort", "soro", "wurf")) %>%
+  unite(pair, c(bb.sp, ktype), sep = "_", remove = FALSE) %>%
+  mutate(pair = factor(pair),
+         bin.visits = if_else(visits > 0, 1, 0))
+
+ggplot(gam_data, aes(elev.mean, bin.visits)) +
+  geom_point() +
+  geom_smooth() +
+  facet_grid(ktype~bb.sp)
+
+gam_pvis_elev00 <- gam(as.integer(visits) ~ s(elev.mean0, pair, bs = "fs") +
+                         bb.sp.abund*perc.flower.cover,
+                       family = "ziP",
+                       method = "REML",
+                       #discrete = TRUE,
+                       data = gam_data) %>% getViz()
+
+summary(gam_pvis_elev00)
+check.gamViz(gam_pvis_elev00)
+plot.gamViz(gam_pvis_elev00)
+plot(gam_pvis_elev00)
+
+gam_pvis_elev01 <- gam(as.integer(visits) ~ s(elev.mean0, by = ktype, k = 4) +
+                         #s(elev.mean0, by = pair, k = 4) +
+                         bb.sp.abund*perc.flower.cover,
+                       family = "poisson",
+                       method = "REML",
+                      # discrete = TRUE,
+                       data = filter(gam_data, bb.sp %in% c("soro", "wurf", "hort", 
+                                                            "telu", "pasc", "prat"))) %>% getViz()
+
+summary(gam_pvis_elev01)
+check.gamViz(gam_pvis_elev01)
+print(plot.gamViz(gam_pvis_elev01, allTerms = TRUE), pages = 6)
+
+gam_pvis_elev02 <- bam(bin.visits ~ 
+                         s(elev.mean0, by = pair, k = 4) +
+                         s(bb.sp.abund, perc.flower.cover),
+                       family = "binomial",
+                       method = "fREML",
+                       discrete = TRUE,
+                       data = filter(gam_data, bb.sp %in% c("soro", "wurf", "hort", 
+                                                            "telu", "pasc", "prat"))) %>% getViz()
+
+summary(gam_pvis_elev02)
+check.gamViz(gam_pvis_elev02)
+plot.gamViz(gam_pvis_elev02, allTerms = TRUE)
+```
+
 # 3. Effects of bias
 
 ## 3.1 Relationship between bias(d') and niche overlap
@@ -963,7 +1252,7 @@ niche_overlapper <- function(x, criterion) {
     nest() %>% # nest into list-column
     mutate(data2 = map(data, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
            richness = map(data, function(x) length(x$bb.sp)),
-           dist = map(data2, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
+           dist = map(data2, function(x) vegdist(x, method = "jaccard")), # convert to Horn's distance matrix
            tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
     #dplyr::select(site, date, tidy_dist) %>% # drop intermediate list-columns
     unnest(cols = c(tidy_dist)) %>%
@@ -1034,8 +1323,10 @@ niche_overlapper3 <- function(x, criterion) {
   no1 <- x %>%
     group_by(bb.sp, !!criterion, site) %>% # group by site-year and BB-FL pair
     summarize(visits = sum(visits)) %>%
-    select(site, bb.sp, !!criterion, visits) %>%
-    pivot_wider(names_from = !!criterion, values_from = visits, values_fill = 0) %>% # spread into the kind of array vegan likes
+    group_by(site, bb.sp) %>%
+    mutate(prop.visits = visits/sum(visits)) %>%
+    select(site, bb.sp, !!criterion, prop.visits) %>%
+    pivot_wider(names_from = !!criterion, values_from = prop.visits, values_fill = 0) %>% # spread into the kind of array vegan likes
     group_by(site) %>%
     nest() %>% # nest into list-column
     mutate(data2 = map(data, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
@@ -1099,15 +1390,15 @@ niche_overlap <- read_csv("../data/processed_data/network.csv") %>%
   left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
   rename(pbl.w.class2_sp2 = pbl.w.class2) %>%
   mutate(same.class = case_when(
-    pbl.w.class2_sp1 == "1" & pbl.w.class2_sp2 == "1" ~ "short:short",
-    pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "2" ~ "med:med",
-    pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "3" ~ "long:long",
-    pbl.w.class2_sp1 == "1" & pbl.w.class2_sp2 == "2" ~ "short:med",
-    pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "1" ~ "short:med",
-    pbl.w.class2_sp1 == "1" & pbl.w.class2_sp2 == "3" ~ "short:long",
-    pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "1" ~ "short:long",
-    pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "3" ~ "med:long",
-    pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "2" ~ "med:long")
+    pbl.w.class2_sp1 == "short" & pbl.w.class2_sp2 == "short" ~ "short:short",
+    pbl.w.class2_sp1 == "med" & pbl.w.class2_sp2 == "med" ~ "med:med",
+    pbl.w.class2_sp1 == "long" & pbl.w.class2_sp2 == "long" ~ "long:long",
+    pbl.w.class2_sp1 == "short" & pbl.w.class2_sp2 == "med" ~ "short:med",
+    pbl.w.class2_sp1 == "med" & pbl.w.class2_sp2 == "short" ~ "short:med",
+    pbl.w.class2_sp1 == "short" & pbl.w.class2_sp2 == "long" ~ "short:long",
+    pbl.w.class2_sp1 == "long" & pbl.w.class2_sp2 == "short" ~ "short:long",
+    pbl.w.class2_sp1 == "med" & pbl.w.class2_sp2 == "long" ~ "med:long",
+    pbl.w.class2_sp1 == "long" & pbl.w.class2_sp2 == "med" ~ "med:long")
     ) %>%
   left_join(bb_abundance2, by = c("site", "date", "bb.sp1" = "bb.sp")) %>%
   rename(bb.sp1.abund = bb.sp.abund) %>%
@@ -1121,367 +1412,88 @@ niche_overlap <- read_csv("../data/processed_data/network.csv") %>%
   mutate(log.bb.sp1.abund = log(bb.sp1.abund),
          log.bb.sp2.abund = log(bb.sp2.abund))
 
-# Aggregated niche overlap per species pair per site
-niche_overlap2 <- read_csv("../data/processed_data/network.csv") %>%
-  filter(caste != "male") %>% # we will ignore males 
-  group_by(site, bb.sp, plant.sp) %>%
-  summarize(visits = n()) %>%
-  niche_overlapper2(plant.sp) %>%
-  left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>%
-  rename(pbl.w.class2_sp1 = pbl.w.class2) %>%
-  left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
-  rename(pbl.w.class2_sp2 = pbl.w.class2) %>%
-  mutate(same.class = case_when(
-    pbl.w.class2_sp1 == "1" & pbl.w.class2_sp2 == "1" ~ "short:short",
-    pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "2" ~ "med:med",
-    pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "3" ~ "long:long",
-    pbl.w.class2_sp1 == "1" & pbl.w.class2_sp2 == "2" ~ "short:med",
-    pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "1" ~ "short:med",
-    pbl.w.class2_sp1 == "1" & pbl.w.class2_sp2 == "3" ~ "short:long",
-    pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "1" ~ "short:long",
-    pbl.w.class2_sp1 == "2" & pbl.w.class2_sp2 == "3" ~ "med:long",
-    pbl.w.class2_sp1 == "3" & pbl.w.class2_sp2 == "2" ~ "med:long")
-    ) %>%
-  left_join(bb_abundance2_agg, by = c("site", "bb.sp1" = "bb.sp")) %>%
-  rename(bb.sp1.abund = bb.sp.abund) %>%
-  left_join(bb_abundance2_agg, by = c("site", "bb.sp2" = "bb.sp")) %>%
-  rename(bb.sp2.abund = bb.sp.abund) %>%
-  unite(sp.pair, c(bb.sp1, bb.sp2), sep = "_", remove = FALSE) %>%
-  left_join(site_data) %>%
-  select(site, elev.mean, sp.pair, bb.sp1, bb.sp2, bb.sp1.abund, 
-         bb.sp2.abund, niche.overlap, same.class) %>%
-  mutate(log.bb.sp1.abund = log(bb.sp1.abund),
-         log.bb.sp2.abund = log(bb.sp2.abund))
+write_csv(niche_overlap, "../hpc_packets/niche_overlap.csv")
+
+# # Aggregated niche overlap per species pair per site
+# niche_overlap2 <- read_csv("../data/processed_data/network.csv") %>%
+#   filter(caste != "male") %>% # we will ignore males 
+#   group_by(site, bb.sp, plant.sp) %>%
+#   summarize(visits = n()) %>%
+#   niche_overlapper2(plant.sp) %>%
+#   left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>%
+#   rename(pbl.w.class2_sp1 = pbl.w.class2) %>%
+#   left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
+#   rename(pbl.w.class2_sp2 = pbl.w.class2) %>%
+#   mutate(same.class = case_when(
+#     pbl.w.class2_sp1 == "short" & pbl.w.class2_sp2 == "short" ~ "short:short",
+#     pbl.w.class2_sp1 == "med" & pbl.w.class2_sp2 == "med" ~ "med:med",
+#     pbl.w.class2_sp1 == "long" & pbl.w.class2_sp2 == "long" ~ "long:long",
+#     pbl.w.class2_sp1 == "short" & pbl.w.class2_sp2 == "med" ~ "short:med",
+#     pbl.w.class2_sp1 == "med" & pbl.w.class2_sp2 == "short" ~ "short:med",
+#     pbl.w.class2_sp1 == "short" & pbl.w.class2_sp2 == "long" ~ "short:long",
+#     pbl.w.class2_sp1 == "long" & pbl.w.class2_sp2 == "short" ~ "short:long",
+#     pbl.w.class2_sp1 == "med" & pbl.w.class2_sp2 == "long" ~ "med:long",
+#     pbl.w.class2_sp1 == "long" & pbl.w.class2_sp2 == "med" ~ "med:long")
+#     ) %>%
+#   left_join(bb_abundance2_agg, by = c("site", "bb.sp1" = "bb.sp")) %>%
+#   rename(bb.sp1.abund = bb.sp.abund) %>%
+#   left_join(bb_abundance2_agg, by = c("site", "bb.sp2" = "bb.sp")) %>%
+#   rename(bb.sp2.abund = bb.sp.abund) %>%
+#   unite(sp.pair, c(bb.sp1, bb.sp2), sep = "_", remove = FALSE) %>%
+#   mutate(site = factor(site)) %>%
+#   select(site, bb.sp1, bb.sp2, sp.pair, niche.overlap, same.class, bb.sp1.abund, bb.sp2.abund) %>%
+#   left_join(site_data) %>%
+#   ungroup() %>%
+#   mutate(elev0 = scale(elev.mean)) %>%
+#   select(site, elev0, sp.pair, bb.sp1, bb.sp2, bb.sp1.abund, 
+#          bb.sp2.abund, niche.overlap, same.class) %>%
+#   mutate(log.bb.sp1.abund = log(bb.sp1.abund),
+#          log.bb.sp2.abund = log(bb.sp2.abund))
 
 write_csv(niche_overlap2, "../hpc_packets/niche_overlap2.csv")
 ```
 
 #### 3.1.2.2 Preliminary visualization
 ```{r}
-ggplot(niche_overlap, aes(bb.sp1.abund, bb.sp2.abund, color = niche.overlap)) +
-  geom_point() 
-
-ggplot(niche_overlap, aes(bb.sp1.abund, niche.overlap)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
-
-ggplot(niche_overlap, aes(bb.sp2.abund, niche.overlap)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
-
-ggplot(niche_overlap, aes(log.bb.sp1.abund, niche.overlap)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
-
-ggplot(niche_overlap, aes(log.bb.sp2.abund, niche.overlap)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
-
-ggplot(niche_overlap, aes(log.bb.sp2.abund, niche.overlap, color = same.class)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
-
-ggplot(niche_overlap, aes(sqrt(bb.sp2.abund), sqrt(niche.overlap), color = same.class)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
-
-ggplot(niche_overlap, aes(bb.sp2.abund, niche.overlap, color = same.class)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
-
-
-ggplot(niche_overlap, aes(log.bb.sp1.abund, log.bb.sp2.abund, color = niche.overlap)) +
-  geom_point() 
-
-# Niche overlap becomes rather binary when one or both species is rare. This is driven especially by singletons.
-ggplot(niche_overlap, aes(sp.pair, niche.overlap)) +
-  geom_violin() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-ggplot(niche_overlap, aes(same.class, niche.overlap)) +
-  geom_violin() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# Let's see if we can improve matters by dropping singletons
-ggplot(filter(niche_overlap, bb.sp1.abund >= 2 & bb.sp1.abund >= 2), 
-       aes(sp.pair, niche.overlap)) +
-  geom_violin() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-ggplot(filter(niche_overlap, bb.sp1.abund >= 2 & bb.sp1.abund >= 2), 
-       aes(same.class, niche.overlap)) +
-  geom_violin() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# Now a threshold of 3
-ggplot(filter(niche_overlap, bb.sp1.abund >= 3 & bb.sp1.abund >= 3), 
-       aes(sp.pair, niche.overlap)) +
-  geom_violin() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-ggplot(filter(niche_overlap, bb.sp1.abund >= 3 & bb.sp1.abund >= 3), 
-       aes(same.class, niche.overlap)) +
-  geom_violin() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# Now a threshold of 5...bye, all the species pairs...
-ggplot(filter(niche_overlap, bb.sp1.abund >= 5 & bb.sp1.abund >= 5), 
-       aes(same.class, niche.overlap)) +
-  geom_violin() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-ggplot(filter(niche_overlap, bb.sp1.abund >= 10 & bb.sp1.abund >= 10), 
-       aes(same.class, niche.overlap)) +
-  geom_violin() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# Let's see if there is any influence of site, elevation, yday
-ggplot(filter(niche_overlap, bb.sp1.abund >= 3 & bb.sp1.abund >= 3), 
-       aes(site, niche.overlap)) +
-  geom_boxplot() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-ggplot(filter(niche_overlap, bb.sp1.abund >= 3 & bb.sp1.abund >= 3), 
-       aes(elev.mean, niche.overlap)) +
-  geom_point() +
-  geom_smooth() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-ggplot(filter(niche_overlap, bb.sp1.abund >= 3 & bb.sp1.abund >= 3), 
-       aes(yday, niche.overlap)) +
-  geom_point() +
-  geom_smooth() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# Abundance relatonships
-ggplot(niche_overlap, aes(log(bb.sp1.abund), log(bb.sp2.abund))) +
-  geom_point() +
-  geom_smooth(se = FALSE) +
-  facet_wrap(~sp.pair)
-
-#
-ggplot(niche_overlap, aes(same.class, niche.overlap)) +
-  geom_boxplot() 
-
-ggplot(niche_overlap, aes(sp.pair, niche.overlap)) +
-  geom_boxplot() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# Aggregate by site
-ggplot(niche_overlap2, aes(bb.sp1.abund, niche.overlap)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
-
-ggplot(niche_overlap2, aes(log.bb.sp1.abund, niche.overlap)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
-
-ggplot(niche_overlap2, aes(log.bb.sp1.abund, niche.overlap)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~same.class)
-
-ggplot(niche_overlap2, aes(log.bb.sp1.abund, niche.overlap)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~sp.pair)
-
-ggplot(niche_overlap2, aes(sp.pair, niche.overlap)) +
-  geom_violin() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-ggplot(niche_overlap2, aes(sp.pair, niche.overlap)) +
-  geom_boxplot() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-ggplot(niche_overlap2, aes(same.class, niche.overlap)) +
-  geom_violin() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-ggplot(niche_overlap2, aes(elev.mean, niche.overlap)) +
-  geom_point() +
-  geom_smooth(method = "lm", se = FALSE) +
-  facet_wrap(~sp.pair)
+# Not aggregated
+ggplot(niche_overlap, aes(niche.overlap)) +
+  geom_histogram()
 
 ggplot(niche_overlap, aes(niche.overlap)) +
   geom_histogram() +
   facet_wrap(~sp.pair)
 
-## raw visits aggregate
-ggplot(niche_overlap3, aes(log.bb.sp1.abund, niche.overlap)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+ggplot(niche_overlap, aes(sp.pair, niche.overlap)) +
+  geom_boxplot() +
+  facet_wrap(~same.class)
 
-ggplot(niche_overlap3, aes(same.class, niche.overlap)) +
-  geom_violin() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggplot(niche_overlap, aes(same.class, niche.overlap)) +
+  geom_boxplot() 
+  
+
+# Aggregate by site
+ggplot(niche_overlap2, aes(niche.overlap)) +
+  geom_histogram()
 
 ggplot(niche_overlap2, aes(niche.overlap)) +
   geom_histogram() +
   facet_wrap(~sp.pair)
-
-
 ```
 
 #### 3.1.2.3 brms model ... still a mess
 ```{r}
-brm_niche00 <- brm(niche.overlap ~ bb.sp1.abund*bb.sp2.abund + 
+# Not aggregated
+brm_niche10 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
                      (1 | sp.pair) + 
                      (1 | same.class) + 
-                     (1 | site),
-                   control = list(adapt_delta = 0.90),
-                   chains = 4,
-                   cores = 4,
-                   iter = 2000,
-                   file = "../output/brm_niche00",
-                   data = niche_overlap)
-
-parnames(brm_niche00)
-conditional_effects(brm_niche00)
-mcmc_plot(brm_niche00, pars = c("^r_sp"))
-mcmc_plot(brm_niche00, pars = c("^r_sa"))
-mcmc_plot(brm_niche00, pars = c("^b_"))
-hypothesis(brm_niche00, "dprime = 0")
-pp_check(brm_niche00)
-bayes_R2(brm_niche00)
-
-# To stabilize niche overlap (avoid lots of  1s and 0s), we will filter the data to include only species pairs in which both species were represented by at least 3 observations.
-brm_niche01 <- brm(niche.overlap ~ bb.sp1.abund*bb.sp2.abund + 
-                     (1 | sp.pair) + 
-                     (1 | same.class) + 
-                     (1 | site),
-                   chains = 4,
-                   cores = 4,
-                   iter = 2000,
-                   file = "../output/brm_niche01",
-                   data = filter(niche_overlap, bb.sp1.abund >= 2 & bb.sp1.abund >= 2))
-
-parnames(brm_niche01)
-conditional_effects(brm_niche01)
-mcmc_plot(brm_niche01, pars = c("^r_sp"))
-mcmc_plot(brm_niche01, pars = c("^r_sa"))
-mcmc_plot(brm_niche01, pars = c("^b_"))
-hypothesis(brm_niche01, "dprime = 0")
-pp_check(brm_niche01)
-bayes_R2(brm_niche01)
-
-# Would it help if we log-transformed the bb abundance data and stuck to unfiltered data?
-brm_niche02 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
-                     (1 | sp.pair) + 
-                     (1 | same.class) + 
-                     (1 | site),
-                   #control = list(adapt_delta = 0.90),
-                   chains = 4,
-                   cores = 4,
-                   iter = 2000,
-                   file = "../output/brm_niche02",
-                   data = niche_overlap)
-
-parnames(brm_niche02)
-conditional_effects(brm_niche02)
-mcmc_plot(brm_niche02, pars = c("^r_sp"))
-mcmc_plot(brm_niche02, pars = c("^r_sa"))
-mcmc_plot(brm_niche02, pars = c("^b_"))
-hypothesis(brm_niche02, "dprime = 0")
-pp_check(brm_niche02)
-bayes_R2(brm_niche02)
-
-brm_niche03 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
-                     (1 + log.bb.sp1.abund*log.bb.sp2.abund | sp.pair) + 
-                     (1 | same.class) + 
-                     (1 | site),
-                   #control = list(adapt_delta = 0.90),
-                   chains = 4,
-                   cores = 4,
-                   iter = 2000,
-                   file = "../output/brm_niche03",
-                   data = niche_overlap)
-
-parnames(brm_niche02)
-conditional_effects(brm_niche02)
-mcmc_plot(brm_niche02, pars = c("^r_sp"))
-mcmc_plot(brm_niche02, pars = c("^r_sa"))
-mcmc_plot(brm_niche02, pars = c("^b_"))
-hypothesis(brm_niche02, "dprime = 0")
-pp_check(brm_niche02)
-bayes_R2(brm_niche02)
-
-# A zero-one inflated model might be the key.
-brm_niche04 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
-                     (1 | sp.pair) + 
-                     (1 | same.class) + 
-                     (1 | site),
-                   #control = list(adapt_delta = 0.90),
-                   family = "zero_one_inflated_beta",
-                   chains = 4,
-                   cores = 4,
-                   iter = 2000,
-                   file = "../output/brm_niche04",
-                   data = niche_overlap)
-
-parnames(brm_niche04)
-conditional_effects(brm_niche04)
-mcmc_plot(brm_niche04, pars = c("^r_sp"))
-mcmc_plot(brm_niche04, pars = c("^r_sa"))
-mcmc_plot(brm_niche04, pars = c("^b_"))
-hypothesis(brm_niche04, "dprime = 0")
-pp_check(brm_niche04)
-bayes_R2(brm_niche04)
-
-# Aggregate models
-brm_niche60 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
-                     (1 | sp.pair) + 
-                     (1 | same.class) +
                      (1 | site),
                    family = "zero_one_inflated_beta",
                    chains = 4,
                    cores = 4,
                    iter = 2000,
-                   file = "../output/brm_niche60",
-                   data = niche_overlap2)
-
-parnames(brm_niche60)
-conditional_effects(brm_niche60)
-mcmc_plot(brm_niche60, pars = c("^r_sp"))
-mcmc_plot(brm_niche60, pars = c("^r_sa"))
-mcmc_plot(brm_niche60, pars = c("^b_Int"))
-hypothesis(brm_niche60, "dprime = 0")
-pp_check(brm_niche60)
-bayes_R2(brm_niche60)
-
-brm_niche61 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
-                     (1 | sp.pair) + 
-                     (1 | same.class) +
-                     (1 | site),
-                   control = list(adapt_delta = 0.99),
-                   family = "zero_one_inflated_beta",
-                   chains = 4,
-                   cores = 4,
-                   iter = 2000,
-                   file = "../output/brm_niche61", # for local
-                   #file = "./output/brm_niche61", # for HPC
-                   data = niche_overlap2)
-
-parnames(brm_niche61)
-conditional_effects(brm_niche61)
-mcmc_plot(brm_niche61, pars = c("^r_sp"))
-mcmc_plot(brm_niche61, pars = c("^r_sa"))
-mcmc_plot(brm_niche61, pars = c("^b_Int"))
-pp_check(brm_niche61)
-bayes_R2(brm_niche61)
-
-brm_niche62 <- brm(niche.overlap ~ log.bb.sp1.abund*log.bb.sp2.abund + 
-                     (1 + log.bb.sp1.abund*log.bb.sp2.abund | sp.pair) + 
-                     (1 | same.class) +
-                     (1 | site),
-                   control = list(adapt_delta = 0.99),
-                   family = "zero_one_inflated_beta",
-                   chains = 4,
-                   cores = 4,
-                   iter = 2000,
-                   #file = "../output/brm_niche62", # for local
-                   file = "./output/brm_niche62", # for HPC
-                   data = niche_overlap2)
+                   #file = "../output/brm_niche10",
+                   file = "./brm_niche10",
+                   data = niche_overlap)
 ```
 
 #### 3.2.2.4 Plot model
@@ -1626,12 +1638,7 @@ pcoa_horn2.fort2 <- fortify(pcoa_horn2, axes = 1:2) %>%
   filter(Score == "sites") %>%
   rename(bb.sp = Label) %>%
   left_join(bb_traits) %>%
-  mutate(pbl.w.class2 = factor(pbl.w.class2)) %>%
-  mutate(pbl.w.class2 = case_when(
-    pbl.w.class2 == "1" ~ "short",
-    pbl.w.class2 == "2" ~ "med",
-    pbl.w.class2 == "3" ~ "long"
-    ))
+  mutate(pbl.w.class2 = factor(pbl.w.class2)) 
 
 # Generate convex hulls around tongue length classes
 pcoa_horn2_hulls <- pcoa_horn2.fort2 %>%
@@ -1662,13 +1669,6 @@ ggsave("../output/pcoa_aggregate.png")
 
 ### 3.2.1 Pooled within elev.class2
 ```{r}
-# Fl traits with abbreviated names
-fl_traits2 <- fl_traits %>%
-  left_join(read_csv("../data/processed_data/network.csv")) %>%
-  select(plant.sp, plant.sp.abb, plant.genus, plant.family, k.type.ss, color) %>%
-  mutate(k.type.ss = factor(k.type.ss)) %>%
-  distinct()
-
 # Get visitation
 visitation_low <- read_csv("../data/processed_data/network.csv") %>%
   filter(caste != "male") %>% # we will ignore males 
@@ -1714,7 +1714,6 @@ pcoa_horn_low <- capscale(visitation_low ~ 1, distance = "horn")
 pcoa_horn_mid <- capscale(visitation_mid ~ 1, distance = "horn")
 pcoa_horn_high <- capscale(visitation_high ~ 1, distance = "horn")
 
-
 # Get variance explained
 pcoa_horn_low_mds1 <- round(pcoa_horn_low$CA$eig[[1]] / sum(pcoa_horn_low$CA$eig)*100)
 pcoa_horn_low_mds2 <- round(pcoa_horn_low$CA$eig[[2]] / sum(pcoa_horn_low$CA$eig)*100)
@@ -1746,34 +1745,19 @@ pcoa_horn.fort2_low <- fortify(pcoa_horn_low, axes = 1:2) %>%
   filter(Score == "sites") %>%
   rename(bb.sp = Label) %>%
   left_join(bb_traits) %>%
-  mutate(pbl.w.class2 = factor(pbl.w.class2)) %>%
-  mutate(pbl.w.class2 = case_when(
-    pbl.w.class2 == "1" ~ "short",
-    pbl.w.class2 == "2" ~ "med",
-    pbl.w.class2 == "3" ~ "long"
-    ))
+  mutate(pbl.w.class2 = factor(pbl.w.class2))
 
 pcoa_horn.fort2_mid <- fortify(pcoa_horn_mid, axes = 1:2) %>%
   filter(Score == "sites") %>%
   rename(bb.sp = Label) %>%
   left_join(bb_traits) %>%
-  mutate(pbl.w.class2 = factor(pbl.w.class2)) %>%
-  mutate(pbl.w.class2 = case_when(
-    pbl.w.class2 == "1" ~ "short",
-    pbl.w.class2 == "2" ~ "med",
-    pbl.w.class2 == "3" ~ "long"
-    ))
+  mutate(pbl.w.class2 = factor(pbl.w.class2))
 
 pcoa_horn.fort2_high <- fortify(pcoa_horn_high, axes = 1:2) %>%
   filter(Score == "sites") %>%
   rename(bb.sp = Label) %>%
   left_join(bb_traits) %>%
-  mutate(pbl.w.class2 = factor(pbl.w.class2)) %>%
-  mutate(pbl.w.class2 = case_when(
-    pbl.w.class2 == "1" ~ "short",
-    pbl.w.class2 == "2" ~ "med",
-    pbl.w.class2 == "3" ~ "long"
-    ))
+  mutate(pbl.w.class2 = factor(pbl.w.class2))
 
 # Generate convex hulls around tongue length classes
 pcoa_horn_hulls_low <- pcoa_horn.fort2_low %>%
@@ -2225,5 +2209,81 @@ biaseval_group <- function(x, criterion) {
            visits, flower.cover, prop.visits, prop.flower.cover)
 }
 ```
+
+```{r}
+# # BB spp. pooled, only interested in comparing ktypes here
+# brm_pvis00 <- brm(visits ~ bb.abund*prop.flower.cover +
+#                     (1 + prop.flower.cover | ktype/site),
+#                   family = "negbinomial",
+#                   file = "../output/brm_pvis00",  # for running locally
+#                   #file = "brm_pvis00", # for running on the HPC
+#                   chains = 4,
+#                   cores = 4,
+#                   iter = 2000,
+#                   data = prop_visits_ktype_pooled)
+# 
+# get_variables(brm_pvis00)
+# pp_check(brm_pvis00, type='stat', stat='mean')
+# pp_check(brm_pvis00, type = "error_scatter_avg")
+# pp_check(brm_pvis00,  x = 'prop.flower.cover', type = "error_scatter_avg_vs_x")
+# pp_check(brm_pvis00,  x = 'bb.abund', type = "error_scatter_avg_vs_x")
+# 
+# 
+# bayes_R2(brm_pvis00)
+# conditional_effects(brm_pvis00)
+# 
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*0_.*Intercept]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*1_.*Intercept]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*2_.*Intercept]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*3_.*Intercept]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*4_.*Intercept]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*5_.*Intercept]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*6_.*Intercept]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*7_.*Intercept]$"))
+# 
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*0_.*prop.flower.cover]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*1_.*prop.flower.cover]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*2_.*prop.flower.cover]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*3_.*prop.flower.cover]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*4_.*prop.flower.cover]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*5_.*prop.flower.cover]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*6_.*prop.flower.cover]$"))
+# mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*7_.*prop.flower.cover]$"))
+# 
+# mcmc_plot(brm_pvis00, pars = c("r_ktype[0,Intercept]",
+#                                "r_ktype[1,Intercept]",
+#                                "r_ktype[2,Intercept]",
+#                                "r_ktype[3,Intercept]",
+#                                "r_ktype[4,Intercept]",
+#                                "r_ktype[5,Intercept]",
+#                                "r_ktype[6,Intercept]",
+#                                "r_ktype[7,Intercept]"), fixed =  TRUE)
+# 
+# mcmc_plot(brm_pvis00, pars = c("r_ktype[0,prop.flower.cover]",
+#                                "r_ktype[1,prop.flower.cover]",
+#                                "r_ktype[2,prop.flower.cover]",
+#                                "r_ktype[3,prop.flower.cover]",
+#                                "r_ktype[4,prop.flower.cover]",
+#                                "r_ktype[5,prop.flower.cover]",
+#                                "r_ktype[6,prop.flower.cover]",
+#                                "r_ktype[7,prop.flower.cover]"), fixed =  TRUE)
+# 
+# 
+# brm_pvis03 <- brm(visits ~ bb.abund*prop.flower.cover +
+#                     (1 + prop.flower.cover | ktype),
+#                   family = "negbinomial",
+#                   file = "../output/brm_pvis03",  # for running locally
+#                   #file = "brm_pvis03", # for running on the HPC
+#                   chains = 4,
+#                   cores = 4,
+#                   iter = 2000,
+#                   data = prop_visits_ktype_pooled)
+# 
+# pp_check(brm_pvis03)
+# bayes_R2(brm_pvis03)
+# conditional_effects(brm_pvis03)
+# mcmc_plot(brm_pvis03, pars = c("^r_k"))
+# 
+
 ```
 

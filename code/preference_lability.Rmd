@@ -1,0 +1,844 @@
+---
+title: "visitation_bias"
+author: "Doug Sponsler"
+date: "12/14/2020"
+output: html_document
+---
+# Preparations
+## Packages 
+```{r, warning=FALSE, include=FALSE, echo = FALSE}
+library(bipartite)
+library(brms)
+library(bayesplot)
+library(tidybayes)
+library(mgcv)
+library(mgcViz)
+library(modelr)
+library(ggdist)
+library(vegan)
+library(ggvegan)
+library(ggrepel)
+library(treemapify)
+library(patchwork)
+library(tidymodels)
+library(tidyverse)
+library(lubridate)
+
+rstan::rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+```
+
+## Load data
+```{r message=FALSE, warning=FALSE, include=FALSE, echo = FALSE}
+# Site data
+site_data <- read_csv("../data/processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
+  mutate(elev.class2 = factor(elev.class2, levels = c("low", "mid", "high")),
+         site = factor(site)) # turn elav.class into an ordered factor and site into a regular factor
+
+# BB traits
+bb_traits <- read_csv("../data/processed_data/bb_traits.csv") 
+
+ggplot(bb_traits, aes(pbl.w, pbl.w.durieaux,
+                      color = bb.sp, pch = factor(pbl.w.class2))) +
+  geom_point()
+
+# FL traits
+## family-level taxonomy
+fl_tax <- read_csv("../data/processed_data/floral_tax.csv") 
+
+## Kugler morphotypes (accessed through Bioflor)
+fl_ktype <- read_csv("../data/processed_data/floral_k_type.csv") 
+
+## Flower colors (accessed through BioFlor)
+fl_color <- read_csv("../data/processed_data/floral_color.csv")
+
+## diameter and corolla depth data from Gita Benadi
+fl_morph <- read_csv("../data/processed_data/flower_morphology_GitaBenadi.csv") %>% 
+  dplyr::select(SampleID, plant.family = Family, plant.sp = Species, 
+                Unit, Flowers_per_unit, diam = Diameter, LN) %>%
+  group_by(plant.sp) %>%
+  summarize(diam = mean(diam), LN = mean(LN))
+
+## verbal description of Kugler morphotypes
+fl_ktype_key <- read_delim("../data/processed_data/kugler_key.tsv", delim = "\t", col_names = FALSE) %>%
+  dplyr::select(k.type = 1, description = 2)
+
+## join all floral trait tables
+fl_traits <- fl_tax %>%
+  full_join(fl_ktype) %>%
+  full_join(fl_color) %>%
+  full_join(fl_morph) %>%
+  dplyr::select(plant.sp, plant.genus, plant.family, k.type, k.type.s, k.type.ss, color, diam, LN)
+```
+
+## Align survey and visitation data with pseudodates
+```{r}
+# Site-dates where BB visitation was recorded (excluding dates where only males were recorded)
+visitation_samples <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>%
+  select(site, date) %>%
+  distinct() 
+
+# Site dates where floral surveying was conducted
+survey_samples <- read_csv("../data/processed_data/floral_survey.csv") %>%
+  select(site, date) %>%
+  distinct()
+
+# Site-dates where visitation sampling and floral sampling coincided
+shared_dates <- inner_join(visitation_samples, survey_samples)
+
+# Site-dates where visitation was recorded WITHOUT corresponding survey data
+visitation_only <- anti_join(visitation_samples, survey_samples) %>%
+  mutate(date.v = date) %>%
+  select(-date)
+
+# This creates a pseudo date column for unmatched visitation site-dates that will match each visitation date
+# to its nearest survey data. For site t4, there is a 2-year mismatch; we will drop these site-dates later.
+pseudodates <- full_join(visitation_only, survey_samples) %>%
+  mutate(mismatch = abs(date.v - date)) %>%
+  group_by(site, date.v) %>%
+  filter(mismatch == min(mismatch)) %>%
+  rename(date = date.v, pseudo.date = date)
+```
+
+## Generate a data frame that represents visitation and survey abundance
+```{r}
+# BB visitation data
+visitation <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  group_by(site, date, bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>% # visits per BB-FL pair
+  ungroup() %>%
+  left_join(pseudodates) %>% # Now we will replace unmatched dates with their pseudo dates
+  replace_na(replace = list(mismatch = 0)) %>% # set mismatch to zero for perfectly aligned dates
+  filter(mismatch <= 7) %>% # this gets rid of irreconcilable dates (like the t4 dates mentioned above)
+  mutate(date2 = if_else(is.na(pseudo.date), date, pseudo.date)) %>% # replace date with pseudodate for all site-dates lacking perfect alignments
+  select(-c(date, pseudo.date, mismatch)) %>%
+  rename(date = date2) %>%
+  group_by(site, date) %>%
+  complete(bb.sp, plant.sp, fill = list(visits = 0)) # generate all possible BB-FL combos for each site date and fill in zeros for visits
+
+# Floral cover data
+flower_cover <- read_csv("../data/processed_data/floral_survey.csv") %>%
+  filter(flower.cover > 0) %>% # ignore plants that were not blooming
+  group_by(site, date, plant.sp) %>%
+  summarize(flower.cover = sum(flower.cover))
+
+# Get shared dates after adding pseudodates. This will let us filter out survey dates that don't
+# have corresponding visitation sampling dates
+shared_dates_with_pseudo <- inner_join(visitation, flower_cover, by = c("site", "date")) %>%
+  select(site, date) %>%
+  distinct()
+
+# Join visitation and flower cover data
+
+## First we need a list of all BB spp. by site and date
+sp_by_site <- visitation %>% 
+  ungroup() %>%
+  select(site, date, bb.sp) %>%
+  distinct()
+
+## Then we need a list of unvisited plant.sp by site and date
+unvisited <- flower_cover %>% 
+  semi_join(shared_dates_with_pseudo) %>% # filter flower cover data to include only site-dates with visitation complement (real or pseudodates)
+  full_join(visitation) %>% # join to visitation data
+  filter(is.na(bb.sp)) %>% # select only the site-date-plants that were totally unvisited (and therefore have no BB spp to join to)
+  select(-bb.sp) %>% # drop bb.sp variable because I just want the plants
+  left_join(sp_by_site) %>% # join in the species list by site and date, thus populating the unvisited plants with all the BB spp recorded for each site-date
+  replace_na(replace = list(visits = 0)) # replace NAs (created in the line above) with zero
+
+## Now we can combine everything into a single data frame
+visit_cover <- flower_cover %>% 
+  semi_join(shared_dates_with_pseudo) %>% # filter flower cover data to include only site-dates with visitation complement (real or pseudodates)
+  full_join(visitation) %>% # join to visitation data
+  replace_na(replace = list(flower.cover = 0.01)) %>% # If a plant was visited but not surveyed, we will assign it the minimum non-zero flower cover value of 0.01.
+  filter(!is.na(bb.sp)) %>% # drop the univisited plants
+  bind_rows(unvisited) %>% # add them back, with BB spp and zeros
+  select(site, date, bb.sp, plant.sp, visits, flower.cover) %>%
+  group_by(site, date, bb.sp, plant.sp, flower.cover) %>% # In a few cases, the use of pseudodates causes two sampling period to converge on the same date, which creates apparent duplicate visitation data. We will handle this by averaging the visits.
+  summarize(visits = mean(visits)) %>%
+  left_join(fl_traits) %>% # add floral traits
+  ungroup() %>%
+  mutate(k.type.ss = factor(k.type.ss))
+
+ktype_families <- visit_cover %>%
+  select(plant.sp, plant.family, k.type.ss) %>%
+  distinct()
+  
+ggplot(ktype_families, aes(plant.family, fill = k.type.ss)) +
+  geom_bar(position = "fill") +
+  theme(axis.text.x = element_text(angle = 90))
+
+## Get total visits by BB sp and site-date; this will be a measure of BB abundance that we can use after we've calculated d'. I could, of course, work this into the biaseval function, but I'll put that off for now.
+bb_abundance <- visit_cover %>%
+  group_by(site, date, bb.sp) %>%
+  summarize(bb.sp.abund = sum(visits)) %>%
+  group_by(site, date) %>%
+  mutate(bb.sp.prop.abund = bb.sp.abund/sum(bb.sp.abund))
+
+fl_abundance <- visit_cover %>%
+  group_by(site, date) %>%
+  summarize(total.flower.cover = sum(flower.cover))
+```
+
+# 1. Overall bias
+## 1.1 Calculate visitation probability per plant morphotype. Instead of keeping the plant species resolved, we will pool visitation by morphotype. The problem with not pooling by morphotype is that more species-rich morphotypes will be penalized simply because their visitation is diluted across more species.
+```{r}
+prop_visits_ktype <- visit_cover %>%
+  group_by(site, date, bb.sp, k.type.ss) %>%
+  summarize(flower.cover = sum(flower.cover), # get raw flower cover and visits by site*date*bb.sp*plant.sp
+            visits = sum(visits)) %>%
+  group_by(site, date) %>%
+  mutate(prop.flower.cover = flower.cover/sum(flower.cover))%>% # binary visits
+  group_by(site, date, bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits),
+         bb.sp.abund = sum(visits)) %>% # abundance of each BB sp. per site-date
+  ungroup() %>%
+  left_join(bb_traits) %>% # add BB traits
+  mutate(ktype = factor(k.type.ss), # recode variables
+         tongue = factor(pbl.w.class2),
+         visits = as.integer(visits)) %>% # so we can run a Poisson model
+  left_join(site_data) %>% # add site data
+  ungroup() %>%
+  mutate(yday = yday(date),
+         elev.mean0 = scale(elev.mean),
+         yday0 = scale(yday),
+         prop.flower.cover0 = scale(prop.flower.cover),
+         perc.flower.cover = prop.flower.cover*100,
+         bb.sp.abund0 = scale(bb.sp.abund)) %>%
+  select(site, elev.mean, date, yday, bb.sp, ktype, visits, 
+         prop.visits, perc.flower.cover, bb.sp.abund, tongue,
+         elev.mean0, yday0, prop.flower.cover0, bb.sp.abund0) %>%
+  mutate(visits.bin = if_else(visits > 0, 1, 0))
+
+write_csv(prop_visits_ktype, "../hpc_packets/prop_visits_ktype.csv")
+
+prop_visits_ktype_pooled <- visit_cover %>%
+  group_by(site, date, k.type.ss) %>%
+  summarize(flower.cover = sum(flower.cover), # get raw flower cover and visits by site*date*bb.sp*plant.sp
+            visits = sum(visits)) %>%
+  group_by(site, date) %>%
+  mutate(prop.flower.cover = flower.cover/sum(flower.cover),
+         prop.visits = visits/sum(visits),
+         bb.abund = sum(visits),
+         visits = as.integer(visits)) %>%
+  mutate(ktype = factor(k.type.ss)) %>%
+  left_join(site_data) %>% # add site data
+  ungroup() %>%
+  mutate(yday = yday(date),
+         elev.mean0 = scale(elev.mean),
+         yday0 = scale(yday),
+         perc.flower.cover = prop.flower.cover*100,
+         prop.flower.cover0 = scale(prop.flower.cover),
+         bb.abund0 = scale(bb.abund)) %>%
+  select(site, elev.mean, date, yday, ktype, visits, 
+         prop.visits, bb.abund, perc.flower.cover,
+         elev.mean0, yday0, prop.flower.cover0, bb.abund0) %>%
+  mutate(visits.bin = if_else(visits > 0, 1, 0))
+
+write_csv(prop_visits_ktype_pooled, "../hpc_packets/prop_visits_ktype_pool.csv")
+
+```
+
+## 1.2 Binomial multi-level regression models
+```{r}
+## Exploring the differential bias of bumble bee species and tongue length classes towards floral morphotypes
+### Bernoulli with binarized visitation
+brm_pvis00 <- brm(as.integer(visits.bin) ~
+                    bb.sp.abund*perc.flower.cover + # fixed term: because more abundant flowers will tend to be more visited,and more abundance bees visit more
+                    (1 + perc.flower.cover | ktype:bb.sp) + # a random intercept and random slope for ktype:species; I think I need to model this before I can make conclusions about ktype:pbl.class
+                    (1 + perc.flower.cover | ktype:tongue) + # a random intercept and slope for ktype:tongue
+                    (1 | site), # a random intercept and slope for ktype:site
+                  family = "bernoulli", 
+                  #file = "../output/brm_pvis_ktype_00",  # for running locally
+                  file = "brm_pvis_ktype_00", # for running on the HPC
+                  chains = 4,
+                  cores = 12,
+                  iter = 2000,
+                  data = filter(prop_visits_ktype, !ktype %in% c("9", "10")))
+
+
+brm_pvis01 <- brm(as.integer(visits.bin) ~
+                    bb.abund*perc.flower.cover + # fixed term: because more abundant flowers will tend to be more visited,and more abundance bees visit more
+                    (1 + perc.flower.cover | ktype) + # a random intercept and slope for ktype:site
+                    (1 | site), 
+                  family = "bernoulli", 
+                  file = "../output/brm_pvis_ktype_01",  # for running locally
+                  #file = "brm_pvis_ktype_01", # for running on the HPC
+                  chains = 4,
+                  cores = 12,
+                  iter = 2000,
+                  data = filter(prop_visits_ktype_pooled, !ktype %in% c("9", "10")))
+
+# If I want to make inference about species visitation rates, I don't need the tongue-length class effect; I just need the site effect. But, when I want to make inference about the tongue length classes, I do need the species-level effect.
+brm_pvis02 <- brm(as.integer(visits.bin) ~
+                    bb.sp.abund*perc.flower.cover + # fixed term: because more abundant flowers will tend to be more visited,and more abundance bees visit more
+                    (1 + perc.flower.cover | ktype:bb.sp) + # a random intercept and random slope for ktype:species; I think I need to model this before I can make conclusions about ktype:pbl.class
+                    (1 | site), # a random intercept and slope for ktype:site
+                  family = "bernoulli", 
+                  #file = "../output/brm_pvis_ktype_02",  # for running locally
+                  file = "brm_pvis_ktype_02", # for running on the HPC
+                  chains = 4,
+                  cores = 12,
+                  iter = 2000,
+                  data = filter(prop_visits_ktype, !ktype %in% c("9", "10")))
+```
+## 1.3 Evaluate models
+```{r}
+# Summary
+summary(brm_pvis00)
+summary(brm_pvis01)
+summary(brm_pvis02)
+
+# Posterior predictive checks
+pp_check(brm_pvis00)
+pp_check(brm_pvis01)
+pp_check(brm_pvis02)
+
+# Bayes R2
+bayes_R2(brm_pvis00)
+bayes_R2(brm_pvis01)
+bayes_R2(brm_pvis02)
+
+```
+
+## 1.4 Preliminary visualization
+```{r}
+get_variables(brm_pvis00)
+conditional_effects(brm_pvis00)
+mcmc_plot(brm_pvis00, pars = c("^r_ktype:tongue.*Intercept]$"))
+mcmc_plot(brm_pvis00, pars = c("^r_ktype:tongue.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis00, pars = c("^r_ktype:bb.sp.*Intercept]$"))
+mcmc_plot(brm_pvis00, pars = c("^r_ktype:bb.sp.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*Intercept]$"))
+mcmc_plot(brm_pvis00, pars = c("^r_ktype:site.*perc.flower.cover]$"))
+
+
+get_variables(brm_pvis01)
+conditional_effects(brm_pvis01)
+mcmc_plot(brm_pvis01, pars = c("^r_ktype"))
+mcmc_plot(brm_pvis01, pars = c("^r_ktype:tongue.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis01, pars = c("^r_ktype:bb.sp.*Intercept]$"))
+mcmc_plot(brm_pvis01, pars = c("^r_ktype:bb.sp.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis01, pars = c("^r_ktype:site.*Intercept]$"))
+mcmc_plot(brm_pvis01, pars = c("^r_ktype:site.*perc.flower.cover]$"))
+
+get_variables(brm_pvis02)
+conditional_effects(brm_pvis02)
+mcmc_plot(brm_pvis02, pars = c("^r_ktype"))
+mcmc_plot(brm_pvis02, pars = c("^r_ktype:bb.sp.*Intercept]$"))
+mcmc_plot(brm_pvis02, pars = c("^r_ktype:bb.sp.*perc.flower.cover]$"))
+mcmc_plot(brm_pvis02, pars = c("^r_ktype:site.*Intercept]$"))
+mcmc_plot(brm_pvis02, pars = c("^r_ktype:site.*perc.flower.cover]$"))
+```
+
+## 1.5 Final visualization
+Note that the intercept is on the log scale, so if you want to transform it back to predicted # visits, you have to exponentiate it. I think. Here is a helplful conversation involving the esteemed Ben Bolker:
+### 1.5.1 morphotype:tongue intercept
+```{r}
+brm_pvis00_plotframe1 <- brm_pvis00 %>%
+  spread_draws(b_Intercept, `r_ktype:tongue`[condition, term]) %>% # the back ticks are necessary to escape the :
+  rename(r_ktype.tongue = `r_ktype:tongue`) %>% # get rid of the problematic :
+  filter(term == "Intercept") %>% # drop slope terms for now
+  mutate(condition_mean = b_Intercept + r_ktype.tongue) %>% # get conditional mean
+  group_by(condition) %>% # group by tongue:morpotype pair
+  point_interval(condition_mean, .width = c(0.95, 0.66)) %>% # calculate credible intervals
+  mutate(condition_mean_trans = exp(condition_mean), # exponentiating the estimates gets us back to the response scale (negbinomial uses log link function)
+         .lower_trans = exp(.lower),
+         .upper_trans = exp(.upper)) %>% 
+separate(condition, c("ktype", "tongue"), sep = "_", remove = FALSE) %>% # separate condition term into ktype and tongue
+  mutate(ktype = case_when( # rename
+    ktype == "0" ~ "NA (0)",
+    ktype == "1" ~ "Disc (1)",
+    ktype == "2" ~ "Funnel (2)",
+    ktype == "3" ~ "Bell (3)",
+    ktype == "4" ~ "Stalk-disc (4)",
+    ktype == "5" ~ "Lip (5)",
+    ktype == "6" ~ "Flag (6)",
+    ktype == "7" ~ "Head (7)")
+  ) %>%
+  mutate(ktype = factor(ktype, levels = c("Disc (1)", "Funnel (2)", "Bell (3)", # relevel
+                                          "Stalk-disc (4)","Lip (5)", "Flag (6)", 
+                                          "Head (7)", "NA (0)")))
+
+ggplot(brm_pvis00_plotframe1, aes(condition_mean_trans, tongue, 
+                                 xmin = .lower_trans, xmax = .upper_trans,
+                                 color = tongue, fill = tongue)) +
+  geom_pointinterval() +
+  facet_wrap(~ktype, scales = "free") +
+  theme_light() +
+  labs(color = "Tongue length", x = "Visitation probability") +
+  guides(fill = FALSE) +
+  theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+ggsave(file = "../output/brm_pvis00_plot1.png")
+ggsave(file = "../output/brm_pvis00_plot1.pdf")
+
+```
+
+### 1.5.2 morphotype:bb.sp intercept
+```{r}
+brm_pvis02_plotframe2 <- brm_pvis02 %>%
+  spread_draws(b_Intercept, `r_ktype:bb.sp`[condition, term]) %>% # the back ticks are necessary to escape the :
+  rename(r_ktype.bb.sp = `r_ktype:bb.sp`) %>% # get rid of the problematic :
+  filter(term == "Intercept") %>% # drop slope terms for now
+  mutate(condition_mean = b_Intercept + r_ktype.bb.sp) %>% # get conditional mean
+  group_by(condition) %>% # group by bb.sp:morpotype pair
+  point_interval(condition_mean, .width = c(0.95, 0.66)) %>% # calculate credible intervals
+  mutate(condition_mean_trans = inv_logit_scaled(condition_mean), # exponentiating the estimates gets us back to the response scale (negbinomial uses log link function)
+         .lower_trans = inv_logit_scaled(.lower),
+         .upper_trans = inv_logit_scaled(.upper)) %>% 
+separate(condition, c("ktype", "bb.sp"), sep = "_", remove = FALSE) %>% # separate condition term into ktype and bb.sp
+  mutate(ktype = case_when( # rename
+    ktype == "0" ~ "NA (0)",
+    ktype == "1" ~ "Disc (1)",
+    ktype == "2" ~ "Funnel (2)",
+    ktype == "3" ~ "Bell (3)",
+    ktype == "4" ~ "Stalk-disc (4)",
+    ktype == "5" ~ "Lip (5)",
+    ktype == "6" ~ "Flag (6)",
+    ktype == "7" ~ "Head (7)")
+  ) %>%
+  mutate(ktype = factor(ktype, levels = c("Disc (1)", "Funnel (2)", "Bell (3)", # relevel
+                                          "Stalk-disc (4)","Lip (5)", "Flag (6)", 
+                                          "Head (7)", "NA (0)"))) %>%
+  left_join(bb_traits)
+
+ggplot(brm_pvis02_plotframe2, aes(condition_mean_trans, bb.sp, 
+                                 xmin = .lower_trans, xmax = .upper_trans,
+                                 color = pbl.w.class2, fill = pbl.w.class2)) +
+  geom_pointinterval() +
+  facet_wrap(~ktype, scales = "free") +
+  theme_light() +
+  labs(color = "Tongue length", x = "Visitation probability", y = "Morphotype") +
+  guides(fill = FALSE) 
+
+ggsave(file = "../output/brm_pvis02_plot1.png", width = 6.5, height = 6.5)
+```
+
+### 1.5.3 morphotype:tongue slope
+```{r}
+brm_pvis00_plotframe3 <- brm_pvis00 %>%
+  spread_draws(b_perc.flower.cover, `r_ktype:tongue`[condition, term]) %>% # the back ticks are necessary to escape the :
+  rename(r_ktype.tongue = `r_ktype:tongue`) %>%
+  filter(term == "perc.flower.cover") %>%
+  mutate(condition_slope = b_perc.flower.cover + r_ktype.tongue) %>%
+  separate(condition, c("ktype", "tongue"), sep = "_", remove = FALSE) %>%
+  mutate(ktype = case_when(
+    ktype == "0" ~ "NA (0)",
+    ktype == "1" ~ "Disc (1)",
+    ktype == "2" ~ "Funnel (2)",
+    ktype == "3" ~ "Bell (3)",
+    ktype == "4" ~ "Stalk-disc (4)",
+    ktype == "5" ~ "Lip (5)",
+    ktype == "6" ~ "Flag (6)",
+    ktype == "7" ~ "Head (7)")
+  ) %>%
+  mutate(ktype = factor(ktype,
+                        levels = c("Disc (1)", "Funnel (2)", "Bell (3)", "Stalk-disc (4)",
+                                   "Lip (5)", "Flag (6)", "Head (7)", "NA (0)")))
+
+
+ggplot(brm_pvis00_plotframe3, aes(condition_slope, tongue, color = tongue)) +
+  stat_pointinterval() +
+  facet_grid(ktype~.) +
+  theme_light() +
+  labs(color = "Tongue length", x = "Slope of logit-likelihood") +
+  guides(fill = FALSE) +
+  theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+
+ggsave(file = "../output/brm_pvis00_plot3.png", width = 7, height = 5.5)
+```
+
+### 1.5.3 morphotype intercept
+```{r}
+brm_pvis01_plotframe1 <- brm_pvis01 %>%
+  spread_draws(b_Intercept, r_ktype[condition, term]) %>% # the back ticks are necessary to escape the :
+  filter(term == "Intercept") %>% # drop slope terms for now
+  mutate(condition_mean = b_Intercept + r_ktype) %>% # get conditional mean
+  group_by(condition) %>% # group by tongue:morpotype pair
+  point_interval(condition_mean, .width = c(0.95, 0.66)) %>% # calculate credible intervals
+  mutate(condition_mean_trans = inv_logit_scaled(condition_mean), # exponentiating the estimates gets us back to the response scale (negbinomial uses log link function)
+         .lower_trans = inv_logit_scaled(.lower),
+         .upper_trans = inv_logit_scaled(.upper)) %>% 
+  mutate(ktype = case_when( # rename
+    condition == "0" ~ "NA (0)",
+    condition == "1" ~ "Disc (1)",
+    condition == "2" ~ "Funnel (2)",
+    condition == "3" ~ "Bell (3)",
+    condition == "4" ~ "Stalk-disc (4)",
+    condition == "5" ~ "Lip (5)",
+    condition == "6" ~ "Flag (6)",
+    condition == "7" ~ "Head (7)")
+  ) %>%
+  mutate(ktype = factor(ktype, levels = c("Disc (1)", "Funnel (2)", "Bell (3)", # relevel
+                                          "Stalk-disc (4)","Lip (5)", "Flag (6)", 
+                                          "Head (7)", "NA (0)")))
+
+ggplot(brm_pvis01_plotframe1, aes(condition_mean_trans, ktype, 
+                                 xmin = .lower_trans, xmax = .upper_trans)) +
+  geom_pointinterval() +
+  theme_light() +
+  labs(x = "Visitation probability", y= "Morphotype") +
+  guides(fill = FALSE)
+
+ggsave(file = "../output/brm_pvis01_plot1.png", width = 5, height = 7)
+ggsave(file = "../output/brm_pvis01_plot1.pdf", width = 5, height = 7)
+```
+
+### 1.5.3 morphotype slope
+```{r}
+brm_pvis01_plotframe2 <- brm_pvis01 %>%
+  spread_draws(b_perc.flower.cover, r_ktype[condition, term]) %>% # the back ticks are necessary to escape the :
+  filter(term == "perc.flower.cover") %>%
+  mutate(condition_slope = b_perc.flower.cover + r_ktype) %>%
+  mutate(ktype = case_when(
+    condition == "0" ~ "NA (0)",
+    condition == "1" ~ "Disc (1)",
+    condition == "2" ~ "Funnel (2)",
+    condition == "3" ~ "Bell (3)",
+    condition == "4" ~ "Stalk-disc (4)",
+    condition == "5" ~ "Lip (5)",
+    condition == "6" ~ "Flag (6)",
+    condition == "7" ~ "Head (7)")
+  ) %>%
+  mutate(ktype = factor(ktype,
+                        levels = c("Disc (1)", "Funnel (2)", "Bell (3)", "Stalk-disc (4)",
+                                   "Lip (5)", "Flag (6)", "Head (7)", "NA (0)"))) 
+
+ggplot(brm_pvis01_plotframe2, aes(condition_slope, ktype)) +
+  stat_pointinterval() +
+  theme_light() +
+  labs(color = "Tongue length", x = "Slope of visitation probability ~ percent flower cover") +
+  guides(fill = FALSE)
+
+ggsave(file = "../output/brm_pvis01_plot2.png", width = 7, height = 5.5)
+```
+
+## 1.6 Model 1 hypothesis tests
+I'm not doing every possible comparison. Just the ones where it is possible to have some doubt. It would be stupid to compare group whose 95% CIs are miles apart.
+```{r}
+get_variables(brm_pvis01)
+
+hypothesis(brm_pvis01, "r_ktype[0,Intercept] = r_ktype[1,Intercept]", class = "") # this is lower than its closest neighbor; no need to make any other comparisons
+
+hypothesis(brm_pvis01, "r_ktype[1,Intercept] = r_ktype[4,Intercept]", class = "") 
+hypothesis(brm_pvis01, "r_ktype[2,Intercept] = r_ktype[4,Intercept]", class = "")
+
+hypothesis(brm_pvis01, "r_ktype[2,Intercept] = r_ktype[1,Intercept]", class = "")
+hypothesis(brm_pvis01, "r_ktype[1,Intercept] = r_ktype[3,Intercept]", class = "") 
+hypothesis(brm_pvis01, "r_ktype[2,Intercept] = r_ktype[3,Intercept]", class = "")
+hypothesis(brm_pvis01, "r_ktype[4,Intercept] = r_ktype[3,Intercept]", class = "")
+
+
+hypothesis(brm_pvis01, "r_ktype[5,Intercept] = r_ktype[6,Intercept]", class = "") 
+hypothesis(brm_pvis01, "r_ktype[5,Intercept] = r_ktype[7,Intercept]", class = "") 
+```
+
+
+## 1.7 Model 2 hypothesis tests
+```{r}
+get_variables(brm_pvis00)
+
+# Disc (group  1)
+hypothesis(brm_pvis00, "r_ktype:tongue[1_short,Intercept] = r_ktype:tongue[1_med,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[1_short,Intercept] = r_ktype:tongue[1_long,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[1_med,Intercept] = r_ktype:tongue[1_long,Intercept]", class = "")
+
+# Funnel (group  2)
+hypothesis(brm_pvis00, "r_ktype:tongue[2_short,Intercept] = r_ktype:tongue[2_med,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[2_short,Intercept] = r_ktype:tongue[2_long,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[2_med,Intercept] = r_ktype:tongue[2_long,Intercept]", class = "")
+
+# Bell (group  3)
+hypothesis(brm_pvis00, "r_ktype:tongue[3_short,Intercept] = r_ktype:tongue[3_med,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[3_short,Intercept] = r_ktype:tongue[3_long,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[3_med,Intercept] = r_ktype:tongue[3_long,Intercept]", class = "")
+
+# Stalk-disc (group  4)
+hypothesis(brm_pvis00, "r_ktype:tongue[4_short,Intercept] = r_ktype:tongue[4_med,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[4_short,Intercept] = r_ktype:tongue[4_long,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[4_med,Intercept] = r_ktype:tongue[4_long,Intercept]", class = "")
+
+# Lip (group  5)
+hypothesis(brm_pvis00, "r_ktype:tongue[5_short,Intercept] = r_ktype:tongue[5_med,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[5_short,Intercept] = r_ktype:tongue[5_long,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[5_med,Intercept] = r_ktype:tongue[5_long,Intercept]", class = "")
+
+# Flag (group  6)
+hypothesis(brm_pvis00, "r_ktype:tongue[6_short,Intercept] = r_ktype:tongue[6_med,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[6_short,Intercept] = r_ktype:tongue[6_long,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[6_med,Intercept] = r_ktype:tongue[6_long,Intercept]", class = "")
+
+# Head (group  7)
+hypothesis(brm_pvis00, "r_ktype:tongue[7_short,Intercept] = r_ktype:tongue[7_med,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[7_short,Intercept] = r_ktype:tongue[7_long,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[7_med,Intercept] = r_ktype:tongue[7_long,Intercept]", class = "")
+
+# NA (group  0)
+hypothesis(brm_pvis00, "r_ktype:tongue[0_short,Intercept] = r_ktype:tongue[0_med,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[0_short,Intercept] = r_ktype:tongue[0_long,Intercept]", class = "")
+hypothesis(brm_pvis00, "r_ktype:tongue[0_med,Intercept] = r_ktype:tongue[0_long,Intercept]", class = "")
+```
+
+# 2 Ordination of dietary niche
+Aggregation changes meaning. Don't forget that. When I pool visitation across dates, I am introducing the effects of relative abundance and floral phenology. Species in bloom when BB abundance is high will be over-represented, and vice-versa. And species with a long bloom time will be over-represented, and vice-versa. This isn't necessarily a problem. I just need to make sure I interpret the results the right way. When I pool data like this, I am comparing the "net" diet of species, which includes the effects of abundance and phenology in addition to the effects of floral preferences. I think that is appropriate for this stage of the analysis, but I need to be careful not to assume that what I'm doing here is the same sort of analysis as what I did above without pooling samples. 
+```{r}
+# Fl traits with abbreviated names
+fl_traits2 <- fl_traits %>%
+  left_join(read_csv("../data/processed_data/network.csv")) %>%
+  select(plant.sp, plant.sp.abb, plant.genus, plant.family, k.type.ss, color) %>%
+  mutate(k.type.ss = factor(k.type.ss)) %>%
+  distinct()
+
+# Totally aggregated; note I'm using the full data, not the aligned and trimmed data. No need for complementary floral survey data.
+visitation2 <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  filter(!bb.sp %in% c("humi")) %>% # humi is too rare
+  group_by(bb.sp, plant.sp.abb) %>%
+  summarize(visits = n()) %>%
+  group_by(bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
+  select(-visits) %>%
+  pivot_wider(names_from = plant.sp.abb, values_from = prop.visits, values_fill = 0) %>%
+  column_to_rownames("bb.sp")
+
+bb_traits2 <- bb_traits %>%
+  filter(bb.sp != "humi") %>%
+  select(bb.sp, pbl.w.class2) %>%
+  arrange(bb.sp) %>%
+  mutate(pbl.w.class2.pool = case_when(
+    pbl.w.class2 == "short" ~ "short",
+    pbl.w.class2 == "med" ~ "med/long",
+    pbl.w.class2 == "long" ~ "med/long"
+  ))
+
+# Generate ordination
+pcoa_horn2 <- capscale(visitation2 ~ 1, distance = "horn")
+pcoa_horn2_adonis <- adonis(visitation2 ~ pbl.w.class2, data = bb_traits2)
+pcoa_horn2_betadisper <- betadisper(vegdist(visitation2, method = "horn"), 
+                                    group = bb_traits2$pbl.w.class2,
+                                    type = "median")
+anova(pcoa_horn2_betadisper) # I think this is not significant because short tongued species are disperse on axis 2, but axis 2 does not explain nearly as much variation.
+plot(pcoa_horn2_betadisper)
+# I'm suprised that the betadisper test is not significant, but I think it might be driven by the fact that replication is so low for long and medium tongue species. Let's see what happens if we pool long and medium tongue species, since they overlap so much anyway.
+pcoa_horn2_betadisper_pool <- betadisper(vegdist(visitation2, method = "horn"), 
+                                    group = bb_traits2$pbl.w.class2.pool,
+                                    type = "median")
+anova(pcoa_horn2_betadisper_pool) # I think this is not significant because short tongued species are disperse on axis 2, but axis 2 does not explain nearly as much variation.
+plot(pcoa_horn2_betadisper_pool)
+
+# Get variance explained
+pcoa_horn2_mds1 <- round(pcoa_horn2$CA$eig[[1]] / sum(pcoa_horn2$CA$eig)*100)
+pcoa_horn2_mds2 <- round(pcoa_horn2$CA$eig[[2]] / sum(pcoa_horn2$CA$eig)*100)
+
+# Fortify plants
+pcoa_horn2.fort1 <- fortify(pcoa_horn2, axes = 1:2) %>%
+  filter(Score == "species") %>%
+  rename(plant.sp.abb = Label) %>%
+  left_join(fl_traits2)
+
+# Fortify bees
+pcoa_horn2.fort2 <- fortify(pcoa_horn2, axes = 1:2) %>%
+  filter(Score == "sites") %>%
+  rename(bb.sp = Label) %>%
+  left_join(bb_traits) %>%
+  mutate(pbl.w.class2 = factor(pbl.w.class2)) 
+
+# Generate convex hulls around tongue length classes
+pcoa_horn2_hulls <- pcoa_horn2.fort2 %>%
+  group_by(pbl.w.class2) %>%
+  slice(chull(MDS1, MDS2))
+  
+# Plot
+ggplot(pcoa_horn2.fort2, aes(MDS1, MDS2, color = pbl.w.class2)) +
+  geom_polygon(data = pcoa_horn2_hulls, 
+               aes(fill = pbl.w.class2, color = NULL),
+               alpha = 0.25) +
+  geom_text(aes(label = bb.sp), key_glyph = "rect") +
+  geom_text_repel(data = filter(pcoa_horn2.fort1, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2), 
+            aes(MDS1, MDS2, label = plant.sp.abb), inherit.aes = FALSE, color = "gray40") +
+  geom_point(data = filter(pcoa_horn2.fort1, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2),
+            aes(MDS1, MDS2, shape = k.type.ss), inherit.aes = FALSE, color = "gray40", size = 3) +
+  scale_shape_discrete() +
+  xlab(paste("MDS1 ", "(", pcoa_horn2_mds1, "%", ")", sep = "")) +
+  ylab(paste("MDS2 ", "(", pcoa_horn2_mds2, "%", ")", sep = "")) +
+  labs(fill = "Tongue length", 
+       shape = "Morphotype") +
+  guides(color = FALSE) +
+  coord_fixed() +
+  theme_light(10)
+
+ggsave("../output/pcoa_aggregate.png")
+
+# a quick peak at diet breadth...quick, I promise
+taxon_diet_breadth <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  filter(!bb.sp %in% c("humi")) %>% # humi is too rare
+  group_by(site, date, bb.sp, plant.sp) %>%
+  summarize(visits = n()) %>%
+  group_by(site, date, bb.sp) %>%
+  summarize(bb.sp.abund = sum(visits),
+            tax.diet.breadth = length(plant.sp)) %>%
+  mutate(log.bb.sp.abund = log(bb.sp.abund),
+         prop.tax.diet.breadth = tax.diet.breadth/bb.sp.abund) 
+
+morph_diet_breadth <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% # we will ignore males 
+  filter(!bb.sp %in% c("humi")) %>% # humi is too rare
+  left_join(fl_traits) %>%
+  group_by(site, date, bb.sp, k.type.ss) %>%
+  summarize(visits = n()) %>%
+  group_by(site, date, bb.sp) %>%
+  summarize(bb.sp.abund = sum(visits),
+            morph.diet.breadth = length(k.type.ss)) %>%
+  mutate(log.bb.sp.abund = log(bb.sp.abund),
+         prop.morph.diet.breadth = morph.diet.breadth/bb.sp.abund)
+
+diet_breadth <- full_join(taxon_diet_breadth, morph_diet_breadth)
+
+ggplot(diet_breadth, aes(tax.diet.breadth, morph.diet.breadth, color = bb.sp)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+ggplot(diet_breadth, aes(morph.diet.breadth, tax.diet.breadth, color = bb.sp)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
+# 3. The lability of bias: How does the foraging bias of each species with respect to each morphotype vary through elevation and time?
+```{r}
+# Subset data to include only abundant BB spp and exclude rare morphotypes (9, 10)
+gam_data <- prop_visits_ktype %>%
+  filter(ktype %in% c("3", "5", "6", "7") & # focus on major ktypes
+           bb.sp %in% c("telu", "prat", "pasc", "hort", "soro", "wurf")) %>% # focus on abundance bb.sp
+  unite(pair, c(bb.sp, ktype), sep = "_", remove = FALSE) %>% # paste bb.sp and ktype into pair
+  mutate(pair = factor(pair),
+         bin.visits = if_else(visits > 0, 1, 0)) # binarize visitation
+
+# Independent smooth model
+gam_pvis_elev01 <- bam(bin.visits ~
+                         s(pair, bs = "re") + # center by pair
+                         bb.sp.abund*perc.flower.cover + # condition on a global bb/fl abundance term
+                         perc.flower.cover*pair + # condition on a pair-specific fl abundance
+                         #s(perc.flower.cover, by = pair, k = 3) +  term
+                         te(yday, elev.mean, by = pair, bs = c("gp", "tp"), k = 5), # conditional effects of yday/elev by pair
+                       family = "binomial", # binomial response
+                       method = "fREML",
+                       discrete = TRUE,
+                       select =  TRUE,
+                       data = filter(gam_data,
+                                     bb.sp %in% c("soro", "wurf", "hort",
+                                                  "telu", "pasc", "prat"))) %>%
+  getViz()
+
+#saveRDS(gam_pvis_elev01, "../output/gam_pvis_elev01.rds")
+#gam_pvis_elev01 <- readRDS("../output/gam_pvis_elev01.rds") %>% getViz()
+
+summary(gam_pvis_elev01)
+check.gamViz(gam_pvis_elev01)
+gam_pvis_elev01.plot <- plot(gam_pvis_elev01)
+gam_pvis_elev01.plot[[1]]gam_pvis_elev01
+str(gam_pvis_elev01)
+
+hort3 <- plot(sm(gam_pvis_elev01, 2))
+hort5 <- plot(sm(gam_pvis_elev01, 3))
+hort6 <- plot(sm(gam_pvis_elev01, 4))
+hort7 <- plot(sm(gam_pvis_elev01, 5))
+
+pasc3 <- plot(sm(gam_pvis_elev01, 6))
+pasc5 <- plot(sm(gam_pvis_elev01, 7))
+pasc6 <- plot(sm(gam_pvis_elev01, 8))
+pasc7 <- plot(sm(gam_pvis_elev01, 9))
+
+prat3 <- plot(sm(gam_pvis_elev01, 10))
+prat5 <- plot(sm(gam_pvis_elev01, 11))
+prat6 <- plot(sm(gam_pvis_elev01, 12))
+prat7 <- plot(sm(gam_pvis_elev01, 13))
+
+soro3 <- plot(sm(gam_pvis_elev01, 14))
+soro5 <- plot(sm(gam_pvis_elev01, 15))
+soro6 <- plot(sm(gam_pvis_elev01, 16))
+soro7 <- plot(sm(gam_pvis_elev01, 17))
+
+telu3 <- plot(sm(gam_pvis_elev01, 18))
+telu5 <- plot(sm(gam_pvis_elev01, 19))
+telu6 <- plot(sm(gam_pvis_elev01, 20))
+telu7 <- plot(sm(gam_pvis_elev01, 21))
+
+wurf3 <- plot(sm(gam_pvis_elev01, 22))
+wurf5 <- plot(sm(gam_pvis_elev01, 23))
+wurf6 <- plot(sm(gam_pvis_elev01, 24))
+wurf7 <- plot(sm(gam_pvis_elev01, 25))
+
+pterm1 <- plot(pterm(gam_pvis_elev01, 1))
+pterm2 <- plot(pterm(gam_pvis_elev01, 2))
+pterm3 <- plot(pterm(gam_pvis_elev01, 3))
+
+hort3
+pasc3
+prat3
+soro3
+telu3
+wurf3
+
+hort5
+pasc5
+prat5
+soro5
+telu5
+wurf5
+
+hort6
+pasc6
+prat6
+soro6
+telu6
+wurf6
+
+hort7
+pasc7
+prat7
+soro7
+telu7
+wurf7
+
+grid_plot <- gridPrint(hort3 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        hort5 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE), 
+                        hort6 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        hort7 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        pasc3 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        pasc5 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE), 
+                        pasc6 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        pasc7 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        prat3 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        prat5 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE), 
+                        prat6 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        prat7 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        soro3 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        soro5 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE), 
+                        soro6 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        soro7 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        telu3 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        telu5 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE), 
+                        telu6 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        telu7 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        wurf3 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        wurf5 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE), 
+                        wurf6 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        wurf7 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL) + guides(fill=FALSE),
+                        ncol = 4)
+
+ggsave(grid_plot, file = "../output/gam_plot1.pdf")
+
+color_ramp <- gridPrint(hort3 + l_fitRaster() + l_fitContour() + labs(title = NULL, x = NULL, y = NULL))
+ggsave(color_ramp, file = "../output/color_ramp.pdf")
+
+```
+
+

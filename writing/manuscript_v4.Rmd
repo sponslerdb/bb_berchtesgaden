@@ -1,5 +1,5 @@
 ---
-title: "Bumble bee foraging bias"
+title: "Bias and lability in the association between bumble bee visitation floral morphology along a montane-to-alpine elevation gradient"
 author:
 - Douglas B. Sponsler
 - Fabrice Requier
