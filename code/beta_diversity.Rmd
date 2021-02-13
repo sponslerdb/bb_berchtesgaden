@@ -1,0 +1,987 @@
+---
+title: "Beta Diversity through Time and Space"
+output: html_document
+---
+
+### Prepare environment
+```{r message=FALSE, warning=FALSE}
+library(sf)
+library(gdm)
+library(patchwork)
+library(bipartite)
+library(vegan)
+library(see)
+library(tidyverse)
+library(lubridate)
+```
+
+### Create functions for later
+```{r}
+# A function for converting a geometry column back to x and y columns
+# https://github.com/r-spatial/sf/issues/231
+sfc_as_cols <- function(x, names = c("x","y")) {
+  stopifnot(inherits(x,"sf") && inherits(sf::st_geometry(x),"sfc_POINT"))
+  ret <- sf::st_coordinates(x)
+  ret <- tibble::as_tibble(ret)
+  stopifnot(length(names) == ncol(ret))
+  x <- x[ , !names(x) %in% names]
+  ret <- setNames(ret,names)
+  dplyr::bind_cols(x,ret)
+}
+
+# Function to convert networks to webs arrays
+web_prep <- function(net) {
+  
+  out <- net %>%
+    filter(caste != "male") %>%
+    group_by(site, bb.sp, plant.sp) %>%
+    summarize(freq = n()) %>%
+    group_by(site) %>%
+    mutate(bb.sp.count = length(unique(bb.sp)),
+           plant.sp.count = length(unique(plant.sp))) %>%
+    ungroup() %>%
+    dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
+    data.frame() %>% # convert to data frame
+    frame2webs(type.out = "array")
+}
+
+# Function with betalinkr settings and conversion to tibble()
+betalinkr_set1 <- function(x) {
+  betalinkr_multi(x, partition.st = TRUE, partition.rr = TRUE, # partition both species turnover and richness/replacement
+                  binary = TRUE, # treating beta-diversity as binary is an appropriate complement to our abundance analysis
+                  index = "jaccard") %>% # the Jaccard index is best, I think, for binary analysis
+  as_tibble() # for convenience
+}
+
+# Binomial smooth function (thanks, Hadley): https://ggplot2.tidyverse.org/reference/geom_smooth.html
+binomial_smooth <- function(...) {
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), ...)
+}
+
+# Site_pair prep function
+# site_pair_prep_net <- function(dat, y) {
+#   dat %>%
+#     ungroup() %>%
+#     filter(year1 == year2 & 
+#              year1 == y & 
+#              site1 != site2) %>% # I don't think we want to compare samples through within sites, introduces a new form of non-independence.
+#     filter(metric == "WN") %>% # we'll focus for now on WN, but this could be done for partitions, too
+#     mutate(weights = rep(1, dim(.)[1])) %>% # right now this analysis is unweighted; could weight by abundance, etc, if we wanted to
+#     dplyr::select(distance = value, weights,
+#                   s1.xCoord = x1, s1.yCoord = y1, 
+#                   s2.xCoord = x2, s2.yCoord = y2, 
+#                   s1.elev.mean = elev1, s1.yday = yday1,
+#                   s2.elev.mean = elev2, s2.yday = yday2) %>%
+#     data.frame()
+# }
+
+interaction_gdm_prep <- function(x) {
+  
+  spdat <- net %>%
+    filter(caste != "male") %>%
+    dplyr::select(bb.sp, plant.sp.abb, site) %>% 
+    distinct() %>%# each unique bb-fl-site-date combo
+    mutate(present = rep(1, length(.[,1]))) %>% # we will treat abundance as binary
+    unite(interaction, c(bb.sp, plant.sp.abb), sep = "_") %>% # unite bb and fl into interaction "species", i.e. a unique bb-fl combo
+    pivot_wider(names_from = interaction, values_from = present) %>% # spread so that columns are interaction "species"
+    replace(is.na(.), 0) %>% # replace NAs with absences
+    as_tibble()
+
+  envdat <- net %>%
+    filter(caste != "male") %>%
+    group_by(site) %>%
+    summarize(samples = length(unique(date))) %>%
+    #dplyr::select(bb.sp, plant.sp.abb, site) %>% #
+    left_join(site_data) %>% # add site data
+    dplyr::select(site, elev.mean, x, y, samples) %>%
+    distinct() # return unique site-dates
+
+  # Prep site-pairs for GDM analysis
+  sitepair <- formatsitepair(spdat, 
+                             bioFormat = 1, # i.e. samples as rows, species as columns, site-dates as rows
+                             siteColumn = "site", 
+                             dist = "jaccard", # I think Jaccard is the right choice
+                             XColumn = "x", YColumn = "y", # spatial columns
+                             predData = envdat, 
+                             abundance = FALSE) %>% # abundance = FALSE means binary
+    filter(s1.elev.mean != s2.elev.mean) # this drops within-site comparisons
+}
+
+## wrapper for extracting splines and prepping tibble for plotting
+spline_prep <- function(x, y) {
+  isplineExtract(x) %>%
+    as.data.frame() %>%
+    tibble() %>%
+    mutate(x.Geographic = x.Geographic/1000) %>%
+    pivot_longer(cols = c(x.Geographic, x.elev.mean), 
+                 names_to = "x.var", values_to = "predictor", 
+                 names_prefix = "x.") %>%
+    pivot_longer(cols = c(y.Geographic, y.elev.mean), 
+                 names_to = "y.var", values_to = "response", 
+                 names_prefix = "y.") %>%
+    filter(x.var == y.var) %>%
+    mutate() %>%
+    dplyr::select(-y.var)
+}
+
+# Create functions for prepping data
+biodata_prep_survey <- function(surv) {
+  surv %>%
+    filter(flower.cover > 0) %>%
+    mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
+    group_by(site, plant.sp) %>%
+    summarize(cover = sum(flower.cover)) %>%
+    mutate(cover = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
+    spread(plant.sp, cover) %>%
+    replace(is.na(.), 0) %>%
+    arrange(site)
+}
+
+predData_prep_survey <- function(surv) {
+  surv %>%
+    filter(flower.cover > 0) %>%
+    group_by(site) %>%
+    summarize(samples = length(unique(date))) %>%
+    dplyr::select(site, samples) %>%
+    left_join(site_data) %>%
+    ungroup() %>%
+    dplyr::select(site, elev.mean, y, x, samples) %>%
+    unique() %>%
+    arrange(site) 
+}
+
+format_set <- function(bio, pred) {
+  formatsitepair(bio, bioFormat = 1, siteColumn = "site", 
+                 dist = "jaccard", XColumn = "x", YColumn = "y", 
+                 predData = pred, abundance = FALSE) %>%
+  filter(s1.elev.mean != s2.elev.mean) # this avoids comparing repeated measures of the same site (taking advantage of the fact that each site has a unique elevation in our dataset)
+} 
+
+biodata_prep_BB <- function(net) {
+  net %>%
+    filter(caste != "male") %>%
+    group_by(site, bb.sp) %>%
+    summarize(count = n()) %>%
+    mutate(count = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
+    spread(bb.sp, count) %>%
+    replace(is.na(.), 0) %>%
+    ungroup()
+}
+
+predData_prep_BB <- function(net) {
+  net %>%
+    filter(caste != "male") %>%
+    group_by(site) %>%
+    summarize(samples = length(unique(date))) %>%
+    dplyr::select(site, samples) %>%
+    left_join(site_data) %>%
+    ungroup() %>%
+    dplyr::select(site, elev.mean, y, x, samples) %>%
+    unique() %>%
+    arrange(site) 
+}
+```
+
+### Load site data
+```{r, include=FALSE, echo=FALSE}
+site_data <- read_csv("../data/processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
+  mutate(elev.class2 = factor(elev.class2, levels = c("low", "mid", "high")),
+         site = factor(site)) %>% # turn elav.class into an ordered factor and site into a regular factor
+  semi_join(read_csv("../data/processed_data/network.csv"), by = "site") %>% # drop sites that were not sampled
+  st_as_sf(coords = c("lon", "lat")) %>%
+  st_set_crs(4326) %>%
+  st_transform(5684) %>%
+  sfc_as_cols() %>%
+  as_tibble() %>%
+  dplyr::select(-geometry)
+```
+
+### Load network and survey data
+```{r}
+net <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste  != "male") %>%
+  unite(site.year.day, site, year, dayofyear, sep = "_", remove = FALSE) %>% # create site.date field that can be split up again later
+  mutate(year = factor(year)) # convert year to factor
+
+survey <- read_csv("../data/processed_data/floral_survey.csv") %>%
+  filter(flower.cover > 0) %>%
+  semi_join(net, by = "plant.sp") %>% # Consider only visited plant spp. (anytime, anywhere, not specifically for a given site*date)
+  dplyr::select(site, date, plant.sp, flower.cover) %>%
+  left_join(fl_traits)
+```
+
+### Get beta-diversity for BBs and plants (not their interactions)
+```{r}
+# Bumble bee beta-diversity based on interaction sampling
+bb_beta <- net %>%
+  group_by(site, bb.sp) %>%
+  summarize(count = n()) %>% 
+  pivot_wider(names_from = bb.sp, values_from = count) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("site") %>%
+  vegdist(method = "jaccard", binary = TRUE) %>% # Jaccard and binary settings make this comparable to the way I'm running betalinkr
+  as.matrix() %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "site1") %>%
+  pivot_longer(cols = -site1, names_to = "site2", values_to = "BB") 
+
+# Flora beta-diversity based on floral survey data (filtered to include only species visited by BBs)
+fl_beta <- survey %>%
+  group_by(site, plant.sp) %>%
+  summarize(count = sum(flower.cover)) %>%
+  pivot_wider(names_from = plant.sp, values_from = count) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("site") %>%
+  vegdist(method = "jaccard", binary = TRUE, upper = TRUE) %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "site1") %>%
+  pivot_longer(cols = -site1, names_to = "site2", values_to = "FL")
+
+# Join into single data frame for visualization
+species_beta <- full_join(bb_beta, fl_beta) %>%
+  left_join(site_data, by = c("site1" = "site")) %>% # add site data
+  dplyr::select(site1, site2, FL, BB, # first for site 1
+                elev1 = elev.mean, x1 = x, y1 = y) %>%
+  left_join(site_data, by = c("site2" = "site")) %>%
+  dplyr::select(site1, site2, FL, BB, # then for site 2
+                elev1, elev2 = elev.mean, x1, y1, x2 = x, y2 = y) %>%
+  mutate(site1 = factor(site1), 
+         site2 = factor(site2),
+         elev.diff = elev1 - elev2,
+         mean.elev = (elev1 + elev2)/2) %>%
+  pivot_longer(cols = c(BB, FL), names_to = "group", values_to = "beta") %>%
+  filter(elev.diff >= 0) # For each site pair, one will be higher and the other lower; thus, when their order is reversed only the sign of the difference changes. Since no two sites have exactly the same elevation, this deduplicates the data by dropping the ordering of a given pair of sites (one of the two orderings) that yields a negative elevation difference while retaining the alternative ordering that yields a positive elevation difference. By >= 0, I retain comparisons of a site to itself. I drop (in the ggplot call) within-site comparisons when I plot against elevation difference, and I isolate within-site comparison when I plot against time. In the latter case, it is also necessary to deduplicate, since each pair of site dates occurs in A-B and B-A. For that, I filter (again, in the ggplot call) so that yday.diff > 0, similarly dropping the orderings that yield negative differences. Note that all this deduplication nonsense is not necessary for the betalinkr call because it deduplicates internally.
+```
+
+### Tabulate webs
+S	= beta_S, the dissimilarity in species composition
+OS = beta_OS, the dissimilarity (component) explained by "rewiring" among shared species
+WN = beta_WN, the dissimilarity between the two networks
+ST = beta_ST, the dissimilarity (component) explained by difference in species community composition 
+```{r message=FALSE}
+# Create webs
+net_web <- web_prep(net)
+
+# Calculate beta-diversity
+beta_site <- betalinkr_set1(net_web) %>%
+  rename(site1 = i, site2 = j)
+
+# Add site data
+beta_mit_data <- beta_site %>%
+  left_join(site_data, by = c("site1" = "site")) %>%
+  dplyr::select(site1, site2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1 = elev.mean, x1 = x, y1 = y) %>%
+  left_join(site_data, by = c("site2" = "site")) %>%
+  dplyr::select(site1, site2, S, OS, WN, ST, 
+                ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
+                elev1, elev2 = elev.mean, x1, y1, x2 = x, y2 = y) %>%
+  mutate(elev.diff = abs(elev1 - elev2),
+         mean.elev = (elev1 + elev2)/2) %>%
+  gather(metric, value, -c(site1, site2, elev1, elev2, 
+                           elev.diff, mean.elev, 
+                           x1, y1, x2, y2)) %>%
+  mutate(metric.class = case_when(
+    metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
+    metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
+    metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
+    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"),
+    metric = factor(metric, levels = c("WN", "ST", "OS", "S", "ST.h", "ST.l", 
+                                       "ST.lh", "WN.repl", "WN.rich", 
+                                       "OS.repl", "OS.rich")))
+```
+
+### Plot interaction beta-diversity against elevation difference and time difference
+#### For elevation difference, we will "control" for time by only considering pairs separated by <= 5 days
+#### For time difference, we will control for elevation by only comparing within site.
+```{r}
+# Set palette
+# p <- c("OS" = "darkorange1", "ST" = "green3", 
+#        "ST.h" = "firebrick1", "ST.l" = "darkorchid", 
+#        "ST.lh" = "deepskyblue", "WN" = "black")
+# 
+# 
+# p <- c("OS" = "#66c2a5", "ST" = "#fc8d62", 
+#        "ST.h" = "#8da0cb", "ST.l" = "#e78ac3", 
+#        "ST.lh" = "#a6d854", "WN" = "black")
+
+p <- c("OS" = "#e7298a", "ST" = "#d95f02", 
+       "ST.h" = "#7570b3", "ST.l" = "#1b9e77", 
+       "ST.lh" = "#66a61e", "WN" = "black")
+
+
+# BB + FL elevation diff
+g1 <- ggplot(filter(species_beta, 
+                    site1 != site2), # only site-dates within 5 days
+             aes(elev.diff, beta, color = group)) +
+  geom_point(alpha = 0.25, pch = 16) +
+  #binomial_smooth(formula = y ~ splines::ns(x, 3)) +
+  geom_smooth(method = "lm", se = FALSE) +
+  #facet_wrap(~group, ncol = 1) +
+  xlab("Elevation difference (m)") +
+  ylab("β-diversity") +
+  theme_light()
+
+# BB * FL elevation diff
+g2 <- ggplot(filter(beta_mit_data, 
+                      site1 != site2 & # no within-site comparisons
+                      metric != "S" & # drop this metric
+                      !metric.class %in% c("OS.partition", "WN.partition")), 
+             aes(elev.diff, value, color = metric))  +
+  geom_point(alpha = 0.20, pch = 16) +
+  binomial_smooth(formula = y ~ splines::ns(x, 3), se = FALSE) +
+  scale_color_manual(values = p, name = "partition") +
+  xlab("Elevation difference (m)") +
+  ylab(NULL) +
+  theme_light()
+
+# Patchwork plot for comparing species beta-diversity with interaction beta-diversity
+png("../output/beta_stack.png", width = 6.5, height = 4.5, units = "in", res = 300)
+(g1 | g2) + 
+  plot_annotation(tag_levels = c("A", "B")) + 
+  #plot_layout(guides = "collect") & 
+  theme_light() 
+dev.off()
+```
+
+
+### GDM: Interactions
+```{r message=FALSE, warning=FALSE}
+# Prep sitepairs
+sitepair.WN <- interaction_gdm_prep(net)
+
+# Run GDM analysis
+gdm_WN <- gdm(sitepair.WN, geo = TRUE)
+summary(gdm_WN)
+
+# Plot
+plot(gdm_WN)
+
+# Plot with confidence intervals 
+pdf("../output/gdm_interactions.pdf", height = 2.5, width =  6.5)
+plotUncertainty(sitepair.WN, sampleSites = 0.7, bsIters = 100, geo  = TRUE, 
+                splineCol = "black", plot.layout = c(1,3))
+dev.off()
+```
+
+### GDM: Floral survey
+```{r}
+# Prep input for GDM
+survey_bioData <- biodata_prep_survey(survey)
+survey_predData <- predData_prep_survey(survey)
+survey_sitepair <- format_set(survey_bioData, survey_predData)
+
+# Call GDMs
+gdm_survey <- gdm(survey_sitepair, geo = TRUE)
+summary(gdm_survey)
+
+# Plot
+plot(gdm_survey)
+
+# Plot with confidence intervals (slow)
+pdf("../output/gdm_flora.pdf", height = 2.5, width =  6.5)
+plotUncertainty(survey_sitepair, sampleSites = 0.7, bsIters = 100, geo  = TRUE, 
+                splineCol = "#00BFC4", plot.layout = c(1,3))
+dev.off()
+```
+
+### GDM: BB observations
+```{r}
+# Prep input for GDM
+BB_bioData <- biodata_prep_BB(net)
+BB_predData <- predData_prep_BB(net)
+BB_sitepair <- format_set(BB_bioData, BB_predData)
+
+# Call GDMs
+gdm_BB <- gdm(BB_sitepair, geo = TRUE)
+summary(gdm_BB)
+
+# Plot
+plot(gdm_BB)
+
+# Plot with confidence intervals (slow)
+pdf("../output/gdm_BB.pdf", height = 2.5, width =  6.5)
+plotUncertainty(BB_sitepair, sampleSites = 0.7, bsIters = 100, geo  = TRUE, 
+                splineCol = "#F8766D", plot.layout = c(1,3))
+dev.off()
+```
+
+### Tabulate model output
+```{r}
+# assign("gdm_WN.2010.imp", get(load("~/Documents/Research/bb_berchtesgaden/analyses/output/interaction_permGDM_2010.RData")))
+# 
+# assign("gdm_WN.2011.imp", get(load("~/Documents/Research/bb_berchtesgaden/analyses/output/interaction_permGDM_2011.RData")))
+# 
+# assign("gdm_WN.2012.imp", get(load("~/Documents/Research/bb_berchtesgaden/analyses/output/interaction_permGDM_2012.RData")))
+
+####### WN
+gdm_WN.2010.tab1 <- gdm_WN.2010.imp[1] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  mutate(subject = "WN",
+         year = 2010) %>%
+  dplyr::select(subject, year, 
+         mod.dev = `Model deviance`, 
+         dev.exp = `Percent deviance explained`, 
+         mod.pval = `Model p-value`)
+
+gdm_WN.2010.tab2 <- gdm_WN.2010.imp[2] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  dplyr::select(geo.imp = Geographic, elev.imp = elev.mean, yday.imp = yday)
+
+gdm_WN.2010.tab3 <- gdm_WN.2010.imp[3] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble()  %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2)  %>%
+  dplyr::select(geo.pval = Geographic, elev.pval = elev.mean, yday.pval = yday)
+
+gdm_WN.2011.tab1 <- gdm_WN.2011.imp[1] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  mutate(subject = "WN",
+         year = 2011) %>%
+  dplyr::select(subject, year, 
+         mod.dev = `Model deviance`, 
+         dev.exp = `Percent deviance explained`, 
+         mod.pval = `Model p-value`)
+
+gdm_WN.2011.tab2 <- gdm_WN.2011.imp[2] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  dplyr::select(geo.imp = Geographic, elev.imp = elev.mean, yday.imp = yday)
+
+gdm_WN.2011.tab3 <- gdm_WN.2011.imp[3] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble()  %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2)  %>%
+  dplyr::select(geo.pval = Geographic, elev.pval = elev.mean, yday.pval = yday)
+
+gdm_WN.2012.tab1 <- gdm_WN.2012.imp[1] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  mutate(subject = "WN",
+         year = 2012) %>%
+  dplyr::select(subject, year, 
+         mod.dev = `Model deviance`, 
+         dev.exp = `Percent deviance explained`, 
+         mod.pval = `Model p-value`)
+
+gdm_WN.2012.tab2 <- gdm_WN.2012.imp[2] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  dplyr::select(geo.imp = Geographic, elev.imp = elev.mean, yday.imp = yday)
+
+gdm_WN.2012.tab3 <- gdm_WN.2012.imp[3] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble()  %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2)  %>%
+  dplyr::select(geo.pval = Geographic, elev.pval = elev.mean, yday.pval = yday)
+
+gdm_WN.2010.tab_join <- bind_cols(gdm_WN.2010.tab1,
+                                  gdm_WN.2010.tab2, 
+                                  gdm_WN.2010.tab3)
+
+gdm_WN.2011.tab_join <- bind_cols(gdm_WN.2011.tab1,
+                                  gdm_WN.2011.tab2, 
+                                  gdm_WN.2011.tab3)
+
+gdm_WN.2012.tab_join <- bind_cols(gdm_WN.2012.tab1,
+                                  gdm_WN.2012.tab2, 
+                                  gdm_WN.2012.tab3)
+
+####### survey
+gdm_survey.2010.tab1 <- gdm_survey.2010.imp[1] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  mutate(subject = "survey",
+         year = 2010) %>%
+  dplyr::select(subject, year, 
+         mod.dev = `Model deviance`, 
+         dev.exp = `Percent deviance explained`, 
+         mod.pval = `Model p-value`)
+
+gdm_survey.2010.tab2 <- gdm_survey.2010.imp[2] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  dplyr::select(geo.imp = Geographic, elev.imp = elev.mean, yday.imp = yday)
+
+gdm_survey.2010.tab3 <- gdm_survey.2010.imp[3] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble()  %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2)  %>%
+  dplyr::select(geo.pval = Geographic, elev.pval = elev.mean, yday.pval = yday)
+
+gdm_survey.2011.tab1 <- gdm_survey.2011.imp[1] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  mutate(subject = "survey",
+         year = 2011) %>%
+  dplyr::select(subject, year, 
+         mod.dev = `Model deviance`, 
+         dev.exp = `Percent deviance explained`, 
+         mod.pval = `Model p-value`)
+
+gdm_survey.2011.tab2 <- gdm_survey.2011.imp[2] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  dplyr::select(geo.imp = Geographic, elev.imp = elev.mean, yday.imp = yday)
+
+gdm_survey.2011.tab3 <- gdm_survey.2011.imp[3] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble()  %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2)  %>%
+  select(geo.pval = Geographic, elev.pval = elev.mean, yday.pval = yday)
+
+gdm_survey.2012.tab1 <- gdm_survey.2012.imp[1] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplylr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  mutate(subject = "survey",
+         year = 2012) %>%
+  dplyr::select(subject, year, 
+         mod.dev = `Model deviance`, 
+         dev.exp = `Percent deviance explained`, 
+         mod.pval = `Model p-value`)
+
+gdm_survey.2012.tab2 <- gdm_survey.2012.imp[2] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  dplyr::select(geo.imp = Geographic, elev.imp = elev.mean, yday.imp = yday)
+
+gdm_survey.2012.tab3 <- gdm_survey.2012.imp[3] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble()  %>%
+  dplytr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2)  %>%
+  dplyr::select(geo.pval = Geographic, elev.pval = elev.mean, yday.pval = yday)
+
+gdm_survey.2010.tab_join <- bind_cols(gdm_survey.2010.tab1,
+                                  gdm_survey.2010.tab2, 
+                                  gdm_survey.2010.tab3)
+
+gdm_survey.2011.tab_join <- bind_cols(gdm_survey.2011.tab1,
+                                  gdm_survey.2011.tab2, 
+                                  gdm_survey.2011.tab3)
+
+gdm_survey.2012.tab_join <- bind_cols(gdm_survey.2012.tab1,
+                                  gdm_survey.2012.tab2, 
+                                  gdm_survey.2012.tab3)
+
+######## BB
+gdm_BB.2010.tab1 <- gdm_BB.2010.imp[1] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  mutate(subject = "BB",
+         year = 2010) %>%
+  dplyr::select(subject, year, 
+         mod.dev = `Model deviance`, 
+         dev.exp = `Percent deviance explained`, 
+         mod.pval = `Model p-value`)
+
+gdm_BB.2010.tab2 <- gdm_BB.2010.imp[2] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  dplyr::select(geo.imp = Geographic, elev.imp = elev.mean, yday.imp = yday)
+
+gdm_BB.2010.tab3 <- gdm_BB.2010.imp[3] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble()  %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2)  %>%
+  dplyr::select(geo.pval = Geographic, elev.pval = elev.mean, yday.pval = yday)
+
+gdm_BB.2011.tab1 <- gdm_BB.2011.imp[1] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  mutate(subject = "BB",
+         year = 2011) %>%
+  dplyr::select(subject, year, 
+         mod.dev = `Model deviance`, 
+         dev.exp = `Percent deviance explained`, 
+         mod.pval = `Model p-value`)
+
+gdm_BB.2011.tab2 <- gdm_BB.2011.imp[2] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  dplyr::select(geo.imp = Geographic, elev.imp = elev.mean, yday.imp = yday)
+
+gdm_BB.2011.tab3 <- gdm_BB.2011.imp[3] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble()  %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2)  %>%
+  dplyr::select(geo.pval = Geographic, elev.pval = elev.mean, yday.pval = yday)
+
+gdm_BB.2012.tab1 <- gdm_BB.2012.imp[1] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  mutate(subject = "BB",
+         year = 2012) %>%
+  dplyr::select(subject, year, 
+         mod.dev = `Model deviance`, 
+         dev.exp = `Percent deviance explained`, 
+         mod.pval = `Model p-value`)
+
+gdm_BB.2012.tab2 <- gdm_BB.2012.imp[2] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble() %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2) %>%
+  dplyr::select(geo.imp = Geographic, elev.imp = elev.mean, yday.imp = yday)
+
+gdm_BB.2012.tab3 <- gdm_BB.2012.imp[3] %>% 
+  as.data.frame() %>%
+  rownames_to_column() %>%
+  as_tibble()  %>%
+  dplyr::select(1, 2) %>%
+  pivot_wider(names_from = rowname, values_from = 2)  %>%
+  dplyr::select(geo.pval = Geographic, elev.pval = elev.mean, yday.pval = yday)
+
+gdm_BB.2010.tab_join <- bind_cols(gdm_BB.2010.tab1,
+                                  gdm_BB.2010.tab2, 
+                                  gdm_BB.2010.tab3)
+
+gdm_BB.2011.tab_join <- bind_cols(gdm_BB.2011.tab1,
+                                  gdm_BB.2011.tab2, 
+                                  gdm_BB.2011.tab3)
+
+gdm_BB.2012.tab_join <- bind_cols(gdm_BB.2012.tab1,
+                                  gdm_BB.2012.tab2, 
+                                  gdm_BB.2012.tab3)
+
+#######################
+
+gdm_BB.tab_join <- bind_rows(gdm_BB.2010.tab_join,
+                             gdm_BB.2011.tab_join,
+                             gdm_BB.2012.tab_join,
+                             gdm_survey.2010.tab_join,
+                             gdm_survey.2011.tab_join,
+                             gdm_survey.2012.tab_join,
+                             gdm_WN.2010.tab_join,
+                             gdm_WN.2011.tab_join,
+                             gdm_WN.2012.tab_join) %>%
+  dplyr::select(-subject) 
+
+gdm_tab <- gdm_BB.tab_join %>%
+  gt(rowname_col = "year") %>%
+  tab_spanner(
+    label = "Model",
+    columns = vars(mod.dev, dev.exp, mod.pval)
+  ) %>%
+  tab_spanner(
+    label = "Geographic distance",
+    columns = vars(geo.imp, geo.pval)
+  ) %>%
+  tab_spanner(
+    label = "Elevational distance",
+    columns = vars(elev.imp, elev.pval)
+  ) %>%
+  tab_spanner(
+    label = "Temporal distance",
+    columns = vars(yday.imp, yday.pval)
+  ) %>%
+  tab_row_group(
+    group = "Bumble bees",
+    rows = 1:3
+  ) %>% 
+  tab_row_group(
+    group = "Flora",
+    rows = 4:6
+  ) %>%
+  tab_row_group(
+    group = "Interactions",
+    rows = 7:9
+  ) %>%
+  fmt_number(
+    columns = c("mod.dev", "dev.exp",
+                "geo.imp", "elev.imp", "yday.imp"),
+    decimals = 1
+  ) %>%
+  fmt_number(
+    columns = c("mod.pval", "geo.pval", 
+                "elev.pval", "yday.pval"),
+    decimals = 3
+  ) %>%
+  cols_label(mod.dev = "tot. dev.",
+             dev.exp = "dev. expl. (%)",
+             mod.pval = "p",
+             geo.imp = "imp.",
+             elev.imp = "imp.",
+             yday.imp = "imp.",
+             geo.pval = "p-val",
+             elev.pval = "p-val",
+             yday.pval = "p-val")
+
+
+
+gdm_tab.nopval <- gdm_BB.tab_join %>%
+  dplyr::select(-c(geo.pval, elev.pval, yday.pval, mod.pval)) %>%
+  gt(rowname_col = "year") %>%
+  tab_spanner(
+    label = "Model",
+    columns = vars(mod.dev, dev.exp)
+  ) %>%
+  tab_spanner(
+    label = "Variable importance (%)",
+    columns = vars(geo.imp, elev.imp, yday.imp)
+  ) %>%
+  tab_row_group(
+    group = "Bumble bees",
+    rows = 1:3
+  ) %>% 
+  tab_row_group(
+    group = "Flora",
+    rows = 4:6
+  ) %>%
+  tab_row_group(
+    group = "Interactions",
+    rows = 7:9
+  ) %>%
+  fmt_number(
+    columns = c("mod.dev", "dev.exp",
+                "geo.imp", "elev.imp", "yday.imp"),
+    decimals = 1
+  ) %>%
+  cols_label(mod.dev = "tot. dev.",
+             dev.exp = "dev. expl. (%)",
+             geo.imp = "geo. dist.",
+             elev.imp = "elev. dist.",
+             yday.imp = "temp. dist.") %>%
+  data_color(
+    columns = vars(geo.imp, elev.imp, yday.imp),
+    colors = scales::col_numeric(
+      palette = c("white", "red"), 
+      domain = c(-5, 100))
+    ) %>%
+  data_color(
+    columns = vars(dev.exp),
+    colors = scales::col_numeric(
+      palette = c("white", "red"), 
+      domain = c(-5, 100))
+  ) 
+
+gtsave(gdm_tab.nopval, "gdm_tab.png","./output/gdm_tab.png")
+  
+
+```
+
+### GDM all together now
+```{r}
+splines <- bind_rows(interaction_splines, bb_splines, survey_splines) %>%
+  mutate(subject = factor(subject))
+
+# ggplot(splines, aes(predictor, response, color = subject)) +
+#   geom_line() +
+#   facet_grid(year ~ x.var, scales = "free_x") +
+#   xlab(NULL) +
+#   ylab("f(x)") +
+#   theme_light(12)
+# ggsave("./output/GDM.png", width = 6.5, height = 5, units = "in")
+
+splot1 <- ggplot(filter(splines, x.var == "Geographic dist."), 
+                 aes(predictor, response, color = subject)) +
+  geom_line() +
+  #facet_wrap(~year, ncol = 1, scales = "free_x") +
+  facet_grid(year ~ x.var, scales = "free_x") +
+  xlab("km") +
+  ylab("f(x)") +
+  ylim(c(0, 7)) +
+  theme_light(12) +
+  theme(legend.position = "none")
+
+splot2 <- ggplot(filter(splines, x.var == "Elevation"), 
+       aes(predictor, response, color = subject)) +
+  geom_line() +
+  #facet_wrap(~year, ncol = 1, scales = "free_x") +
+  facet_grid(year ~ x.var, scales = "free_x") +
+  xlab("m") +
+  ylab(NULL) +
+  ylim(c(0, 7)) +
+  theme_light(12) +
+  theme(legend.position = "none")
+
+splot3 <- ggplot(filter(splines, x.var == "Time"), 
+       aes(as_date(predictor), response, color = subject)) +
+  geom_line() +
+  #facet_wrap(~year, ncol = 1, scales = "free_x") +
+  facet_grid(year ~ x.var, scales = "free_x") +
+  xlab("date") +
+  ylab(NULL) +
+  ylim(c(0, 7)) +
+  theme_light(12) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) 
+
+png("./output/GDM_splines.png", width = 8, height = 5, units = "in", res = 300)
+splot1 | splot2 | splot3
+dev.off()
+```
+
+# If I could get this to work, it would be cool to transform and plot my GDMs. But the script crashes every time. 
+```{r}
+
+# Function to build data set for gdm.transform()
+transform_data <- function(dat) {
+  
+  ## yday min/max
+  min_yday <- min(dat$s1.yday)
+  max_yday <- max(dat$s1.yday)
+  
+  ## elev min/max
+  min_elev <- min(dat$s1.elev.mean)
+  max_elev <- max(dat$s1.elev.mean)
+  
+  ## lat/lon min/max
+  min_x1 <- min(dat$s1.xCoord)
+  max_x1 <- max(dat$s1.xCoord)
+  
+  min_y1 <- min(dat$s1.yCoord)
+  max_y1 <- max(dat$s1.yCoord)
+  
+  min_x2 <- min(dat$s2.xCoord)
+  max_x2 <- max(dat$s2.xCoord)
+
+  min_y2 <- max(dat$s2.yCoord)
+  max_y2 <- max(dat$s2.yCoord)
+  
+  # sequence of 10 points along the yday and elev ranges, respectively
+  s1.xCoord <- seq(min_x1, max_x1, length.out = 10)
+  s1.yCoord <- seq(min_y1, max_y1, length.out = 10)
+  s2.xCoord <- seq(min_x2, max_x2, length.out = 10)
+  s2.yCoord <- seq(min_y2, max_y2, length.out = 10)
+  s1.elev.mean <- seq(min_elev, max_elev, length.out = 10)
+  s1.yday <- seq(min_yday, max_yday, length.out = 10)
+  s2.elev.mean <- seq(min_elev, max_elev, length.out = 10)
+  s2.yday <- seq(min_yday, max_yday, length.out = 10)
+
+  newdata <- tibble(s1.xCoord, s1.yCoord, s2.xCoord, s2.yCoord, 
+                    s1.elev.mean, s1.yday, s2.elev.mean, s2.yday) %>% # combine seqs into data frame
+    complete(s1.xCoord, s1.yCoord, s2.xCoord, s2.yCoord, 
+             s1.elev.mean, s1.yday, s2.elev.mean, s2.yday) %>% # get all possible values
+    mutate(distance = rep(1, n()),
+           weights = rep(1, n())) %>%
+    as.data.frame() 
+  
+  # coordinates(newdata) <- ~ X + Y
+  # # coerce to SpatialPixelsDataFrame
+  # gridded(newdata) <- TRUE
+  # # coerce to raster
+  # out <- raster(newdata)
+}
+
+transdata_gdm_WN.2010 <- transform_data(sitepair_2010.WN)
+
+gdm_WN.2010.trans <- gdm.transform(gdm_WN.2010, transdata_gdm_WN.2010)
+gdm_WN.2010.pred <- predict(gdm_WN.2010, gdm_WN.2010.trans)
+
+
+```
+
+## GDM with BBGDM
+```{r}
+library(bbgdm)
+
+spdat2010 <- net %>%
+  filter(year == 2010) %>%
+  select(bb.sp, plant.sp.abb, site, date) %>%
+  distinct() %>%
+  mutate(present = rep(1, length(.[,1]))) %>%
+  unite(interaction, c(bb.sp, plant.sp.abb), sep = "_") %>%
+  unite(site.date, c("site", "date"), sep = "_") %>%
+  pivot_wider(names_from = interaction, values_from = present) %>%
+  replace(is.na(.), 0) %>%
+  column_to_rownames("site.date") %>%
+  as.matrix()
+
+envdat2010 <- net %>%
+  filter(year == 2010) %>%
+  select(bb.sp, plant.sp.abb, site, date) %>%
+  mutate(yday = yday(date)) %>%
+  left_join(site_data) %>%
+  unite(site.date, c("site", "date"), sep = "_") %>%
+  select(site.date, elev.mean, yday, x, y) %>%
+  distinct() %>%
+  column_to_rownames("site.date") %>%
+  as.matrix()
+
+form <- ~ 1 + elev.mean + yday
+
+bbgdm2010 <- bbgdm(form, sp.dat = spdat2010, env.dat = envdat2010,
+                   family = "binomial", link = "logit", dism_metric = "bray_curtis",
+                   nboot = 10, spline_type = "ispline", spline_df = 5, 
+                   spline_knots = 3, geo = FALSE, 
+                   #geo.type = "euclidean", coord.names = c("x", "y"), 
+                   optim.meth = "nlmnib", 
+                   est.var = FALSE, trace = FALSE, prior = FALSE)
+
+plot(as.response(bbgdm2010))
+bbgdm.wald.test(bbgdm2010)
+plot(diagnostics(bbgdm2010))
+```
+

@@ -1,0 +1,628 @@
+---
+title: "Abundance/diversity GAM"
+output: html_document
+---
+
+### Prepare environment
+```{r setup, include=FALSE, echo=FALSE}
+library(mgcv)
+library(mgcViz)
+library(tidyverse)
+library(lubridate)
+```
+
+### Load site and trait data
+```{r, include=FALSE, echo=FALSE}
+site_data <- read_csv("../data/processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
+  mutate(elev.class2 = factor(elev.class2, levels = c("low", "mid", "high")),
+         site = factor(site)) # turn elav.class into an ordered factor and site into a regular factor
+
+# BB traits
+bb_traits <- read_csv("../data/processed_data/bb_traits.csv") 
+
+# FL traits
+## family-level taxonomy
+fl_tax <- read_csv("../data/processed_data/floral_tax.csv") 
+
+## Kugler morphotypes (accessed through Bioflor)
+fl_ktype <- read_csv("../data/processed_data/floral_k_type.csv") 
+
+## Flower colors (accessed through BioFlor)
+fl_color <- read_csv("../data/processed_data/floral_color.csv")
+
+## diameter and corolla depth data from Gita Benadi
+fl_morph <- read_csv("../data/processed_data/flower_morphology_GitaBenadi.csv") %>% 
+  dplyr::select(SampleID, plant.family = Family, plant.sp = Species, 
+                Unit, Flowers_per_unit, diam = Diameter, LN) %>%
+  group_by(plant.sp) %>%
+  summarize(diam = mean(diam), LN = mean(LN))
+
+## verbal description of Kugler morphotypes
+fl_ktype_key <- read_delim("../data/processed_data/kugler_key.tsv", delim = "\t", col_names = FALSE) %>%
+  dplyr::select(k.type = 1, description = 2)
+
+## join all floral trait tables
+fl_traits <- fl_tax %>%
+  full_join(fl_ktype) %>%
+  full_join(fl_color) %>%
+  full_join(fl_morph) %>%
+  dplyr::select(plant.sp, plant.genus, plant.family, k.type, k.type.s, k.type.ss, color, diam, LN)
+```
+
+### Load network and survey data
+```{r message=FALSE}
+### BB-FL visitation data
+net <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>%
+  dplyr::select(site, date, bb.sp, plant.sp) # drop unused columns
+
+### Floral survey data
+survey <- read_csv("../data/processed_data/floral_survey.csv") %>%
+  semi_join(net, by = "plant.sp") %>% # Consider only visited plant species (anytime anywhere, not specifically for a given site*date)
+  dplyr::select(site, date, plant.sp, flower.cover) %>%
+  group_by(plant.sp) %>%
+  mutate(present = case_when(
+    max(flower.cover) > 0 ~ TRUE,
+    max(flower.cover) == 0 ~ FALSE
+  )) %>%
+  filter(present == TRUE) # Ignore plants that never had any flower cover
+
+vis_sp <- net %>%
+  left_join(fl_tax) %>%
+  select(plant.sp, plant.genus, plant.family) %>%
+  unique()
+
+surv_sp <- survey %>%
+  left_join(fl_tax) %>%
+  select(plant.sp, plant.genus, plant.family) %>%
+  unique()
+
+
+missing <- anti_join(vis_sp, surv_sp)
+```
+
+### FL and BB abundance / diversity
+```{r echo=FALSE, include=TRUE, message=FALSE}
+# Per-transect BB abundance
+## full dataset
+bb_abund_sp <- net %>%
+  dplyr::select(site, date, bb.sp) %>%
+  group_by(site, date, bb.sp) %>% # 
+  summarize(bb.abund = n()) %>% # get per transect bb abundance
+  ungroup() %>%
+  complete(site, date, bb.sp, fill = list(bb.abund = 0)) %>% # complete implicit absences
+  semi_join(net, by = c("site", "date")) %>% # drop site-dates that did not exist in the data set
+  left_join(site_data) %>% # add site data
+  mutate(year = factor(year(date)),
+         yday = yday(date),
+         bb.sp = factor(bb.sp),
+         management = factor(management),
+         site = factor(site),
+         transect = factor(transect)) %>%
+  group_by(year, bb.sp) %>%
+  mutate(bb.annual.abund = sum(bb.abund),
+         abund.class = case_when(
+           bb.sp %in% c("telu", "pasc", "prat", "soro", "wurf") ~ "dominant",
+           bb.sp %in% c("jone", "psit", "hort") ~ "common",
+           bb.sp %in% c("pyre", "mend", "mont", "hypn", "lapi") ~ "high elev.",
+           bb.sp %in% c("gers", "humi", "muci") ~ "minor"
+         ),
+         abund.class = factor(abund.class, levels = c("dominant", "common", "high elev.", "minor")),
+         bb.sp.ord = factor(bb.sp, levels = c("telu", "pasc", "prat", "soro", "wurf", 
+                                              "hort", "jone", "psit",
+                                              "pyre", "mend", "mont",
+                                              "gers", "humi", "muci", "hypn", "lapi"))) %>%
+  left_join(bb_traits) %>%
+  mutate(tongue = factor(pbl.w.class2))
+
+# ## filtered to include only samples with corresponding floral survey data
+# bb_abund_sp.sub <- bb_abund_sp %>%
+#   ungroup() %>%
+#   semi_join(shared_transects) %>%
+#   select(site, date, yday, bb.sp, bb.abund, bb.annual.abund, elev.mean)
+
+### Per-transect floral abund by species
+fl_abund_sp <- survey %>%
+  group_by(site, date, plant.sp) %>% # group by plant.sp*transect
+  summarize(fl.abund = sum(flower.cover)) %>% # get plant.sp*transect total flower cover; this step really shouldn't be required, but in a few cases, there is more than one abundance entry for the same species on a given transect; not sure how that happened, but it's in the original data that Fabrice sent me; alternatively, I could drop the dups or average them. We'll see what Kalli and Fabrice have to say.
+  group_by(site, date) %>%
+  mutate(prop.fl.abund = fl.abund/sum(fl.abund)) %>% # get the proportional flower cover for each species.
+  ungroup() %>%
+  #full_join(dplyr::select(net, site, date, plant.sp), by = c("site", "date", "plant.sp")) %>% # add the handful of species occurring in the visitation network but missing from the survey data
+  complete(site, date, plant.sp, fill = list(fl.abund = 0, prop.fl.abund = 0)) %>%
+  semi_join(survey, by = c("site", "date")) %>%  # only include site-dates that actually occurred
+  unique() %>%
+  mutate(year = factor(year(date))) %>%
+  left_join(fl_traits)
+
+### Visualize raw abundance/occurrence
+ggplot(filter(bb_abund_sp, bb.abund > 0), aes(yday, elev.mean, color = abund.class)) +
+  geom_point(aes(alpha = bb.abund)) +
+  #geom_point() +
+  #facet_grid(year~ bb.sp) 
+  facet_wrap(~bb.sp.ord)
+
+ggplot(bb_abund_sp, aes(bb.sp, log(bb.abund + 1))) +
+  geom_boxplot()
+
+ggplot(bb_abund_sp, aes(log(bb.abund + 1))) +
+  geom_histogram() +
+  facet_wrap(~bb.sp)
+```
+
+### Binary "preference" for each plant genus by each bumble bee species; score species 0 or 1 based on whether they were visited
+```{r message=FALSE}
+weights <- fl_abund_sp %>%
+  select(plant.sp, plant.genus) %>%
+  unique() %>%
+  left_join(select(net, bb.sp, plant.sp)) %>%
+  select(plant.genus, bb.sp) %>%
+  distinct() %>%
+  mutate(visited = rep(1, n())) %>%
+  pivot_wider(values_from = visited, names_from = bb.sp, values_fill = 0) %>%
+  pivot_longer(cols = 2:17, values_to = "visited", names_to = "bb.sp")
+  
+weighted_fl_abund <- fl_abund_sp %>%
+  group_by(site, date, plant.genus) %>%
+  summarize(flower.cover = sum(fl.abund)) %>%
+  left_join(weights) %>%
+  mutate(weighted.flower.cover = flower.cover*visited) %>%
+  group_by(site, date, bb.sp) %>%
+  summarize(total.weighted.flower.cover = sum(weighted.flower.cover)) %>%
+  left_join(site_data) %>%
+  select(site, date, elev.mean, bb.sp, total.weighted.flower.cover) %>%
+  mutate(yday = yday(date),
+         bb.sp = factor(bb.sp),
+         site = factor(site),
+         year = factor(year(date)))
+
+ggplot(weighted_fl_abund, aes(total.weighted.flower.cover)) +
+  geom_histogram() +
+  facet_wrap(~bb.sp)
+
+ggplot(weighted_fl_abund, aes(bb.sp, total.weighted.flower.cover)) +
+  geom_boxplot()
+
+ggplot(weighted_fl_abund, aes(bb.sp, log(total.weighted.flower.cover))) +
+  geom_boxplot()
+```
+
+### Call GAMs
+#### Floral abundance
+```{r message=FALSE, warning=FALSE}
+# First, let's model overall floral abundance without parsing it out by which species were visited by which bumble bee species
+fl_abund_pool <- fl_abund_sp %>%
+  group_by(site, date, year) %>%
+  summarize(fl.abund = sum(fl.abund)) %>%
+  mutate(site = factor(site),
+         yday = yday(date)) %>%
+  left_join(site_data)
+
+ggplot(fl_abund_pool, aes(fl.abund)) +
+  geom_histogram()
+  
+fl_abund.qp <- bam(fl.abund ~ 
+                      s(site, bs = "re") +
+                      s(year, bs = "re") +
+                      te(yday, elev.mean,
+                         bs = c("gp", "tp"),
+                         k = c(8, 8)),
+                    data = fl_abund_pool,
+                    family = "quasipoisson",
+                    discrete = TRUE,
+                    select = TRUE,
+                    method = "fREML") %>% getViz()
+
+check.gamViz(fl_abund.qp)
+summary(fl_abund.qp)
+plot(fl_abund.qp)
+
+
+# Now, by bumble bee species
+weighted_fl_abund.qp <- bam(total.weighted.flower.cover ~ 
+                              s(bb.sp, bs = "re") +
+                              s(site, bs = "re") +
+                              s(year, bs = "re") +
+                              te(yday, elev.mean,
+                                 by = bb.sp,
+                                 bs = c("gp", "tp"),
+                                 k = c(5, 5)),
+                            data = filter(weighted_fl_abund, bb.sp != "humi"),
+                            family = "quasipoisson",
+                            discrete = TRUE,
+                            select = TRUE,
+                            method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abund.qp)
+sum_fl.qp <- summary(weighted_fl_abund.qp)
+print(plot(weighted_fl_abund.qp, allTerms = TRUE), pages = 4)
+check2D(weighted_fl_abund.qp, x1 = "yday", x2 = "elev.mean")
+
+gers_fl_abund <- plot(sm(weighted_fl_abund.qp, 4))
+hort_fl_abund <- plot(sm(weighted_fl_abund.qp, 5))
+hypn_fl_abund <- plot(sm(weighted_fl_abund.qp, 6))
+jone_fl_abund <- plot(sm(weighted_fl_abund.qp, 7))
+lapi_fl_abund <- plot(sm(weighted_fl_abund.qp, 8))
+mend_fl_abund <- plot(sm(weighted_fl_abund.qp, 9))
+mont_fl_abund <- plot(sm(weighted_fl_abund.qp, 10))
+muci_fl_abund <- plot(sm(weighted_fl_abund.qp, 11))
+pasc_fl_abund <- plot(sm(weighted_fl_abund.qp, 12))
+prat_fl_abund <- plot(sm(weighted_fl_abund.qp, 13))
+psit_fl_abund <- plot(sm(weighted_fl_abund.qp, 14))
+pyre_fl_abund <- plot(sm(weighted_fl_abund.qp, 15))
+soro_fl_abund <- plot(sm(weighted_fl_abund.qp, 16))
+telu_fl_abund <- plot(sm(weighted_fl_abund.qp, 17))
+wurf_fl_abund <- plot(sm(weighted_fl_abund.qp, 18))
+
+pdf("../output/gam_FL.pdf")
+grid_plot_fl_abun <- gridPrint(gers_fl_abund + 
+                                  l_fitRaster() + 
+                                  l_fitContour() + 
+                                  labs(title = "gers", x = NULL, y = NULL) +
+                                  guides(fill=FALSE),
+                               hort_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "hort", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               hypn_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "hypn", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               jone_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "jone", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               lapi_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "lapi", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               mend_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "mend", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               mont_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "mont", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               muci_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "muci", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               pasc_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "pasc", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               prat_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "prat", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               psit_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "psit", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               pyre_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "pyre", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               soro_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "soro", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               telu_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "telu", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               wurf_fl_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "wurf", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               ncol = 4)
+dev.off()
+```
+
+#### Bumbles
+```{r message=FALSE}
+# Zero-inflation may be an issue; a simple Poisson model is badly overdispersed
+ggplot(bb_abund_sp, aes(bb.abund)) +
+  geom_histogram() +
+  facet_wrap(~bb.sp)
+
+# Quasipoisson (winner)
+bb_abund.qp <- bam(bb.abund ~ 
+                     s(bb.sp.ord, bs = "re") + # center species
+                     s(year, bs = "re") + # random intercept for year
+                     s(site, bs = "re") + # random intercept to avoid pseudoreplicating elevation
+                     te(yday, elev.mean, # tensor product smooth of elevation and time
+                        by = bb.sp.ord, # by bb.sp
+                        bs= c("gp", "tp"), # gaussian procees for time, thinplate spline for elevation
+                        k=c(5, 5), 
+                        m=2),
+                   data = filter(bb_abund_sp, bb.sp != "humi"), # humi is just too rare
+                   discrete = TRUE,
+                   family = "quasipoisson",
+                   select = TRUE,
+                   method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(bb_abund.qp)
+sum.qp <- summary(bb_abund.qp)
+print(plot(bb_abund.qp, allTerms = TRUE), pages = 4)
+check2D(bb_abund.qp, x1 = "yday", x2 = "elev.mean")
+
+telu_abund <- plot(sm(bb_abund.qp, 4))
+pasc_abund <- plot(sm(bb_abund.qp, 5))
+prat_abund <- plot(sm(bb_abund.qp, 6))
+soro_abund <- plot(sm(bb_abund.qp, 7))
+wurf_abund <- plot(sm(bb_abund.qp, 8))
+hort_abund <- plot(sm(bb_abund.qp, 9))
+jone_abund <- plot(sm(bb_abund.qp, 10))
+psit_abund <- plot(sm(bb_abund.qp, 11))
+pyre_abund <- plot(sm(bb_abund.qp, 12))
+mend_abund <- plot(sm(bb_abund.qp, 13))
+mont_abund <- plot(sm(bb_abund.qp, 14))
+gers_abund <- plot(sm(bb_abund.qp, 15))
+muci_abund <- plot(sm(bb_abund.qp, 16))
+hypn_abund <- plot(sm(bb_abund.qp, 17))
+lapi_abund <- plot(sm(bb_abund.qp, 18))
+
+pdf("../output/gam_BB.pdf")
+grid_plot_fl_abun <- gridPrint(gers_abund + 
+                                  l_fitRaster() + 
+                                  l_fitContour() + 
+                                  labs(title = "gers", x = NULL, y = NULL) +
+                                  guides(fill=FALSE),
+                               hort_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "hort", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               hypn_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "hypn", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               jone_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "jone", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               lapi_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "lapi", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               mend_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "mend", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               mont_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "mont", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               muci_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "muci", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               pasc_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "pasc", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               prat_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "prat", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               psit_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "psit", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               pyre_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "pyre", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               soro_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "soro", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               telu_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "telu", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               wurf_abund + 
+                                 l_fitRaster() + 
+                                 l_fitContour() + 
+                                 labs(title = "wurf", x = NULL, y = NULL) +
+                                 guides(fill=FALSE),
+                               ncol = 4)
+dev.off()
+```
+
+#### Functional bumbles
+```{r}
+bb_abund_sp_tongues <- bb_abund_sp %>%
+  group_by(site, date, year, pbl.w.class2, elev.mean, yday) %>%
+  summarize(bb.abund = sum(bb.abund)) %>%
+  mutate(tongue = factor(pbl.w.class2)) %>%
+  dplyr::select(-pbl.w.class2)
+
+bb_abund_tongue.qp <- bam(bb.abund ~ 
+                             s(bb.sp.ord, bs = "re") + # center species
+                             s(tongue, bs = "re") + # center species
+                             s(year, bs = "re") + # random intercept for year
+                             s(site, bs = "re") + # random intercept to avoid pseudoreplicating elevation
+                             te(yday, elev.mean, # tensor product smooth of elevation and time
+                                by = tongue, # by bb.sp
+                                bs= c("gp", "tp"), # gaussian procees for time, thinplate spline for elevation
+                                k=c(8, 8), 
+                                m=2),
+                           data = bb_abund_sp, # humi is just too rare
+                           discrete = TRUE,
+                           family = "quasipoisson",
+                           select = TRUE,
+                           method = "fREML") %>% getViz()
+
+check.gamViz(bb_abund_tongue.qp)
+sum.tongue_qp <- summary(bb_abund_tongue.qp)
+print(plot(bb_abund_tongue.qp, allTerms = TRUE), pages = 1)
+plot(bb_abund_tongue.qp)
+```
+
+#### Occurrence clustering
+```{r}
+library(vegan)
+library(ggvegan)
+library(ggrepel)
+
+# Unpooled data
+bb_rel_abund <- bb_abund_sp %>%
+  filter(bb.sp != "humi") %>%
+  ungroup() %>%
+  group_by(site, date, bb.sp) %>%
+  summarize(bb.abund = sum(bb.abund)) %>%
+  unite(id, c(site, date)) %>%
+  pivot_wider(names_from = id, values_from = bb.abund) %>%
+  column_to_rownames("bb.sp") %>%
+  decostand(method = "hellinger")
+
+dist <- vegdist(bb_rel_abund, method = "horn")
+clust <- hclust(dist, method = "ward.D2")
+
+pdf("../output/clust.pdf", height = 4.5, width = 9)
+plot(clust)
+dev.off()
+
+pcoa <- capscale(bb_rel_abund ~ 1, method = "horn")
+plot(pcoa, type = "t")
+
+pcoa_mds1 <- round(pcoa$CA$eig[[1]] / sum(pcoa$CA$eig)*100)
+pcoa_mds2 <- round(pcoa$CA$eig[[2]] / sum(pcoa$CA$eig)*100)
+
+pcoa.fort <- fortify(pcoa)
+
+ggplot(filter(pcoa.fort, Score == "sites"), aes(MDS1, MDS2)) +
+  geom_point() +
+  geom_text_repel(aes(label = Label), size = 6) +
+  xlab(paste("MDS1 ", "(", pcoa_mds1, "%", ")", sep = "")) +
+  ylab(paste("MDS2 ", "(", pcoa_mds2, "%", ")", sep = "")) +
+  coord_fixed() +
+  theme_gray(16)
+
+ggsave("../output/pcoa_abund.pdf")
+
+# Pooled data
+bb_rel_abund2 <- bb_abund_sp %>%
+  filter(bb.sp != "humi") %>%
+  ungroup() %>%
+  group_by(site, date, bb.sp) %>%
+  summarize(bb.abund = sum(bb.abund)) %>%
+  group_by(site, bb.sp) %>%
+  summarize(bb.abund = mean(bb.abund)) %>%
+  pivot_wider(names_from = site, values_from = bb.abund) %>%
+  column_to_rownames("bb.sp") %>%
+  decostand(method = "hellinger")
+
+dist2 <- vegdist(bb_rel_abund2, method = "horn")
+clust2 <- hclust(dist2, method = "ward.D2")
+
+pdf("../output/clust2.pdf", height = 4.5, width = 9)
+plot(clust2)
+dev.off()
+
+pcoa2 <- capscale(bb_rel_abund2 ~ 1, method = "horn")
+plot(pcoa2, type = "t")
+
+pcoa2_mds1 <- round(pcoa2$CA$eig[[1]] / sum(pcoa2$CA$eig)*100)
+pcoa2_mds2 <- round(pcoa2$CA$eig[[2]] / sum(pcoa2$CA$eig)*100)
+
+pcoa2.fort <- fortify(pcoa2)
+
+ggplot(filter(pcoa2.fort, Score == "sites"), aes(MDS1, MDS2)) +
+  geom_point() +
+  geom_text_repel(aes(label = Label), size = 6) +
+  xlab(paste("MDS1 ", "(", pcoa2_mds1, "%", ")", sep = "")) +
+  ylab(paste("MDS2 ", "(", pcoa2_mds2, "%", ")", sep = "")) +
+  coord_fixed() +
+  theme_gray(16)
+
+ggsave("../output/pcoa2_abund2.pdf")
+```
+
+### BB range and abundance
+```{r}
+species_names <- cbind(c("telu", "pasc", "prat", 
+                         "soro", "wurf", "hort", 
+                         "pyre", "mend", "mont", 
+                         "gers", "hypn","jone", 
+                         "lapi", "muci", "psit"),
+                       c("B. terrestris/lucorum", "B. pascuorum", "B. pratorum", 
+                         "B. soroensis", "B. wurflenii", "B. hortorum",
+                         "B. pyrenaeus", "B. mendax", "B. monticola",
+                         "B. gerstaeckeri", "B. hypnorum", "B. jonellus", 
+                         "B. lapidarius", "B. mucidus", "B. psithyrus"),
+                       c("B. telu.", "B. pasc.", "B. prat.", 
+                         "B. soro.", "B. wurf.", "B. hort.",
+                         "B. pyre.", "B. mend.", "B. mont.",
+                         "B. gers.", "B. hypn.", "B. jone.", 
+                         "B. lapi.", "B. muci.", "B. psit."),
+                       c("major", "major", "major", 
+                         "major", "major", "common", 
+                         "high elev.", "high elev.", "high elev.",
+                         "minor", "minor", "common", 
+                         "minor", "high elev.", "common")
+                       ) %>%
+  as.data.frame() %>%
+  as_tibble() %>%
+  dplyr::select(bb.sp = 1, species.name = 2, species.abb = 3, abund.class = 4)
+
+bb_range <- net %>%
+  #filter(bb.sp != "humi") %>%
+  left_join(site_data) %>%
+  group_by(site, date, elev.mean, bb.sp) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, bb.sp) %>%
+  summarize(abund = mean(abund)) %>%
+  group_by(bb.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2))
+# %>%
+#   left_join(species_names) %>%
+#   mutate(abund.class = factor(abund.class, levels = c("major", "common", "high elev.", "minor")))
+
+
+ggplot(bb_range, aes(reorder(bb.sp, elev.med), elev.mean)) +
+  geom_line(size = 2, alpha = 0.25) +
+  geom_point(aes(size = abund), alpha = 0.5) +
+  #facet_wrap(~year, ncol = 1) +
+  theme_light(12) +
+  scale_size_continuous(name = "Abundance") +
+  #scale_color_discrete(name = "Abund. class") +
+  xlab("BB species") +
+  ylab("Elevation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggsave("../output/bb_range.png", width = 6, height = 4, units = "in")
+ggsave("../output/bb_range.pdf", width = 6, height = 4)
+```
