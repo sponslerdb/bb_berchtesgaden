@@ -53,26 +53,9 @@ betalinkr_set1 <- function(x) {
   as_tibble() # for convenience
 }
 
-# Binomial smooth function (thanks, Hadley): https://ggplot2.tidyverse.org/reference/geom_smooth.html
-binomial_smooth <- function(...) {
-  geom_smooth(method = "glm", method.args = list(family = "binomial"), ...)
-}
-
-# Site_pair prep function
-# site_pair_prep_net <- function(dat, y) {
-#   dat %>%
-#     ungroup() %>%
-#     filter(year1 == year2 & 
-#              year1 == y & 
-#              site1 != site2) %>% # I don't think we want to compare samples through within sites, introduces a new form of non-independence.
-#     filter(metric == "WN") %>% # we'll focus for now on WN, but this could be done for partitions, too
-#     mutate(weights = rep(1, dim(.)[1])) %>% # right now this analysis is unweighted; could weight by abundance, etc, if we wanted to
-#     dplyr::select(distance = value, weights,
-#                   s1.xCoord = x1, s1.yCoord = y1, 
-#                   s2.xCoord = x2, s2.yCoord = y2, 
-#                   s1.elev.mean = elev1, s1.yday = yday1,
-#                   s2.elev.mean = elev2, s2.yday = yday2) %>%
-#     data.frame()
+# # Binomial smooth function (thanks, Hadley): https://ggplot2.tidyverse.org/reference/geom_smooth.html
+# binomial_smooth <- function(...) {
+#   geom_smooth(method = "glm", method.args = list(family = "binomial"), ...)
 # }
 
 interaction_gdm_prep <- function(x) {
@@ -105,23 +88,6 @@ interaction_gdm_prep <- function(x) {
                              predData = envdat, 
                              abundance = FALSE) %>% # abundance = FALSE means binary
     filter(s1.elev.mean != s2.elev.mean) # this drops within-site comparisons
-}
-
-## wrapper for extracting splines and prepping tibble for plotting
-spline_prep <- function(x, y) {
-  isplineExtract(x) %>%
-    as.data.frame() %>%
-    tibble() %>%
-    mutate(x.Geographic = x.Geographic/1000) %>%
-    pivot_longer(cols = c(x.Geographic, x.elev.mean), 
-                 names_to = "x.var", values_to = "predictor", 
-                 names_prefix = "x.") %>%
-    pivot_longer(cols = c(y.Geographic, y.elev.mean), 
-                 names_to = "y.var", values_to = "response", 
-                 names_prefix = "y.") %>%
-    filter(x.var == y.var) %>%
-    mutate() %>%
-    dplyr::select(-y.var)
 }
 
 # Create functions for prepping data
@@ -253,6 +219,22 @@ species_beta <- full_join(bb_beta, fl_beta) %>%
          mean.elev = (elev1 + elev2)/2) %>%
   pivot_longer(cols = c(BB, FL), names_to = "group", values_to = "beta") %>%
   filter(elev.diff >= 0) # For each site pair, one will be higher and the other lower; thus, when their order is reversed only the sign of the difference changes. Since no two sites have exactly the same elevation, this deduplicates the data by dropping the ordering of a given pair of sites (one of the two orderings) that yields a negative elevation difference while retaining the alternative ordering that yields a positive elevation difference. By >= 0, I retain comparisons of a site to itself. I drop (in the ggplot call) within-site comparisons when I plot against elevation difference, and I isolate within-site comparison when I plot against time. In the latter case, it is also necessary to deduplicate, since each pair of site dates occurs in A-B and B-A. For that, I filter (again, in the ggplot call) so that yday.diff > 0, similarly dropping the orderings that yield negative differences. Note that all this deduplication nonsense is not necessary for the betalinkr call because it deduplicates internally.
+
+# fl_beta_dist <- survey %>%
+#   group_by(site, plant.sp) %>%
+#   summarize(count = sum(flower.cover)) %>%
+#   pivot_wider(names_from = plant.sp, values_from = count) %>%
+#   replace(is.na(.), 0) %>%
+#   column_to_rownames("site") %>%
+#   vegdist(method = "jaccard", binary = TRUE, upper = TRUE) 
+# 
+# bb_beta_dist <- net %>%
+#   group_by(site, bb.sp) %>%
+#   summarize(count = n()) %>% 
+#   pivot_wider(names_from = bb.sp, values_from = count) %>%
+#   replace(is.na(.), 0) %>%
+#   column_to_rownames("site") %>%
+#   vegdist(method = "jaccard", binary = TRUE)
 ```
 
 ### Tabulate webs
@@ -307,10 +289,9 @@ beta_mit_data <- beta_site %>%
 #        "ST.h" = "#8da0cb", "ST.l" = "#e78ac3", 
 #        "ST.lh" = "#a6d854", "WN" = "black")
 
-p <- c("OS" = "#e7298a", "ST" = "#d95f02", 
-       "ST.h" = "#7570b3", "ST.l" = "#1b9e77", 
-       "ST.lh" = "#66a61e", "WN" = "black")
+p1 <- c("OS" = "#e7298a", "ST" = "#66a61e", "WN" = "black")
 
+p2 <- c("ST.h" = "#7570b3", "ST.l" = "#1b9e77", "ST.lh" = "#d95f02")
 
 # BB + FL elevation diff
 g1 <- ggplot(filter(species_beta, 
@@ -318,34 +299,176 @@ g1 <- ggplot(filter(species_beta,
              aes(elev.diff, beta, color = group)) +
   geom_point(alpha = 0.25, pch = 16) +
   #binomial_smooth(formula = y ~ splines::ns(x, 3)) +
-  geom_smooth(method = "lm", se = FALSE) +
+  #geom_smooth(method = "lm", se = FALSE) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"), 
+              se = FALSE) +
   #facet_wrap(~group, ncol = 1) +
   xlab("Elevation difference (m)") +
   ylab("β-diversity") +
   theme_light()
 
-# BB * FL elevation diff
+# BB * FL elevation diff (aggregate)
 g2 <- ggplot(filter(beta_mit_data, 
                       site1 != site2 & # no within-site comparisons
                       metric != "S" & # drop this metric
-                      !metric.class %in% c("OS.partition", "WN.partition")), 
+                      metric.class == "aggregate"), 
              aes(elev.diff, value, color = metric))  +
   geom_point(alpha = 0.20, pch = 16) +
-  binomial_smooth(formula = y ~ splines::ns(x, 3), se = FALSE) +
-  scale_color_manual(values = p, name = "partition") +
+  #binomial_smooth(formula = y ~ splines::ns(x, 3), se = FALSE) +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k  = 4), se = FALSE) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"), 
+              se = FALSE) +
+  scale_color_manual(values = p1, name = "β partition") +
+  xlab(NULL) +
+  ylab("Prop. β-diversity") +
+  theme_light()
+
+# BB * FL elevation diff (ST partition)
+g3 <- ggplot(filter(beta_mit_data, 
+                      site1 != site2 & # no within-site comparisons
+                      metric.class ==  "ST.partition"), 
+             aes(elev.diff, value, color = metric))  +
+  geom_point(alpha = 0.20, pch = 16) +
+  #binomial_smooth(formula = y ~ splines::ns(x, 3), se = FALSE) +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k  = 4), se = FALSE) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"), 
+              se = FALSE) +
+  scale_color_manual(values = p2, name = "ST partition") +
   xlab("Elevation difference (m)") +
-  ylab(NULL) +
+  ylab("Prop. species turnover") +
   theme_light()
 
 # Patchwork plot for comparing species beta-diversity with interaction beta-diversity
 png("../output/beta_stack.png", width = 6.5, height = 4.5, units = "in", res = 300)
-(g1 | g2) + 
-  plot_annotation(tag_levels = c("A", "B")) + 
+(g1 | (g2 / g3)) + 
+  plot_annotation(tag_levels = c("A", "B", "C")) + 
   #plot_layout(guides = "collect") & 
   theme_light() 
 dev.off()
 ```
 
+### MRM analysis
+```{r}
+library(ecodist)
+
+survey_sample_diff <- survey %>%
+  group_by(site) %>%
+  summarize(samples = length(unique(date))) %>%
+  column_to_rownames("site") %>%
+  vegdist(method = "euclidean", upper = TRUE) %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "site1") %>%
+  pivot_longer(cols = -site1, names_to = "site2", values_to = "sample.diff")
+
+net_sample_diff <- net %>%
+  group_by(site) %>%
+  summarize(samples = length(unique(date))) %>%
+  column_to_rownames("site") %>%
+  vegdist(method = "euclidean", upper = TRUE) %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "site1") %>%
+  pivot_longer(cols = -site1, names_to = "site2", values_to = "sample.diff")
+
+mrm_survey_data <- species_beta %>%
+  filter(group == "FL" & site1 != site2) %>%
+  left_join(survey_sample_diff) %>%
+  dplyr::select(site1, site2, beta, elev.diff, sample.diff) %>%
+  mutate(elev.diff = scale(elev.diff), # gotta scale variables for MRM
+         sample.diff = scale(sample.diff))
+
+mrm_net_data <- species_beta %>%
+  filter(group == "BB" & site1 != site2) %>%
+  left_join(net_sample_diff)  %>%
+  dplyr::select(site1, site2, beta, elev.diff, sample.diff) %>%
+  mutate(elev.diff = scale(elev.diff),
+         sample.diff = scale(sample.diff))
+
+mrm_beta_data <- beta_mit_data %>%
+  filter(site1 != site2) %>%
+  left_join(net_sample_diff)  %>%
+  dplyr::select(site1, site2, value, metric, elev.diff, sample.diff) %>%
+  mutate(elev.diff = scale(elev.diff),
+         sample.diff = scale(sample.diff))
+
+mrm_fl <- MRM(beta ~ elev.diff + sample.diff, 
+              data = mrm_survey_data,
+              nperm = 1000,
+              method = "logistic")
+
+mrm_bb <- MRM(beta ~ elev.diff + sample.diff, 
+              data = mrm_net_data,
+              nperm = 1000,
+              method = "logistic")
+
+mrm_WN <- MRM(value ~ elev.diff + sample.diff, 
+              data = filter(mrm_beta_data, metric == "WN"),
+              nperm = 1000,
+              method = "logistic")
+
+mrm_ST <- MRM(value ~ elev.diff + sample.diff, 
+              data = filter(mrm_beta_data, metric == "ST"),
+              nperm = 1000,
+              method = "logistic")
+
+mrm_ST.l <- MRM(value ~ elev.diff + sample.diff, 
+              data = filter(mrm_beta_data, metric == "ST.l"),
+              nperm = 1000,
+              method = "logistic")
+
+mrm_ST.h <- MRM(value ~ elev.diff + sample.diff, 
+              data = filter(mrm_beta_data, metric == "ST.h"),
+              nperm = 1000,
+              method = "logistic")
+
+mrm_ST.lh <- MRM(value ~ elev.diff + sample.diff, 
+              data = filter(mrm_beta_data, metric == "ST.lh"),
+              nperm = 1000,
+              method = "logistic")
+
+mrm_OS <- MRM(value ~ elev.diff + sample.diff, 
+              data = filter(mrm_beta_data, metric == "OS"),
+              nperm = 1000,
+              method = "logistic")
+
+
+# Partial Mantel tests are another option, perhaps more routine to interpret
+# mantel_fl <- mantel(beta ~ elev.diff + sample.diff, 
+#               data = mrm_survey_data,
+#               mrank = TRUE)
+# 
+# mantel_bb <- mantel(beta ~ elev.diff + sample.diff, 
+#               data = mrm_net_data,
+#               mrank = TRUE)
+# 
+# mantel_WN <- mantel(value ~ elev.diff + sample.diff, 
+#                     data = filter(mrm_beta_data, metric == "WN"),
+#                     mrank = TRUE)
+# 
+# mantel_ST <- mantel(value ~ elev.diff + sample.diff, 
+#                     data = filter(mrm_beta_data, metric == "ST"),
+#                     mrank = TRUE)
+# 
+# mantel_ST.l <- mantel(value ~ elev.diff + sample.diff, 
+#                     data = filter(mrm_beta_data, metric == "ST.l"),
+#                     mrank = TRUE)
+# 
+# mantel_ST.h <- mantel(value ~ elev.diff + sample.diff, 
+#                     data = filter(mrm_beta_data, metric == "ST.h"),
+#                     mrank = TRUE)
+# 
+# mantel_ST.lh <- mantel(value ~ elev.diff + sample.diff, 
+#                     data = filter(mrm_beta_data, metric == "ST.lh"),
+#                     mrank = TRUE)
+# 
+# mantel_OS <- mantel(value ~ elev.diff + sample.diff, 
+#                     data = filter(mrm_beta_data, metric == "OS"),
+#                     mrank = TRUE)
+```
 
 ### GDM: Interactions
 ```{r message=FALSE, warning=FALSE}
