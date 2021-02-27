@@ -626,3 +626,54 @@ ggplot(bb_range, aes(reorder(bb.sp, elev.med), elev.mean)) +
 ggsave("../output/bb_range.png", width = 6, height = 4, units = "in")
 ggsave("../output/bb_range.pdf", width = 6, height = 4)
 ```
+
+# Just a quick peak at what would happen if I added a by = year smooth 
+```{r}
+weighted_fl_abund.qp2 <- bam(total.weighted.flower.cover ~ 
+                              s(bb.sp, bs = "re") +
+                              s(site, bs = "re") +
+                              s(year, bs = "re") +
+                              te(yday, elev.mean,
+                                 by = year,
+                                 bs = c("gp", "tp"),
+                                 k = c(5, 5)) +
+                              te(yday, elev.mean,
+                                 by = bb.sp,
+                                 bs = c("gp", "tp"),
+                                 k = c(5, 5)),
+                            data = filter(weighted_fl_abund, bb.sp != "humi"),
+                            family = "quasipoisson",
+                            discrete = TRUE,
+                            select = TRUE,
+                            method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(weighted_fl_abund.qp2)
+sum_fl.qp2 <- summary(weighted_fl_abund.qp2)
+print(plot(weighted_fl_abund.qp2, allTerms = TRUE), pages = 4)
+check2D(weighted_fl_abund.qp2, x1 = "yday", x2 = "elev.mean")
+
+bb_abund.qp2 <- bam(bb.abund ~ 
+                     s(bb.sp.ord, bs = "re") + # center species
+                     s(year, bs = "re") + # random intercept for year
+                     s(site, bs = "re") + # random intercept to avoid pseudoreplicating elevation
+                     te(yday, elev.mean, # tensor product smooth of elevation and time
+                        by = year, # by bb.sp
+                        bs= c("gp", "tp"), # gaussian procees for time, thinplate spline for elevation
+                        k=c(5, 5), 
+                        m=2) +
+                     te(yday, elev.mean, # tensor product smooth of elevation and time
+                        by = bb.sp.ord, # by bb.sp
+                        bs= c("gp", "tp"), # gaussian procees for time, thinplate spline for elevation
+                        k=c(5, 5), 
+                        m=2),
+                   data = filter(bb_abund_sp, bb.sp != "humi"), # humi is just too rare
+                   discrete = TRUE,
+                   family = "quasipoisson",
+                   select = TRUE,
+                   method = "fREML") %>% getViz(nsim = 500)
+
+check.gamViz(bb_abund.qp2)
+sum.qp2 <- summary(bb_abund.qp2)
+print(plot(bb_abund.qp2, allTerms = TRUE), pages = 4)
+check2D(bb_abund.qp2, x1 = "yday", x2 = "elev.mean")
+```
