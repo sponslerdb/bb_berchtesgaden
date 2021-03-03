@@ -843,23 +843,27 @@ niche_pool <- bind_rows(niche_overlap_gen,
 
 write_csv(niche_pool, "../hpc_packets/niche_pool.csv")
 
-morph_genus_difference <- niche_overlap_gen %>%
-  select(-niche.overlap, -level) %>%
-  full_join(niche_overlap_fam) %>%
-  select(-niche.overlap, -level) %>%
-  full_join(niche_overlap_ktype) %>%
-  select(-niche.overlap, -level) %>%
-  mutate(tongue.diff = tongue.diff,
-         site = factor(site),
-         morph.genus.diff = niche.overlap.ktype - niche.overlap.genus) 
+niche_pool_sitemean <- niche_pool %>%
+  group_by(site, level, elev.mean) %>%
+  summarize(mean.niche.overlap = mean(niche.overlap))
 
-ggplot(morph_genus_difference, aes(elev.mean, morph.genus.diff)) +
-  geom_point() +
-  geom_smooth() +
-  facet_wrap(~tongue.pair)
-
-ggplot(morph_genus_difference, aes(tongue.pair, morph.genus.diff)) +
-  geom_boxplot()
+# morph_genus_difference <- niche_overlap_gen %>%
+#   select(-niche.overlap, -level) %>%
+#   full_join(niche_overlap_fam) %>%
+#   select(-niche.overlap, -level) %>%
+#   full_join(niche_overlap_ktype) %>%
+#   select(-niche.overlap, -level) %>%
+#   mutate(tongue.diff = tongue.diff,
+#          site = factor(site),
+#          morph.genus.diff = niche.overlap.ktype - niche.overlap.genus) 
+# 
+# ggplot(morph_genus_difference, aes(elev.mean, morph.genus.diff)) +
+#   geom_point() +
+#   geom_smooth() +
+#   facet_wrap(~tongue.pair)
+# 
+# ggplot(morph_genus_difference, aes(tongue.pair, morph.genus.diff)) +
+#   geom_boxplot()
 ```
 
 ## 3.5 Niche overlap ~ level
@@ -901,7 +905,6 @@ pp_check(brm_niche10)
 bayes_R2(brm_niche10)
 
 get_variables(brm_niche10)
-conditional_effects(brm_niche10)
 mcmc_plot(brm_niche10, pars = c("^r_tongue*"))
 mcmc_plot(brm_niche10, pars = c("^r_site*"))
 ```
@@ -929,42 +932,45 @@ mcmc_plot(brm_niche20, pars = c("^r_site*"))
 
 ## 3.8 Niche overlap ~ elevation
 ```{r}
-# Beta models
-gen_gam_niche.Ib <- bam(niche.overlap ~
+# Pairwise
+gen_gam_niche.I <- bam(niche.overlap ~
                             s(sp.pair, bs = "re") +
-                            s(elev.mean, by = sp.pair, k = 6, m = 2),
+                            s(site, bs = "re") + # since I have measures repeated over species pairs within each elevation level
+                            s(elev.mean, by = sp.pair, k = 8, m = 2),
                           method = "fREML",
                           family = betar(eps = 0.001),
                           discrete = TRUE,
                           select = TRUE,
-                          data = filter(niche_pool, level == "genus")) %>% getViz()
+                          data = filter(niche_pool, level == "genus" &
+                                          bb.sp1 %in% c("pasc", "prat", "soro", "telu", "wurf", # dominant species
+                                                        "mont", "muci", "pyre", "mend") & # high elevation specialists
+                                          bb.sp2 %in% c("pasc", "prat", "soro", "telu", "wurf",
+                                                        "mont", "muci", "pyre", "mend"))) %>% getViz() 
 
-check.gamViz(gen_gam_niche.Ib)
-summary(gen_gam_niche.Ib)
-print(plot.gamViz(gen_gam_niche.Ib, allTerms = TRUE), pages = 1)
+check.gamViz(gen_gam_niche.I)
+summary(gen_gam_niche.I)
+plot(sm(gen_gam_niche.I, 9))
+plot(sm(gen_gam_niche.I, 12))
+plot(sm(gen_gam_niche.I, 14))
+plot(sm(gen_gam_niche.I, 15))
+plot(sm(gen_gam_niche.I, 16))
+plot(sm(gen_gam_niche.I, 32))
 
-gen_gam_niche.GI <- bam(niche.overlap ~
-                            s(sp.pair, bs = "re") +
-                            s(elev.mean, k = 6, m = 2) +
-                            s(elev.mean, by = sp.pair, k = 6, m = 1),
-                          method = "fREML",
+
+# Community mean
+ggplot(niche_pool_sitemean, aes(elev.mean, mean.niche.overlap, color = level)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 8))
+
+mean_niche_gam.I <- gam(mean.niche.overlap ~
+                            level + 
+                            s(elev.mean, by = level, k = 8, m = 2),
+                          method = "REML",
                           family = betar(eps = 0.001),
-                          discrete = TRUE,
                           select = TRUE,
-                          data = filter(niche_pool, level == "genus")) %>% getViz()
+                          data = niche_pool_sitemean) %>% getViz()
 
-check.gamViz(gen_gam_niche.GI)
-summary(gen_gam_niche.GI)
-print(plot.gamViz(gen_gam_niche.GI, allTerms = TRUE), pages = 1)
-
-
-brm_niche01 <- brm(niche.overlap ~ 1 +
-                     s(elev.mean, by = sp.pair, k = 10) +
-                     (1 | sp.pair),
-                   family = "zero_one_inflated_beta",
-                   #file = "../output/brm_niche_01",
-                   file = "./brm_niche_01",
-                   iter = 2000,
-                   chains = 4,
-                   data = filter(niche_pool, level == "genus"))
+check.gamViz(mean_niche_gam.I)
+summary(mean_niche_gam.I)
+print(plot.gamViz(mean_niche_gam.I, allTerms = TRUE), pages = 1)
 ```
