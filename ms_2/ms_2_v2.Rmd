@@ -94,7 +94,8 @@ How are the floral morphotypes distributed through elevation and time in our mou
 For ubiquitously distributed bumble bee species, how does morphological bias vary through elevation and time?
 
 First, we compare the overall rate of bumble bee visitation across floral morphotypes. Then, we parse visitation rates by bumble bee species and explore the functional relationship between floral morphotype and bumble bee tongue length. These biases, together with the background effects of relative abundance, generate emergent patterns of diet (dis)similarity, which we present in the form of ordination analysis. Lastly, we analyze the lability of the morphological biases of individual bumble bee species through elevation and time, and compare these patterns of bias across bumble bee species and within floral morphotypes. The results of these analyses demonstrate both the strength of bumble bee floral bias, arising in part from morphological constraints, and the flexibility of bumble bee floral bias that enables them to forage adaptively in the dynamic floral communities of mountain landscapes.
-  
+
+We first ask how
 
 
 
