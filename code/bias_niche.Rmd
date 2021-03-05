@@ -282,23 +282,16 @@ brm_pvis02 <- brm(as.integer(visits.bin) ~
 summary(brm_pvis00)
 summary(brm_pvis01)
 summary(brm_pvis02)
-summary(brm_pvis11)
-summary(brm_pvis21)
 
 # Posterior predictive checks
 pp_check(brm_pvis00)
 pp_check(brm_pvis01)
 pp_check(brm_pvis02)
-pp_check(brm_pvis11)
-pp_check(brm_pvis21)
 
 # Bayes R2
 bayes_R2(brm_pvis00)
 bayes_R2(brm_pvis01)
 bayes_R2(brm_pvis02)
-bayes_R2(brm_pvis11)
-bayes_R2(brm_pvis21)
-
 ```
 
 ## 1.4 Preliminary visualization
@@ -488,11 +481,11 @@ brm_pvis01_plotframe1 <- brm_pvis01 %>%
 ggplot(brm_pvis01_plotframe1, aes(condition_mean_trans, ktype, 
                                  xmin = .lower_trans, xmax = .upper_trans)) +
   geom_pointinterval() +
-  theme_light(14) +
+  theme_light(16) +
   labs(x = "Visitation probability", y= "Morphotype") +
   guides(fill = FALSE)
 
-ggsave(file = "../output/brm_pvis01_plot1.pdf", width = 5, height = 5)
+ggsave(file = "../output/brm_pvis01_plot1.pdf", width = 6, height = 7)
 
 ```
 
@@ -753,6 +746,32 @@ ggplot(bb_distribution, aes(reorder(bb.sp, elev.med), elev.mean)) +
   xlab("BB species") +
   ylab("Elevation") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+bb_distribution_pool <- visitation %>%
+  left_join(site_data) %>%
+  group_by(site, date, elev.mean, bb.sp) %>%
+  summarize(abund = n()) %>%
+  ungroup() %>%
+  complete(site, date, elev.mean, bb.sp, fill = list(abund = 0)) %>%
+  group_by(site, elev.mean, bb.sp) %>%
+  summarize(abund = mean(abund)) %>%
+  filter(abund > 0) %>%
+  group_by(bb.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2))
+
+ggplot(bb_distribution_pool, aes(reorder(bb.sp, elev.med), elev.mean)) +
+  geom_line(size = 2, alpha = 0.25) +
+  geom_point(aes(size = abund), alpha = 0.5) +
+  theme_light(14) +
+  scale_size_continuous(name = "Abundance") +
+  xlab("BB species") +
+  ylab("Elevation") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("../output/bb_range.pdf", width = 6, height = 5)
 ```
 
 ## 3.2 Prep data for calculating niche overlap
@@ -886,6 +905,40 @@ get_variables(brm_niche00)
 conditional_effects(brm_niche00)
 mcmc_plot(brm_niche00, pars = c("^r_sp.pair\\[mend*"))
 mcmc_plot(brm_niche00, pars = c("^r_site*"))
+
+brm_niche00_plotframe1 <- brm_niche00 %>%
+  spread_draws(b_Intercept, b_levelgenus, b_levelmorphotype) %>%
+  mutate(b_levelgenus = b_Intercept + b_levelgenus,
+         b_levelmorphotype = b_Intercept + b_levelmorphotype) %>%
+  pivot_longer(-c(.chain, .iteration, .draw), names_to = "level", values_to = "value") %>%
+  group_by(level) %>%
+  point_interval(value, .width = c(0.95, 0.66)) %>% # calculate credible intervals
+  mutate(value_trans = inv_logit_scaled(value), # exponentiating the estimates gets us back to the response scale (negbinomial uses log link function)
+         .lower_trans = inv_logit_scaled(.lower),
+         .upper_trans = inv_logit_scaled(.upper)) %>%
+  mutate(level = case_when(
+    level == "b_Intercept" ~ "family",
+    level == "b_levelmorphotype" ~ "morphotype",
+    level == "b_levelgenus" ~ "genus"
+  )) %>%
+  mutate(level = factor(level, levels = c("genus", "family", "morphotype")))
+
+ggplot(brm_niche00_plotframe1, aes(value_trans, level, 
+                                 xmin = .lower_trans, xmax = .upper_trans)) +
+  geom_pointinterval() +
+  theme_light(16) +
+  labs(x = "Niche overlap", y= "Level") +
+  guides(fill = FALSE)
+
+ggplot(brm_niche00_plotframe1, aes(level, value_trans, 
+                                 ymin = .lower_trans, ymax = .upper_trans)) +
+  geom_pointinterval() +
+  theme_light(16) +
+  labs(x = "Level", y= "Niche overlap") +
+  guides(fill = FALSE) +
+  ylim(c(0, 0.55))
+
+#ggsave(file = "../output/brm_pvis01_plot1.pdf", width = 6, height = 7)
 ```
 
 ## 3.6 Genus niche overlap ~ tongue
