@@ -19,7 +19,7 @@ library(ggdist)
 library(vegan)
 library(ggvegan)
 library(ggrepel)
-library(treemapify)
+library(tidymv)
 library(patchwork)
 library(tidymodels)
 library(tidyverse)
@@ -277,7 +277,7 @@ brm_pvis02 <- brm(as.integer(visits.bin) ~
 ```
 
 ## 1.3 Evaluate models
-```{r}
+```{r eval=FALSE, include=FALSE}
 # Summary
 summary(brm_pvis00)
 summary(brm_pvis01)
@@ -295,7 +295,7 @@ bayes_R2(brm_pvis02)
 ```
 
 ## 1.4 Preliminary visualization
-```{r}
+```{r eval=FALSE, include=FALSE}
 get_variables(brm_pvis00)
 conditional_effects(brm_pvis00)
 mcmc_plot(brm_pvis00, pars = c("^r_ktype:tongue.*Intercept]$"))
@@ -335,7 +335,6 @@ mcmc_plot(brm_pvis21, pars = c("^r_ktype"))
 ```
 
 ## 1.5 Final visualization
-Note that the intercept is on the log scale, so if you want to transform it back to predicted # visits, you have to exponentiate it. I think. Here is a helplful conversation involving the esteemed Ben Bolker:
 ### 1.5.1 morphotype:tongue intercept
 ```{r}
 brm_pvis00_plotframe1 <- brm_pvis00 %>%
@@ -420,7 +419,7 @@ ggsave(file = "../output/brm_pvis02_plot1.pdf", width = 8, height = 8)
 ```
 
 ### 1.5.3 morphotype:tongue slope
-```{r}
+```{r eval=FALSE, include=FALSE}
 brm_pvis00_plotframe3 <- brm_pvis00 %>%
   spread_draws(b_perc.flower.cover, `r_ktype:tongue`[condition, term]) %>% # the back ticks are necessary to escape the :
   rename(r_ktype.tongue = `r_ktype:tongue`) %>%
@@ -490,7 +489,7 @@ ggsave(file = "../output/brm_pvis01_plot1.pdf", width = 6, height = 7)
 ```
 
 ### 1.5.3 morphotype slope
-```{r}
+```{r eval=FALSE, include=FALSE}
 brm_pvis01_plotframe2 <- brm_pvis01 %>%
   spread_draws(b_perc.flower.cover, r_ktype[condition, term]) %>% # the back ticks are necessary to escape the :
   filter(term == "perc.flower.cover") %>%
@@ -519,11 +518,8 @@ ggsave(file = "../output/brm_pvis01_plot2.png", width = 7, height = 5.5)
 ```
 
 ## 1.6 Model 1 hypothesis tests
-I'm not doing every possible comparison. Just the ones where it is possible to have some doubt. It would be stupid to compare group whose 95% CIs are miles apart.
 ```{r}
 get_variables(brm_pvis01)
-
-hypothesis(brm_pvis01, "r_ktype[0,Intercept] = r_ktype[1,Intercept]", class = "") # this is lower than its closest neighbor; no need to make any other comparisons
 
 hypothesis(brm_pvis01, "r_ktype[1,Intercept] = r_ktype[4,Intercept]", class = "") 
 hypothesis(brm_pvis01, "r_ktype[2,Intercept] = r_ktype[4,Intercept]", class = "")
@@ -577,11 +573,6 @@ hypothesis(brm_pvis00, "r_ktype:tongue[6_med,Intercept] = r_ktype:tongue[6_long,
 hypothesis(brm_pvis00, "r_ktype:tongue[7_short,Intercept] = r_ktype:tongue[7_med,Intercept]", class = "")
 hypothesis(brm_pvis00, "r_ktype:tongue[7_short,Intercept] = r_ktype:tongue[7_long,Intercept]", class = "")
 hypothesis(brm_pvis00, "r_ktype:tongue[7_med,Intercept] = r_ktype:tongue[7_long,Intercept]", class = "")
-
-# NA (group  0)
-hypothesis(brm_pvis00, "r_ktype:tongue[0_short,Intercept] = r_ktype:tongue[0_med,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[0_short,Intercept] = r_ktype:tongue[0_long,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[0_med,Intercept] = r_ktype:tongue[0_long,Intercept]", class = "")
 ```
 
 # 2. Ordination of dietary niche
@@ -624,11 +615,11 @@ pcoa_horn2_betadisper <- betadisper(vegdist(visitation2, method = "horn"),
                                     type = "median")
 anova(pcoa_horn2_betadisper) # I think this is not significant because short tongued species are disperse on axis 2, but axis 2 does not explain nearly as much variation.
 plot(pcoa_horn2_betadisper)
-# I'm suprised that the betadisper test is not significant, but I think it might be driven by the fact that replication is so low for long and medium tongue species. Let's see what happens if we pool long and medium tongue species, since they overlap so much anyway.
+# I'm surprised that the betadisper test is not significant, but I think it might be driven by the fact that replication is so low for long and medium tongue species. Let's see what happens if we pool long and medium tongue species, since they overlap so much anyway.
 pcoa_horn2_betadisper_pool <- betadisper(vegdist(visitation2, method = "horn"), 
                                     group = bb_traits2$pbl.w.class2.pool,
                                     type = "median")
-anova(pcoa_horn2_betadisper_pool) # I think this is not significant because short tongued species are disperse on axis 2, but axis 2 does not explain nearly as much variation.
+anova(pcoa_horn2_betadisper_pool) # I think this is not significant because short tongued species are dispersed on axis 2, but axis 2 does not explain nearly as much variation.
 plot(pcoa_horn2_betadisper_pool)
 
 # Get variance explained
@@ -673,51 +664,6 @@ ggplot(pcoa_horn2.fort2, aes(MDS1, MDS2, color = pbl.w.class2)) +
   theme_light(10)
 
 ggsave("../output/pcoa_aggregate.png")
-
-# a quick peak at diet breadth...quick, I promise
-taxon_diet_breadth <- read_csv("../data/processed_data/network.csv") %>%
-  filter(caste != "male") %>% # we will ignore males 
-  filter(!bb.sp %in% c("humi")) %>% # humi is too rare
-  group_by(site, date, bb.sp, plant.sp) %>%
-  summarize(visits = n()) %>%
-  group_by(site, date, bb.sp) %>%
-  summarize(bb.sp.abund = sum(visits),
-            tax.diet.breadth = length(plant.sp)) %>%
-  mutate(log.bb.sp.abund = log(bb.sp.abund),
-         prop.tax.diet.breadth = tax.diet.breadth/bb.sp.abund) 
-
-morph_diet_breadth <- read_csv("../data/processed_data/network.csv") %>%
-  filter(caste != "male") %>% # we will ignore males 
-  filter(!bb.sp %in% c("humi")) %>% # humi is too rare
-  left_join(fl_traits) %>%
-  group_by(site, date, bb.sp, k.type.ss) %>%
-  summarize(visits = n()) %>%
-  group_by(site, date, bb.sp) %>%
-  summarize(bb.sp.abund = sum(visits),
-            morph.diet.breadth = length(k.type.ss)) %>%
-  mutate(log.bb.sp.abund = log(bb.sp.abund),
-         prop.morph.diet.breadth = morph.diet.breadth/bb.sp.abund)
-
-diet_breadth <- full_join(taxon_diet_breadth, morph_diet_breadth) %>%
-  left_join(site_data)
-
-ggplot(diet_breadth, aes(tax.diet.breadth, morph.diet.breadth, color = bb.sp)) +
-  geom_point() +
-  geom_smooth(method = "lm")
-
-ggplot(diet_breadth, aes(morph.diet.breadth, tax.diet.breadth, color = bb.sp)) +
-  geom_point() +
-  geom_smooth(method = "lm")
-
-ggplot(diet_breadth, aes(elev.mean, tax.diet.breadth)) +
-  geom_point() +
-  geom_smooth() +
-  facet_wrap(~bb.sp)
-
-ggplot(diet_breadth, aes(elev.mean, morph.diet.breadth)) +
-  geom_point() +
-  geom_smooth() +
-  facet_wrap(~bb.sp)
 ```
 
 # 3. Dietary niche overlap (i.e. potential competition)
@@ -784,6 +730,7 @@ niche_data <- visitation %>%
 
 ## 3.3 Function for calculating niche overlap
 ```{r}
+# This one averages visitation and then calculates niche overlaps
 niche_overlapper <- function(x, criterion) {
     
   criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
@@ -818,7 +765,69 @@ niche_overlapper <- function(x, criterion) {
     #        tongue1, tongue2, elev.mean) %>%
     dplyr::select(site, bb.sp1, bb.sp2, subgenus1, subgenus2, distance, 
        tongue1, tongue2, elev.mean) %>%
-    mutate(tongue.diff = as.logical(if_else(tongue1 == tongue2, FALSE, TRUE)),
+    mutate(tongue.diff = factor(if_else(tongue1 == tongue2, "same", "different")),
+           tongue.pair = factor(case_when(
+             tongue1 == "med" & tongue2 == "med" ~ "med:med",
+             tongue1 == "med" & tongue2 == "long" ~ "med:long",
+             tongue1 == "med" & tongue2 == "short" ~ "short:med",
+             tongue1 == "long" & tongue2 == "med" ~ "med:long",
+             tongue1 == "short" & tongue2 == "med" ~ "short:med",
+             tongue1 == "long" & tongue2 == "short" ~ "short:long",
+             tongue1 == "short" & tongue2 == "long" ~ "short:long",
+             tongue1 == "long" & tongue2 == "long" ~ "long:long",
+             tongue1 == "short" & tongue2 == "short" ~ "short:short",
+           )),
+           subgenus.diff = if_else(subgenus1 == subgenus2, "same", "different")) %>%
+    unite(sp.pair, c(bb.sp1, bb.sp2), sep = ":", remove = FALSE) %>% # create a single species pair column...
+    mutate(sp.pair = factor(sp.pair)) %>% # ...and make it a factor so that mgcv can handle it
+    mutate(niche.overlap = 1-distance) %>% # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+    select(-distance)
+}
+
+
+# This one calculates niche overlap on fully resolved visitation data and then averages niche overlap across dates
+niche_overlapper2 <- function(x, criterion) {
+    
+  criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
+  
+  x %>%
+    #group_by(bb.sp, !!criterion, site, date, year) %>% # group by site-year and BB-FL pair
+    group_by(bb.sp, !!criterion, site, date) %>% # group by site-year and BB-FL pair
+    summarize(freq = sum(visits)) %>% # get interaction frequency for each BB-FL pair per site-year
+    group_by(bb.sp, site, date) %>% # group by site-year and BB species
+    mutate(prop = freq/sum(freq)) %>% # get proportional interaction frequency for each BB-FL pair
+    #group_by(bb.sp, site, year, !!criterion) %>%
+    # group_by(bb.sp, site, !!criterion) %>%
+    # summarize(mean.prop = mean(prop)) %>%
+    unite(sitedate, c(site, date), sep = "_") %>%
+    #pivot_wider(names_from = !!criterion, values_from = mean.prop, values_fill = 0) %>% # spread into the kind of array vegan likes
+    #pivot_wider(names_from = !!criterion, values_from = prop, values_fill = 0) %>% # spread into the kind of array vegan likes
+    #group_by(site, year) %>%
+    #group_by(site) %>%
+    select(-freq) %>%
+    group_by(sitedate) %>%
+    nest() %>% # nest into list-column
+    mutate(data2 = map(data, function(x) pivot_wider(x, names_from = !!criterion, values_from = prop, values_fill = 0)),
+           data3 = map(data2, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
+           dist = map(data3, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
+           tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
+    #dplyr::select(site, year, tidy_dist) %>% # drop intermediate list-columns
+    #dplyr::select(site, tidy_dist) %>% # drop intermediate list-columns
+    dplyr::select(sitedate, tidy_dist) %>% # drop intermediate list-columns
+    unnest(cols = c(tidy_dist)) %>% # unnest back into a single data frame
+    separate(sitedate, c("site", "date"), sep = "_") %>%
+    left_join(site_data) %>% # add site data
+    # dplyr::select(site, year, bb.sp1 = item1, bb.sp2 = item2, distance, elev.mean) %>% # dplyr::select and rename vars
+    dplyr::select(site, date, bb.sp1 = item1, bb.sp2 = item2, distance, elev.mean) %>% # dplyr::select and rename vars
+    left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>% # add traits for bb.sp1
+    rename(subgenus1 = subgenus, tongue1 = pbl.w.class2) %>%
+    left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>% # add traits for bb.sp2
+    rename(subgenus2 = subgenus, tongue2 = pbl.w.class2) %>%
+    # dplyr::select(site, year, bb.sp1, bb.sp2, subgenus1, subgenus2, distance, 
+    #        tongue1, tongue2, elev.mean) %>%
+    dplyr::select(site, date, bb.sp1, bb.sp2, subgenus1, subgenus2, distance, 
+       tongue1, tongue2, elev.mean) %>%
+    mutate(tongue.diff = factor(if_else(tongue1 == tongue2, "same", "different")),
            tongue.pair = factor(case_when(
              tongue1 == "med" & tongue2 == "med" ~ "med:med",
              tongue1 == "med" & tongue2 == "long" ~ "med:long",
@@ -840,7 +849,7 @@ niche_overlapper <- function(x, criterion) {
 
 ## 3.4 Calculate niche overlap pooled within site
 ```{r}
-# Pooled within site
+# Pooled across dates within level, site, and species pair
 niche_overlap_gen <- niche_overlapper(niche_data, plant.genus) %>%
   mutate(level = rep("genus", n()),
          niche.overlap.genus = niche.overlap)
@@ -853,39 +862,211 @@ niche_overlap_ktype <- niche_overlapper(niche_data, k.type.ss) %>%
   mutate(level = rep("morphotype", n()),
          niche.overlap.ktype = niche.overlap)
 
-niche_pool <- bind_rows(niche_overlap_gen,
-                        niche_overlap_fam, 
-                        niche_overlap_ktype,) %>%
-  mutate(level = factor(level, levels = c("morphotype", "family", "genus")),
-         tongue.diff = tongue.diff,
-         site = factor(site)) 
+# Collate across levels
+niche_overlap <- bind_rows(niche_overlap_gen,
+                           niche_overlap_fam, 
+                           niche_overlap_ktype,) %>%
+  mutate(level = factor(level, levels = c("family", "morphotype", "genus")),
+         site = factor(site)) %>%
+  separate(sp.pair, c("sp1", "sp2"), sep = ":", remove = FALSE)
 
-write_csv(niche_pool, "../hpc_packets/niche_pool.csv")
+ggplot(niche_overlap, aes(niche.overlap)) +
+  geom_histogram()
 
-niche_pool_sitemean <- niche_pool %>%
+ggplot(filter(niche_overlap,
+              sp1 %in% c("pasc", "prat", "soro", "telu", "wurf") &
+                sp2 %in% c("pasc", "prat", "soro", "telu", "wurf")), aes(niche.overlap)) +
+  geom_histogram() +
+  facet_wrap(~level)
+
+# Pool across species pairs within level and site to get community mean niche overlap
+niche_overlap_levels <- niche_overlap %>%
   group_by(site, level, elev.mean) %>%
-  summarize(mean.niche.overlap = mean(niche.overlap))
+  summarize(mean.niche.overlap = mean(niche.overlap)) %>%
+  mutate(level = factor(level, levels = c("family", "morphotype", "genus")))  # ordering them this way will make family the reference level, which is handy since I don't really care about it.
 
-# morph_genus_difference <- niche_overlap_gen %>%
-#   select(-niche.overlap, -level) %>%
-#   full_join(niche_overlap_fam) %>%
-#   select(-niche.overlap, -level) %>%
-#   full_join(niche_overlap_ktype) %>%
-#   select(-niche.overlap, -level) %>%
-#   mutate(tongue.diff = tongue.diff,
-#          site = factor(site),
-#          morph.genus.diff = niche.overlap.ktype - niche.overlap.genus) 
-# 
-# ggplot(morph_genus_difference, aes(elev.mean, morph.genus.diff)) +
-#   geom_point() +
-#   geom_smooth() +
-#   facet_wrap(~tongue.pair)
-# 
-# ggplot(morph_genus_difference, aes(tongue.pair, morph.genus.diff)) +
-#   geom_boxplot()
+# Isolate genus-level, then pool within dsp.pair and site
+niche_overlap_sppair <-  niche_overlap %>%
+  group_by(site, sp.pair, level, elev.mean) %>%
+  summarize(mean.niche.overlap = mean(niche.overlap)) %>%
+  mutate(level = factor(level, levels = c("family", "morphotype", "genus"))) %>%
+  filter(level == "genus") %>%
+  separate(sp.pair, c("sp1", "sp2"), sep = ":", remove = FALSE)
+
+# Isolate genus-level, then pool within tongue.pair and site
+niche_overlap_tongues <- niche_overlap %>%
+  group_by(site, level, tongue.pair, elev.mean) %>%
+  summarize(mean.niche.overlap = mean(niche.overlap)) %>%
+  filter(level == "genus") 
+
+# Isolate genus-level, then pool within tongue.diff and site
+niche_overlap_tonguediff <- niche_overlap %>%
+  group_by(site, level, tongue.diff, elev.mean) %>%
+  summarize(mean.niche.overlap = mean(niche.overlap)) %>%
+  filter(level == "genus")
+
+#write_csv(niche_pool, "../hpc_packets/niche_pool.csv")
+
 ```
 
-## 3.5 Niche overlap ~ level
+## 3.5 Niche overlap ~ level + elevation
+### 3.5.1 Model
+```{r}
+# Beta regression is probably the right way to do this; a gaussian model gives almost identical results, though, since our pooled data are approximately gaussian
+niche_gam00 <- gam(mean.niche.overlap ~
+                     level + 
+                     s(elev.mean, by = level, k = 8, m = 2),
+                   method = "REML",
+                   family = betar(eps = 0.001),
+                   select = TRUE,
+                   data = niche_overlap_levels) %>% getViz()
+
+check.gamViz(niche_gam00)
+summary(niche_gam00)
+print(plot.gamViz(niche_gam00, allTerms = TRUE), pages = 1)
+```
+
+### 3.5.2 Visualize
+```{r}
+# Adding raw data back in
+data_add <- niche_overlap_levels %>%
+  ungroup() %>%
+  arrange(elev.mean, level) %>%
+  select(site, mean.niche.overlap)
+
+# Get predictions using tidymv
+niche_gam00_pred <- get_gam_predictions(niche_gam00, elev.mean) %>%
+  as_tibble() %>%
+  mutate(mean.niche.overlap_trans = inv_logit_scaled(mean.niche.overlap),
+         CI_upper_trans = inv_logit_scaled(CI_upper),
+         CI_lower_trans = inv_logit_scaled(CI_lower)) %>%
+  select(-mean.niche.overlap) %>%
+  bind_cols(data_add)
+
+# Plot smooths
+ggplot(niche_gam00_pred, aes(elev.mean, mean.niche.overlap, color = level)) +
+  geom_point() +
+  geom_ribbon(aes(elev.mean, mean.niche.overlap_trans, 
+                  ymax = CI_upper_trans, ymin = CI_lower_trans,
+                  fill = level),
+              alpha = 0.3, inherit.aes = FALSE) +
+  geom_line(aes(elev.mean, mean.niche.overlap_trans, 
+                color = level), inherit.aes = FALSE) +
+  ylab("Niche overlap") +
+  xlab("Elevation (m)") +
+  guides(fill = FALSE) +
+  labs(color = "Level") +
+  theme_light()
+
+ggsave(file = "../output/niche_gam00_plot1.pdf", width = 5, height = 4)
+ggsave(file = "../output/niche_gam00_plot1.png", width = 5, height = 4)
+
+# Plot intercept effect of level
+plot(pterm(niche_gam00, 1))
+
+plotDiff(sm(niche_gam00, 1), sm(niche_gam00, 3)) +
+  l_ciPoly() + 
+  l_fitLine() + 
+  geom_hline(yintercept = 0, linetype = 2)
+```
+
+## 3.7 Genus-level niche overlap by tongue.diff
+
+### 3.7.1 Model
+```{r}
+niche_gam20 <- gam(mean.niche.overlap ~
+                     tongue.diff +
+                     s(elev.mean, by = tongue.diff, k = 8, m = 2),
+                   method = "REML",
+                   family = betar(eps = 0.001),
+                   select = TRUE,
+                   data = niche_overlap_tonguediff) %>% getViz()
+
+check.gamViz(niche_gam20)
+summary(niche_gam20)
+print(plot(niche_gam20, allTerms = TRUE), pages = 1)
+```
+
+
+### 3.7.2 Visualize
+```{r}
+# Get predictions
+niche_gam20_pred <- get_gam_predictions(niche_gam20, elev.mean) %>%
+  as_tibble() %>%
+  mutate(mean.niche.overlap_trans = inv_logit_scaled(mean.niche.overlap),
+         CI_upper_trans = inv_logit_scaled(CI_upper),
+         CI_lower_trans = inv_logit_scaled(CI_lower))
+
+# Plot smooths
+ggplot(niche_gam20_pred, aes(elev.mean, mean.niche.overlap_trans, color = tongue.diff)) +
+  geom_ribbon(aes(elev.mean, mean.niche.overlap_trans, 
+                  ymax = CI_upper_trans, ymin = CI_lower_trans,
+                  fill = tongue.diff),
+              alpha = 0.3, inherit.aes = FALSE) +
+  geom_line() +
+  ylab("Niche overlap") +
+  xlab("Elevation (m)") +
+  guides(fill = FALSE) +
+  labs(color = "Tongue class") +
+  theme_light()
+
+ggsave(file = "../output/niche_gam20_plot1.pdf", width = 5, height = 4)
+ggsave(file = "../output/niche_gam20_plot1.png", width = 5, height = 4)
+
+# Plot intercept effect of tongue.diff
+plot(pterm(niche_gam20, 1))
+```
+
+
+
+
+
+-------------------------------------
+# Old
+
+
+## 3.6 Genus-level niche overlap ~ tongue.pair + elevation
+### 3.6.1 Model
+```{r}
+niche_gam10 <- gam(mean.niche.overlap ~
+                     tongue.pair +
+                     s(elev.mean, by = tongue.pair, k = 8, m = 2),
+                   method = "REML",
+                   family = betar(eps = 0.001),
+                   select = TRUE,
+                   data = niche_overlap_tongues) %>% getViz()
+
+check.gamViz(niche_gam10)
+summary(niche_gam10)
+print(plot(niche_gam10, allTerms = TRUE), pages = 1)
+```
+
+### 3.6.2 Visualize
+```{r}
+# Get predictions using tidymv
+niche_gam10_pred <- get_gam_predictions(niche_gam10, elev.mean) %>%
+  as_tibble() %>%
+  mutate(mean.niche.overlap_trans = inv_logit_scaled(mean.niche.overlap),
+         CI_upper_trans = inv_logit_scaled(CI_upper),
+         CI_lower_trans = inv_logit_scaled(CI_lower))
+
+# Plot smooths
+ggplot(niche_gam10_pred, aes(elev.mean, mean.niche.overlap_trans, color = tongue.pair)) +
+  geom_ribbon(aes(elev.mean, mean.niche.overlap_trans,
+                  ymax = CI_upper_trans, ymin = CI_lower_trans,
+                  fill = tongue.pair),
+              alpha = 0.3, inherit.aes = FALSE) +
+  geom_line() +
+  ylab("Niche overlap") +
+  xlab("Elevation") +
+  theme_light()
+
+ggsave(file = "../output/niche_gam10_plot1.pdf", width = 5, height = 4)
+ggsave(file = "../output/niche_gam10_plot1.png", width = 5, height = 4)
+```
+
+
+### 3.5.1 Model
 ```{r}
 brm_niche00 <- brm(niche.overlap ~ 1 +
                      level + # fixed effect of level 
@@ -905,7 +1086,10 @@ get_variables(brm_niche00)
 conditional_effects(brm_niche00)
 mcmc_plot(brm_niche00, pars = c("^r_sp.pair\\[mend*"))
 mcmc_plot(brm_niche00, pars = c("^r_site*"))
+```
 
+### 3.5.2 Vizualize
+```{r}
 brm_niche00_plotframe1 <- brm_niche00 %>%
   spread_draws(b_Intercept, b_levelgenus, b_levelmorphotype) %>%
   mutate(b_levelgenus = b_Intercept + b_levelgenus,
@@ -926,22 +1110,17 @@ brm_niche00_plotframe1 <- brm_niche00 %>%
 ggplot(brm_niche00_plotframe1, aes(value_trans, level, 
                                  xmin = .lower_trans, xmax = .upper_trans)) +
   geom_pointinterval() +
-  theme_light(16) +
+  theme_light(12) +
   labs(x = "Niche overlap", y= "Level") +
-  guides(fill = FALSE)
-
-ggplot(brm_niche00_plotframe1, aes(level, value_trans, 
-                                 ymin = .lower_trans, ymax = .upper_trans)) +
-  geom_pointinterval() +
-  theme_light(16) +
-  labs(x = "Level", y= "Niche overlap") +
   guides(fill = FALSE) +
-  ylim(c(0, 0.55))
+  scale_x_continuous(breaks = seq(0.25, 0.5, by = 0.05))
 
-#ggsave(file = "../output/brm_pvis01_plot1.pdf", width = 6, height = 7)
+ggsave(file = "../output/brm_niche00_plot1.pdf", width = 4.5, height = 4)
+ggsave(file = "../output/brm_niche00_plot1.png", width = 4.5, height = 4)
 ```
 
 ## 3.6 Genus niche overlap ~ tongue
+### 3.6.1 Model
 ```{r}
 brm_niche10 <- brm(niche.overlap ~ 1 +
                      (1 | site) + # varying intercept for site
@@ -962,8 +1141,33 @@ mcmc_plot(brm_niche10, pars = c("^r_tongue*"))
 mcmc_plot(brm_niche10, pars = c("^r_site*"))
 ```
 
-## 3.7 Genus niche overlap ~ sp.pair
+### 3.6.2 Vizualize
 ```{r}
+brm_niche10_plotframe1 <- brm_niche10 %>%
+  spread_draws(b_Intercept, r_tongue.pair[condition, term]) %>%
+  mutate(condition_mean = b_Intercept + r_tongue.pair) %>%
+  group_by(condition) %>% # group by tongue:morpotype pair
+  point_interval(condition_mean, .width = c(0.95, 0.66)) %>% # calculate credible intervals
+  mutate(condition_mean_trans = inv_logit_scaled(condition_mean), # exponentiating the estimates gets us back to the response scale (negbinomial uses log link function)
+         .lower_trans = inv_logit_scaled(.lower),
+         .upper_trans = inv_logit_scaled(.upper)) %>%
+  mutate(condition = factor(condition, levels = c("short:short", "med:med", "long:long",
+                                          "short:med", "short:long", "med:long")))
+
+ggplot(brm_niche10_plotframe1, aes(condition_mean_trans, condition, 
+                                 xmin = .lower_trans, xmax = .upper_trans)) +
+  geom_pointinterval() +
+  theme_light(12) +
+  labs(x = "Niche overlap", y= "Tongue pair") +
+  guides(fill = FALSE)
+
+ggsave(file = "../output/brm_niche10_plot1.pdf", width = 4.5, height = 4)
+ggsave(file = "../output/brm_niche10_plot1.png", width = 4.5, height = 4)
+```
+
+## 3.7 Genus niche overlap ~ sp.pair
+### 3.7.1 Model
+```{r eval=FALSE, include=FALSE}
 brm_niche20 <- brm(niche.overlap ~ 1 +
                      (1 | site) + # varying intercept for site
                      (1 | sp.pair), # varying intercept for sp.pair
@@ -972,7 +1176,7 @@ brm_niche20 <- brm(niche.overlap ~ 1 +
                    #file = "./brm_niche_20", # HPC
                    iter = 2000,
                    chains = 4,
-                   data = filter(niche_pool, level == "genus"))
+                   data = filter(niche_overlap, level == "genus"))
 
 pp_check(brm_niche20)
 bayes_R2(brm_niche20)
@@ -983,10 +1187,78 @@ mcmc_plot(brm_niche20, pars = c("^r_sp.pair"))
 mcmc_plot(brm_niche20, pars = c("^r_site*"))
 ```
 
+### 3.7.2 Visualize
+```{r eval=FALSE, include=FALSE}
+brm_niche20_plotframe1 <- brm_niche20 %>%
+  spread_draws(b_Intercept, r_sp.pair[condition, term]) %>%
+  mutate(condition_mean = b_Intercept + r_sp.pair) %>%
+  group_by(condition) %>% # group by tongue:morpotype pair
+  point_interval(condition_mean, .width = c(0.95, 0.66)) %>% # calculate credible intervals
+  mutate(condition_mean_trans = inv_logit_scaled(condition_mean), # exponentiating the estimates gets us back to the response scale (negbinomial uses log link function)
+         .lower_trans = inv_logit_scaled(.lower),
+         .upper_trans = inv_logit_scaled(.upper)) %>%
+  mutate(condition = factor(condition)) %>%
+  left_join(niche_pool, by = c("condition" = "sp.pair")) %>%
+  select(condition, condition_mean_trans, .lower_trans, .upper_trans, tongue.pair) %>%
+  distinct() %>%
+  mutate(tongue.pair = factor(tongue.pair, levels = c("short:short", "med:med", "long:long",
+                                                      "short:med", "short:long", "med:long")))
+
+ggplot(brm_niche20_plotframe1, aes(condition_mean_trans, condition, 
+                                 xmin = .lower_trans, xmax = .upper_trans)) +
+  geom_pointinterval() +
+  theme_light(11) +
+  labs(x = "Niche overlap", y= "Tongue pair") +
+  guides(fill = FALSE) +
+ # facet_wrap(~tongue.pair, ncol = 1, scales = "free_y") +
+  facet_wrap(~tongue.pair, scales = "free_y")
+
+ggsave(file = "../output/brm_niche20_plot1.pdf", width = 4.5, height = 4)
+ggsave(file = "../output/brm_niche20_plot1.png", width = 7, height = 10)
+```
+
 ## 3.8 Niche overlap ~ elevation
+### 3.8.1 Models
 ```{r}
+ggplot(filter(niche_overlap_sppair, !sp1 %in% c("humi") & !sp2 %in% c("humi")), 
+       aes(elev.mean, mean.niche.overlap, color = sp.pair)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
+  facet_wrap(~sp.pair) +
+  ylim(c(0,1))
+
+ggplot(filter(niche_overlap_sppair, 
+              sp1 %in% c("pasc", "prat", "soro", "telu", "wurf") & 
+                sp2 %in% c("pasc", "prat", "soro", "telu", "wurf")), 
+       aes(elev.mean, mean.niche.overlap, color = sp.pair)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
+  facet_wrap(~sp.pair) +
+  ylim(c(0,1))
+
+ggplot(filter(niche_overlap_sppair, 
+              sp1 %in% c("pasc", "prat", "soro", "telu", "wurf",
+                         "mont", "muci", "pyre", "mend", "gers") & 
+                sp2 %in% c("pasc", "prat", "soro", "telu", "wurf",
+                           "mont", "muci", "pyre", "mend", "gers")), 
+       aes(elev.mean, mean.niche.overlap, color = sp.pair)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
+  facet_wrap(~sp.pair) +
+  ylim(c(0,1))
+
+ggplot(filter(niche_overlap_sppair,
+              sp1 != "humi" & sp2 != "humi" &
+              sp1 %in% c("pasc", "prat", "soro", "telu", "wurf") | 
+                sp2 %in% c("pasc", "prat", "soro", "telu", "wurf")), 
+       aes(elev.mean, mean.niche.overlap, color = sp.pair)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5), se = FALSE) +
+  facet_wrap(~sp.pair) +
+  ylim(c(0,1))
+
 # Pairwise
-gen_gam_niche.I <- bam(niche.overlap ~
+gen_gam_niche.I <- bam(mean.niche.overlap ~
                             s(sp.pair, bs = "re") +
                             s(site, bs = "re") + # since I have measures repeated over species pairs within each elevation level
                             s(elev.mean, by = sp.pair, k = 8, m = 2),
@@ -994,36 +1266,24 @@ gen_gam_niche.I <- bam(niche.overlap ~
                           family = betar(eps = 0.001),
                           discrete = TRUE,
                           select = TRUE,
-                          data = filter(niche_pool, level == "genus" &
-                                          bb.sp1 %in% c("pasc", "prat", "soro", "telu", "wurf", # dominant species
+                          data = filter(niche_overlap_sppair, level == "genus" &
+                                          sp1 %in% c("pasc", "prat", "soro", "telu", "wurf", # dominant species
                                                         "mont", "muci", "pyre", "mend") & # high elevation specialists
-                                          bb.sp2 %in% c("pasc", "prat", "soro", "telu", "wurf",
+                                          sp2 %in% c("pasc", "prat", "soro", "telu", "wurf",
                                                         "mont", "muci", "pyre", "mend"))) %>% getViz() 
 
 check.gamViz(gen_gam_niche.I)
 summary(gen_gam_niche.I)
-plot(sm(gen_gam_niche.I, 9))
-plot(sm(gen_gam_niche.I, 12))
-plot(sm(gen_gam_niche.I, 14))
-plot(sm(gen_gam_niche.I, 15))
-plot(sm(gen_gam_niche.I, 16))
-plot(sm(gen_gam_niche.I, 32))
-
+plot(sm(gen_gam_niche.I, 1))
+plot(sm(gen_gam_niche.I, 11))
+plot(sm(gen_gam_niche.I, 28))
+plot(sm(gen_gam_niche.I, 33))
+plot(sm(gen_gam_niche.I, 37))
 
 # Community mean
 ggplot(niche_pool_sitemean, aes(elev.mean, mean.niche.overlap, color = level)) +
   geom_point() +
   geom_smooth(method = "gam", formula = y ~ s(x, k = 8))
 
-mean_niche_gam.I <- gam(mean.niche.overlap ~
-                            level + 
-                            s(elev.mean, by = level, k = 8, m = 2),
-                          method = "REML",
-                          family = betar(eps = 0.001),
-                          select = TRUE,
-                          data = niche_pool_sitemean) %>% getViz()
-
-check.gamViz(mean_niche_gam.I)
-summary(mean_niche_gam.I)
-print(plot.gamViz(mean_niche_gam.I, allTerms = TRUE), pages = 1)
 ```
+
