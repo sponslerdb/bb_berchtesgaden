@@ -374,6 +374,7 @@ ggplot(brm_pvis00_plotframe1, aes(condition_mean_trans, tongue,
         axis.ticks.y=element_blank())
 
 ggsave(file = "../output/brm_pvis00_plot1.pdf", width = 6, height = 5)
+ggsave(file = "../output/brm_pvis00_plot1.png", width = 6, height = 5)
 ```
 
 ### 1.5.2 morphotype:bb.sp intercept
@@ -416,6 +417,7 @@ ggplot(brm_pvis02_plotframe2, aes(condition_mean_trans, bb.sp,
   guides(fill = FALSE) 
 
 ggsave(file = "../output/brm_pvis02_plot1.pdf", width = 8, height = 8)
+ggsave(file = "../output/brm_pvis02_plot1.png", width = 8, height = 8)
 ```
 
 ### 1.5.3 morphotype:tongue slope
@@ -581,20 +583,24 @@ Aggregation changes meaning. Don't forget that. When I pool visitation across da
 # Fl traits with abbreviated names
 fl_traits2 <- fl_traits %>%
   left_join(read_csv("../data/processed_data/network.csv")) %>%
-  select(plant.sp, plant.sp.abb, plant.genus, plant.family, k.type.ss, color) %>%
+  #select(plant.sp, plant.sp.abb, plant.genus, plant.family, k.type.ss, color) %>%
+  select(plant.genus, k.type.ss) %>%
   mutate(k.type.ss = factor(k.type.ss)) %>%
-  distinct()
+  distinct() %>%
+  na.omit() # THIS IS JUST A PLACEHOLDER UNTIL I FIX THE GENTIANA/ELLA/OPSIS NOMENCALTURE
 
 # Totally aggregated; note I'm using the full data, not the aligned and trimmed data. No need for complementary floral survey data.
 visitation2 <- read_csv("../data/processed_data/network.csv") %>%
   filter(caste != "male") %>% # we will ignore males 
   filter(!bb.sp %in% c("humi")) %>% # humi is too rare
-  group_by(bb.sp, plant.sp.abb) %>%
+  #group_by(bb.sp, plant.sp.abb) %>%
+  group_by(bb.sp, plant.genus) %>%
   summarize(visits = n()) %>%
   group_by(bb.sp) %>%
   mutate(prop.visits = visits/sum(visits)) %>%
   select(-visits) %>%
-  pivot_wider(names_from = plant.sp.abb, values_from = prop.visits, values_fill = 0) %>%
+  #pivot_wider(names_from = plant.sp.abb, values_from = prop.visits, values_fill = 0) %>%
+  pivot_wider(names_from = plant.genus, values_from = prop.visits, values_fill = 0) %>%
   column_to_rownames("bb.sp")
 
 bb_traits2 <- bb_traits %>%
@@ -629,7 +635,8 @@ pcoa_horn2_mds2 <- round(pcoa_horn2$CA$eig[[2]] / sum(pcoa_horn2$CA$eig)*100)
 # Fortify plants
 pcoa_horn2.fort1 <- fortify(pcoa_horn2, axes = 1:2) %>%
   filter(Score == "species") %>%
-  rename(plant.sp.abb = Label) %>%
+  #rename(plant.sp.abb = Label) %>%
+  rename(plant.genus = Label) %>%
   left_join(fl_traits2)
 
 # Fortify bees
@@ -650,9 +657,9 @@ ggplot(pcoa_horn2.fort2, aes(MDS1, MDS2, color = pbl.w.class2)) +
                aes(fill = pbl.w.class2, color = NULL),
                alpha = 0.25) +
   geom_text(aes(label = bb.sp), key_glyph = "rect") +
-  geom_text_repel(data = filter(pcoa_horn2.fort1, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2), 
-            aes(MDS1, MDS2, label = plant.sp.abb), inherit.aes = FALSE, color = "gray40") +
-  geom_point(data = filter(pcoa_horn2.fort1, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2),
+  geom_text_repel(data = filter(pcoa_horn2.fort1, abs(MDS1) >= 0.22 | abs(MDS2) >= 0.22), 
+            aes(MDS1, MDS2, label = plant.genus), inherit.aes = FALSE, color = "gray40") +
+  geom_point(data = filter(pcoa_horn2.fort1, abs(MDS1) >= 0.22 | abs(MDS2) >= 0.22),
             aes(MDS1, MDS2, shape = k.type.ss), inherit.aes = FALSE, color = "gray40", size = 3) +
   scale_shape_discrete() +
   xlab(paste("MDS1 ", "(", pcoa_horn2_mds1, "%", ")", sep = "")) +
@@ -661,7 +668,7 @@ ggplot(pcoa_horn2.fort2, aes(MDS1, MDS2, color = pbl.w.class2)) +
        shape = "Morphotype") +
   guides(color = FALSE) +
   coord_fixed() +
-  theme_light(10)
+  theme_light(9)
 
 ggsave("../output/pcoa_aggregate.png")
 ```
