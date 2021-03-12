@@ -3,20 +3,26 @@ title: "Abundance/diversity GAM"
 output: html_document
 ---
 
-### Prepare environment
+# 1. Prep work
+## 1.1 Prepare environment
 ```{r setup, include=FALSE, echo=FALSE}
 library(mgcv)
 library(mgcViz)
+library(tidymv)
+library(vegan)
+library(ggvegan)
+library(ggrepel)
 library(tidyverse)
 library(lubridate)
 ```
 
-### Load site and trait data
+## 1.2 Load site and trait data
 ```{r, include=FALSE, echo=FALSE}
 site_data <- read_csv("../data/processed_data/site_data.csv") %>%
   dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
   mutate(elev.class2 = factor(elev.class2, levels = c("low", "mid", "high")),
-         site = factor(site)) # turn elav.class into an ordered factor and site into a regular factor
+         site = factor(site),
+         tree_line = factor(tree_line)) # turn elev.class into an ordered factor and site into a regular factor
 
 # BB traits
 bb_traits <- read_csv("../data/processed_data/bb_traits.csv") 
@@ -50,11 +56,12 @@ fl_traits <- fl_tax %>%
   dplyr::select(plant.sp, plant.genus, plant.family, k.type, k.type.s, k.type.ss, color, diam, LN)
 ```
 
-### Load network and survey data
+## 1.3 Load network and survey data
 ```{r message=FALSE}
 ### BB-FL visitation data
 net <- read_csv("../data/processed_data/network.csv") %>%
-  filter(caste != "male") %>%
+  filter(caste != "male",
+         !bb.sp %in% c("humi", "hypn")) %>% # too rare
   dplyr::select(site, date, bb.sp, plant.sp) # drop unused columns
 
 ### Floral survey data
@@ -78,11 +85,10 @@ surv_sp <- survey %>%
   select(plant.sp, plant.genus, plant.family) %>%
   unique()
 
-
 missing <- anti_join(vis_sp, surv_sp)
 ```
 
-### FL and BB abundance / diversity
+## 1.4 Calculate FL and BB abundance / diversity
 ```{r echo=FALSE, include=TRUE, message=FALSE}
 # Per-transect BB abundance
 ## full dataset
@@ -100,27 +106,8 @@ bb_abund_sp <- net %>%
          management = factor(management),
          site = factor(site),
          transect = factor(transect)) %>%
-  group_by(year, bb.sp) %>%
-  mutate(bb.annual.abund = sum(bb.abund),
-         abund.class = case_when(
-           bb.sp %in% c("telu", "pasc", "prat", "soro", "wurf") ~ "dominant",
-           bb.sp %in% c("jone", "psit", "hort") ~ "common",
-           bb.sp %in% c("pyre", "mend", "mont", "hypn", "lapi") ~ "high elev.",
-           bb.sp %in% c("gers", "humi", "muci") ~ "minor"
-         ),
-         abund.class = factor(abund.class, levels = c("dominant", "common", "high elev.", "minor")),
-         bb.sp.ord = factor(bb.sp, levels = c("telu", "pasc", "prat", "soro", "wurf", 
-                                              "hort", "jone", "psit",
-                                              "pyre", "mend", "mont",
-                                              "gers", "humi", "muci", "hypn", "lapi"))) %>%
   left_join(bb_traits) %>%
   mutate(tongue = factor(pbl.w.class2))
-
-# ## filtered to include only samples with corresponding floral survey data
-# bb_abund_sp.sub <- bb_abund_sp %>%
-#   ungroup() %>%
-#   semi_join(shared_transects) %>%
-#   select(site, date, yday, bb.sp, bb.abund, bb.annual.abund, elev.mean)
 
 ### Per-transect floral abund by species
 fl_abund_sp <- survey %>%
@@ -135,23 +122,9 @@ fl_abund_sp <- survey %>%
   unique() %>%
   mutate(year = factor(year(date))) %>%
   left_join(fl_traits)
-
-### Visualize raw abundance/occurrence
-ggplot(filter(bb_abund_sp, bb.abund > 0), aes(yday, elev.mean, color = abund.class)) +
-  geom_point(aes(alpha = bb.abund)) +
-  #geom_point() +
-  #facet_grid(year~ bb.sp) 
-  facet_wrap(~bb.sp.ord)
-
-ggplot(bb_abund_sp, aes(bb.sp, log(bb.abund + 1))) +
-  geom_boxplot()
-
-ggplot(bb_abund_sp, aes(log(bb.abund + 1))) +
-  geom_histogram() +
-  facet_wrap(~bb.sp)
 ```
 
-### Binary "preference" for each plant genus by each bumble bee species; score species 0 or 1 based on whether they were visited
+## 1.5 Calculate binary "preference" for each plant genus by each bumble bee species; score species 0 or 1 based on whether they were visited
 ```{r message=FALSE}
 weights <- fl_abund_sp %>%
   select(plant.sp, plant.genus) %>%
@@ -161,7 +134,7 @@ weights <- fl_abund_sp %>%
   distinct() %>%
   mutate(visited = rep(1, n())) %>%
   pivot_wider(values_from = visited, names_from = bb.sp, values_fill = 0) %>%
-  pivot_longer(cols = 2:17, values_to = "visited", names_to = "bb.sp")
+  pivot_longer(cols = 2:15, values_to = "visited", names_to = "bb.sp")
   
 weighted_fl_abund <- fl_abund_sp %>%
   group_by(site, date, plant.genus) %>%
@@ -176,20 +149,266 @@ weighted_fl_abund <- fl_abund_sp %>%
          bb.sp = factor(bb.sp),
          site = factor(site),
          year = factor(year(date)))
-
-ggplot(weighted_fl_abund, aes(total.weighted.flower.cover)) +
-  geom_histogram() +
-  facet_wrap(~bb.sp)
-
-ggplot(weighted_fl_abund, aes(bb.sp, total.weighted.flower.cover)) +
-  geom_boxplot()
-
-ggplot(weighted_fl_abund, aes(bb.sp, log(total.weighted.flower.cover))) +
-  geom_boxplot()
 ```
 
-### Call GAMs
-#### Floral abundance
+# 2. Analyses
+
+## 2.1 BB elevation distribution
+```{r}
+bb_range <- net %>%
+  left_join(site_data) %>%
+  group_by(site, date, elev.mean, tree_line, bb.sp) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, tree_line, bb.sp) %>%
+  summarize(abund = max(abund)) %>%
+  filter(abund > 0) %>%
+  group_by(bb.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2))
+
+ggplot(bb_range, aes(reorder(bb.sp, elev.med), elev.mean)) +
+  geom_line(size = 2, alpha = 0.25) +
+  geom_point(aes(size = abund, color = tree_line), alpha = 0.5) +
+  theme_light(14) +
+  scale_size_continuous(name = "Peak abundance",
+                        breaks = c(1, 10, 20, 40, 80)) +
+  scale_color_discrete(name = "Tree line") +
+  xlab("Bumble bee species") +
+  ylab("Elevation (m)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("../output/bb_range_ms1.pdf")
+ggsave("../output/bb_range_ms1.png")
+
+# What happens if I plot max abundance by elevation?
+
+bb_range2 <- net %>%
+  left_join(site_data) %>%
+  group_by(site, date, elev.mean, tree_line, bb.sp) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, tree_line, bb.sp) %>%
+  summarize(abund = max(abund)) 
+
+ggplot(filter(bb_range2, bb.sp != "humi"), aes(elev.mean, abund)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 6)) +
+  facet_wrap(~bb.sp, scales = "free_y", ncol = 4) +
+  geom_vline(xintercept = 1500, color = "red", linetype = "dashed")
+```
+
+## 2.2. Aggregate analysis of max BB abundance and mean FL abundance  ~ elevation
+
+### 2.2.1 Calculate max and mean abundances within site and year
+```{r}
+# Get mean total weighted floral abundance by BB sp
+weighted_fl_abund_mean <- weighted_fl_abund %>%
+  group_by(site, bb.sp, year) %>%
+  summarize(mean.fl.abund = mean(total.weighted.flower.cover),
+            max.fl.abund = max(total.weighted.flower.cover)) %>%
+  left_join(site_data)
+
+# Get max BB abundance by sp
+bb_abund_sp_max <- bb_abund_sp %>%
+  group_by(site, elev.mean, year, bb.sp) %>%
+  summarize(max.bb.abund = max(bb.abund),
+            mean.bb.abund = mean(bb.abund))
+
+# Join
+abund_sum <- full_join(weighted_fl_abund_mean, bb_abund_sp_max) %>%  
+  unite(sp.year, c(bb.sp, year), remove = FALSE) %>%
+  mutate(site = factor(site),
+         bb.sp = factor(bb.sp),
+         sp.year = factor(sp.year)) 
+```
+
+### 2.2.2 Preliminary visualizations
+```{r}
+## mean floral abundance
+ggplot(abund_sum, aes(elev.mean, mean.fl.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 8), se = FALSE) +
+  facet_wrap(~bb.sp, scales = "free_y") +
+  geom_vline(xintercept = 1500)
+
+## log(mean floral abundance)
+ggplot(abund_sum, aes(elev.mean, log(mean.fl.abund), color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 8), se = FALSE) +
+  facet_wrap(~bb.sp) +
+  geom_vline(xintercept = 1500)
+
+## Max floral abundance)
+ggplot(abund_sum, aes(elev.mean, max.fl.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 8), se = FALSE) +
+  facet_wrap(~bb.sp) +
+  geom_vline(xintercept = 1500)
+
+## Max BB abundance
+ggplot(abund_sum, aes(elev.mean, max.bb.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 8),  se = FALSE) +
+  facet_wrap(~bb.sp, scales = "free_y") +
+  geom_vline(xintercept = 1500)
+
+## Max  abundance ~ mean BB abundance, to see how interchangeable they are.
+## They are almost perfectly correlated, and I think max abund is more informative
+ggplot(abund_sum, aes(mean.bb.abund, max.bb.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 8),  se = FALSE) +
+  facet_wrap(~bb.sp, scales = "free_y") 
+
+## Are max FL and mean FL similarly interchangeable? Yes.
+ggplot(abund_sum, aes(mean.fl.abund, max.fl.abund, color = year)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 8),  se = FALSE) +
+  facet_wrap(~bb.sp, scales = "free_y") 
+
+## Max BB abundance ~ mean FL abundance
+ggplot(abund_sum, aes(log(mean.fl.abund), max.bb.abund)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 8),  se = FALSE) +
+  facet_wrap(~bb.sp, scales = "free_y")
+```
+
+### 2.2.3 Abundance models
+#### 2.2.3.1 Bumble bees
+```{r}
+gam_max_bb_abund_00 <- gam(max.bb.abund ~ 
+                             year +
+                             s(bb.sp, bs = "re") +
+                             s(elev.mean, by = bb.sp, k = 8),
+                           method = "REML",
+                           family = "nb",
+                           select = TRUE,
+                           data = abund_sum) %>% getViz()
+
+check.gamViz(gam_max_bb_abund_00)
+summary(gam_max_bb_abund_00)
+print(plot(gam_max_bb_abund_00, allTerms = TRUE), pages = 1)
+
+gam_max_bb_abund_00_pred <- predict.gam(gam_max_bb_abund_00, type = "terms", se.fit = TRUE) %>%
+  as.data.frame() %>%
+  as_tibble() %>%
+  select(sm.year = 1, sm.bb.sp = 2, gers = 3, hort = 4, jone = 5, lapi = 6, mend  = 7,
+         mont = 8, muci = 9, pasc = 10, prat = 11, psit = 12, pyre = 13, soro = 14,
+         telu = 15, wurf = 16,
+         se.year = 17, se.bb.sp = 18, gers.se = 19, hort.se = 20, jone.se = 21, lapi.se = 22, mend.se  = 23,
+         mont.se = 24, muci.se = 25, pasc.se = 26, prat.se = 27, psit.se = 28, pyre.se = 29, soro.se = 30,
+         telu.se = 31, wurf.se = 32) %>%
+  mutate(fit = sm.year + sm.bb.sp + gers + hort + jone + lapi + 
+           mend + mont + muci + pasc + prat + psit + pyre + 
+           soro + telu + wurf) %>%
+  mutate(se = se.year + se.bb.sp + gers.se + hort.se + jone.se + lapi.se + mend.se + mont.se + 
+           muci.se + pasc.se + prat.se + psit.se + pyre.se + soro.se + telu.se + wurf.se) %>%
+  select(fit, se) %>%
+  mutate(fit.plus = fit + se,
+         fit.min = fit - se,
+         fit.trans = exp(fit),
+         fit.plus.trans = exp(fit.plus),
+         fit.min.trans = exp(fit.min)) %>%
+  bind_cols(abund_sum)
+  
+ggplot(gam_max_bb_abund_00_pred, aes(elev.mean, fit.trans, color = year)) +
+  geom_ribbon(aes(elev.mean, fit.trans, 
+                  ymax = fit.plus.trans, ymin = fit.min.trans,
+                  fill = year), alpha = 0.2, inherit.aes = FALSE) +
+  geom_line() +
+  facet_wrap(~bb.sp, scales = "free_y") +
+  geom_vline(xintercept = 1500, linetype = "dashed") +
+  theme_light()
+```
+
+#### 2.2.3.2 Floral resources
+```{r}
+# There are lots of ways this could be specified. From looking at the data and the models, it seems like BB species-level variation in floral resources is very low, and there is a strong global effect of elevation. I think the global model has the strongest message, namely the collapse of overall floral resource availability above the tree line. I can all report the species-level predictions, though.
+gam_max_fl_abund_00 <- gam(log(mean.fl.abund) ~ 
+                             s(elev.mean, year, bs = "fs", k = 8) +
+                             s(elev.mean, bb.sp, bs = "fs", k = 8),
+                           method = "REML",
+                           family = "gaussian",
+                           select = TRUE,
+                           data = abund_sum) %>% getViz()
+
+check.gamViz(gam_max_fl_abund_00)
+summary(gam_max_fl_abund_00)
+concurvity(gam_max_fl_abund_00)
+print(plot(gam_max_fl_abund_00, allTerms = TRUE), pages = 1)
+plot(gam_max_fl_abund_00)
+
+gam_max_fl_abund_00_pred <- predict.gam(gam_max_fl_abund_00, type = "terms", se.fit = TRUE) %>%
+  as.data.frame() %>%
+  as_tibble() %>%
+  select(sm.year = 1, sm.bb.sp = 2,
+         se.year = 3, se.bb.sp = 4) %>%
+  mutate(fit = sm.year) %>%
+  mutate(se = se.year) %>%
+  select(fit, se) %>%
+  mutate(fit.plus = fit + se,
+         fit.min = fit - se,
+         fit.trans = exp(fit),
+         fit.plus.trans = exp(fit.plus),
+         fit.min.trans = exp(fit.min)) %>%
+  bind_cols(na.omit(abund_sum)) %>% # the na.omit() drops the rows where floral surveying data were missing
+  select(fit.trans, fit.plus.trans, fit.min.trans, se, elev.mean, year) %>%
+  distinct()
+
+ggplot(gam_max_fl_abund_00_pred, aes(elev.mean, fit.trans, color = year)) +
+  geom_ribbon(aes(elev.mean, fit.trans, 
+                  ymax = fit.plus.trans, ymin = fit.min.trans,
+                  fill = year), alpha = 0.2, inherit.aes = FALSE) +
+  geom_line() +
+  #geom_point(aes(elev.mean, mean.fl.abund, color = year), inherit.aes = FALSE, alpha = 0.25) +
+  geom_vline(xintercept = 1500, linetype = "dashed") +
+  theme_light()
+
+# Alternatively, since it seems like species basically has just an intercept effect
+gam_max_fl_abund_01 <- gam(log(mean.fl.abund) ~ 
+                             s(bb.sp, bs = "re") +
+                             s(elev.mean, year, bs = "fs", k = 8),
+                           method = "REML",
+                           family = "gaussian",
+                           select = TRUE,
+                           data = abund_sum) %>% getViz()
+
+check.gamViz(gam_max_fl_abund_01)
+summary(gam_max_fl_abund_01)
+concurvity(gam_max_fl_abund_01)
+print(plot(gam_max_fl_abund_01, allTerms = TRUE), pages = 1)
+plot(gam_max_fl_abund_01)
+
+gam_max_fl_abund_01_pred <- predict.gam(gam_max_fl_abund_00, type = "terms", se.fit = TRUE) %>%
+  as.data.frame() %>%
+  as_tibble() %>%
+  select(sm.year = 1, sm.bb.sp = 2,
+         se.year = 3, se.bb.sp = 4) %>%
+  mutate(fit = sm.year) %>%
+  mutate(se = se.year) %>%
+  select(fit, se) %>%
+  mutate(fit.plus = fit + se,
+         fit.min = fit - se,
+         fit.trans = exp(fit),
+         fit.plus.trans = exp(fit.plus),
+         fit.min.trans = exp(fit.min)) %>%
+  bind_cols(na.omit(abund_sum)) %>% # the na.omit() drops the rows where floral surveying data were missing
+  select(fit.trans, fit.plus.trans, fit.min.trans, se, elev.mean, year) %>%
+  distinct()
+
+ggplot(gam_max_fl_abund_00_pred, aes(elev.mean, fit.trans, color = year)) +
+  geom_ribbon(aes(elev.mean, fit.trans, 
+                  ymax = fit.plus.trans, ymin = fit.min.trans,
+                  fill = year), alpha = 0.2, inherit.aes = FALSE) +
+  geom_line() +
+  #geom_point(aes(elev.mean, mean.fl.abund, color = year), inherit.aes = FALSE, alpha = 0.25) +
+  geom_vline(xintercept = 1500, linetype = "dashed") +
+  theme_light()
+```
+
+## 2.3 Elevation x time analysis
+
+### 2.3.1 Floral abundance
 ```{r message=FALSE, warning=FALSE}
 # First, let's model overall floral abundance without parsing it out by which species were visited by which bumble bee species
 fl_abund_pool <- fl_abund_sp %>%
@@ -335,7 +554,7 @@ grid_plot_fl_abun <- gridPrint(gers_fl_abund +
 dev.off()
 ```
 
-#### Bumbles
+### 2.3.2 Bumble bee abundance
 ```{r message=FALSE}
 # Zero-inflation may be an issue; a simple Poisson model is badly overdispersed
 ggplot(bb_abund_sp, aes(bb.abund)) +
@@ -459,221 +678,4 @@ grid_plot_fl_abun <- gridPrint(gers_abund +
 dev.off()
 ```
 
-#### Functional bumbles
-```{r}
-bb_abund_sp_tongues <- bb_abund_sp %>%
-  group_by(site, date, year, pbl.w.class2, elev.mean, yday) %>%
-  summarize(bb.abund = sum(bb.abund)) %>%
-  mutate(tongue = factor(pbl.w.class2)) %>%
-  dplyr::select(-pbl.w.class2)
 
-bb_abund_tongue.qp <- bam(bb.abund ~ 
-                             s(bb.sp.ord, bs = "re") + # center species
-                             s(tongue, bs = "re") + # center species
-                             s(year, bs = "re") + # random intercept for year
-                             s(site, bs = "re") + # random intercept to avoid pseudoreplicating elevation
-                             te(yday, elev.mean, # tensor product smooth of elevation and time
-                                by = tongue, # by bb.sp
-                                bs= c("gp", "tp"), # gaussian procees for time, thinplate spline for elevation
-                                k=c(8, 8), 
-                                m=2),
-                           data = bb_abund_sp, # humi is just too rare
-                           discrete = TRUE,
-                           family = "quasipoisson",
-                           select = TRUE,
-                           method = "fREML") %>% getViz()
-
-check.gamViz(bb_abund_tongue.qp)
-sum.tongue_qp <- summary(bb_abund_tongue.qp)
-print(plot(bb_abund_tongue.qp, allTerms = TRUE), pages = 1)
-plot(bb_abund_tongue.qp)
-```
-
-#### Occurrence clustering
-```{r}
-library(vegan)
-library(ggvegan)
-library(ggrepel)
-
-# Unpooled data
-bb_rel_abund <- bb_abund_sp %>%
-  filter(bb.sp != "humi") %>%
-  ungroup() %>%
-  group_by(site, date, bb.sp) %>%
-  summarize(bb.abund = sum(bb.abund)) %>%
-  unite(id, c(site, date)) %>%
-  pivot_wider(names_from = id, values_from = bb.abund) %>%
-  column_to_rownames("bb.sp") %>%
-  decostand(method = "hellinger")
-
-dist <- vegdist(bb_rel_abund, method = "horn")
-clust <- hclust(dist, method = "ward.D2")
-
-pdf("../output/clust.pdf", height = 4.5, width = 9)
-plot(clust)
-dev.off()
-
-pcoa <- capscale(bb_rel_abund ~ 1, method = "horn")
-plot(pcoa, type = "t")
-
-pcoa_mds1 <- round(pcoa$CA$eig[[1]] / sum(pcoa$CA$eig)*100)
-pcoa_mds2 <- round(pcoa$CA$eig[[2]] / sum(pcoa$CA$eig)*100)
-
-pcoa.fort <- fortify(pcoa)
-
-ggplot(filter(pcoa.fort, Score == "sites"), aes(MDS1, MDS2)) +
-  geom_point() +
-  geom_text_repel(aes(label = Label), size = 6) +
-  xlab(paste("MDS1 ", "(", pcoa_mds1, "%", ")", sep = "")) +
-  ylab(paste("MDS2 ", "(", pcoa_mds2, "%", ")", sep = "")) +
-  coord_fixed() +
-  theme_gray(16)
-
-ggsave("../output/pcoa_abund.pdf")
-
-# Pooled data
-bb_rel_abund2 <- bb_abund_sp %>%
-  filter(bb.sp != "humi") %>%
-  ungroup() %>%
-  group_by(site, date, bb.sp) %>%
-  summarize(bb.abund = sum(bb.abund)) %>%
-  group_by(site, bb.sp) %>%
-  summarize(bb.abund = mean(bb.abund)) %>%
-  pivot_wider(names_from = site, values_from = bb.abund) %>%
-  column_to_rownames("bb.sp") %>%
-  decostand(method = "hellinger")
-
-dist2 <- vegdist(bb_rel_abund2, method = "horn")
-clust2 <- hclust(dist2, method = "ward.D2")
-
-pdf("../output/clust2.pdf", height = 4.5, width = 9)
-plot(clust2)
-dev.off()
-
-pcoa2 <- capscale(bb_rel_abund2 ~ 1, method = "horn")
-plot(pcoa2, type = "t")
-
-pcoa2_mds1 <- round(pcoa2$CA$eig[[1]] / sum(pcoa2$CA$eig)*100)
-pcoa2_mds2 <- round(pcoa2$CA$eig[[2]] / sum(pcoa2$CA$eig)*100)
-
-pcoa2.fort <- fortify(pcoa2)
-
-ggplot(filter(pcoa2.fort, Score == "sites"), aes(MDS1, MDS2)) +
-  geom_point() +
-  geom_text_repel(aes(label = Label), size = 6) +
-  xlab(paste("MDS1 ", "(", pcoa2_mds1, "%", ")", sep = "")) +
-  ylab(paste("MDS2 ", "(", pcoa2_mds2, "%", ")", sep = "")) +
-  coord_fixed() +
-  theme_gray(16)
-
-ggsave("../output/pcoa2_abund2.pdf")
-```
-
-### BB range and abundance
-```{r}
-species_names <- cbind(c("telu", "pasc", "prat", 
-                         "soro", "wurf", "hort", 
-                         "pyre", "mend", "mont", 
-                         "gers", "hypn","jone", 
-                         "lapi", "muci", "psit"),
-                       c("B. terrestris/lucorum", "B. pascuorum", "B. pratorum", 
-                         "B. soroensis", "B. wurflenii", "B. hortorum",
-                         "B. pyrenaeus", "B. mendax", "B. monticola",
-                         "B. gerstaeckeri", "B. hypnorum", "B. jonellus", 
-                         "B. lapidarius", "B. mucidus", "B. psithyrus"),
-                       c("B. telu.", "B. pasc.", "B. prat.", 
-                         "B. soro.", "B. wurf.", "B. hort.",
-                         "B. pyre.", "B. mend.", "B. mont.",
-                         "B. gers.", "B. hypn.", "B. jone.", 
-                         "B. lapi.", "B. muci.", "B. psit."),
-                       c("major", "major", "major", 
-                         "major", "major", "common", 
-                         "high elev.", "high elev.", "high elev.",
-                         "minor", "minor", "common", 
-                         "minor", "high elev.", "common")
-                       ) %>%
-  as.data.frame() %>%
-  as_tibble() %>%
-  dplyr::select(bb.sp = 1, species.name = 2, species.abb = 3, abund.class = 4)
-
-bb_range <- net %>%
-  #filter(bb.sp != "humi") %>%
-  left_join(site_data) %>%
-  group_by(site, date, elev.mean, bb.sp) %>%
-  summarize(abund = n()) %>%
-  group_by(site, elev.mean, bb.sp) %>%
-  summarize(abund = mean(abund)) %>%
-  group_by(bb.sp) %>%
-  mutate(elev.floor = min(elev.mean),
-         elev.ceiling = max(elev.mean),
-         elev.range = elev.ceiling - elev.floor,
-         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2))
-# %>%
-#   left_join(species_names) %>%
-#   mutate(abund.class = factor(abund.class, levels = c("major", "common", "high elev.", "minor")))
-
-
-ggplot(bb_range, aes(reorder(bb.sp, elev.med), elev.mean)) +
-  geom_line(size = 2, alpha = 0.25) +
-  geom_point(aes(size = abund), alpha = 0.5) +
-  #facet_wrap(~year, ncol = 1) +
-  theme_light(12) +
-  scale_size_continuous(name = "Abundance") +
-  #scale_color_discrete(name = "Abund. class") +
-  xlab("BB species") +
-  ylab("Elevation") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-ggsave("../output/bb_range.png", width = 6, height = 4, units = "in")
-ggsave("../output/bb_range.pdf", width = 6, height = 4)
-```
-
-# Just a quick peak at what would happen if I added a by = year smooth 
-```{r}
-weighted_fl_abund.qp2 <- bam(total.weighted.flower.cover ~ 
-                              s(bb.sp, bs = "re") +
-                              s(site, bs = "re") +
-                              s(year, bs = "re") +
-                              te(yday, elev.mean,
-                                 by = year,
-                                 bs = c("gp", "tp"),
-                                 k = c(5, 5)) +
-                              te(yday, elev.mean,
-                                 by = bb.sp,
-                                 bs = c("gp", "tp"),
-                                 k = c(5, 5)),
-                            data = filter(weighted_fl_abund, bb.sp != "humi"),
-                            family = "quasipoisson",
-                            discrete = TRUE,
-                            select = TRUE,
-                            method = "fREML") %>% getViz(nsim = 500)
-
-check.gamViz(weighted_fl_abund.qp2)
-sum_fl.qp2 <- summary(weighted_fl_abund.qp2)
-print(plot(weighted_fl_abund.qp2, allTerms = TRUE), pages = 4)
-check2D(weighted_fl_abund.qp2, x1 = "yday", x2 = "elev.mean")
-
-bb_abund.qp2 <- bam(bb.abund ~ 
-                     s(bb.sp.ord, bs = "re") + # center species
-                     s(year, bs = "re") + # random intercept for year
-                     s(site, bs = "re") + # random intercept to avoid pseudoreplicating elevation
-                     te(yday, elev.mean, # tensor product smooth of elevation and time
-                        by = year, # by bb.sp
-                        bs= c("gp", "tp"), # gaussian procees for time, thinplate spline for elevation
-                        k=c(5, 5), 
-                        m=2) +
-                     te(yday, elev.mean, # tensor product smooth of elevation and time
-                        by = bb.sp.ord, # by bb.sp
-                        bs= c("gp", "tp"), # gaussian procees for time, thinplate spline for elevation
-                        k=c(5, 5), 
-                        m=2),
-                   data = filter(bb_abund_sp, bb.sp != "humi"), # humi is just too rare
-                   discrete = TRUE,
-                   family = "quasipoisson",
-                   select = TRUE,
-                   method = "fREML") %>% getViz(nsim = 500)
-
-check.gamViz(bb_abund.qp2)
-sum.qp2 <- summary(bb_abund.qp2)
-print(plot(bb_abund.qp2, allTerms = TRUE), pages = 4)
-check2D(bb_abund.qp2, x1 = "yday", x2 = "elev.mean")
-```

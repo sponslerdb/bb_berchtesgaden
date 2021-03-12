@@ -153,7 +153,8 @@ predData_prep_BB <- function(net) {
 site_data <- read_csv("../data/processed_data/site_data.csv") %>%
   dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
   mutate(elev.class2 = factor(elev.class2, levels = c("low", "mid", "high")),
-         site = factor(site)) %>% # turn elav.class into an ordered factor and site into a regular factor
+         site = factor(site),
+         tree_line = factor(tree_line)) %>% # turn elav.class into an ordered factor and site into a regular factor
   semi_join(read_csv("../data/processed_data/network.csv"), by = "site") %>% # drop sites that were not sampled
   st_as_sf(coords = c("lon", "lat")) %>%
   st_set_crs(4326) %>%
@@ -343,6 +344,13 @@ g3 <- ggplot(filter(beta_mit_data,
 
 # Patchwork plot for comparing species beta-diversity with interaction beta-diversity
 png("../output/beta_stack.png", width = 6.5, height = 4.5, units = "in", res = 300)
+(g1 | (g2 / g3)) + 
+  plot_annotation(tag_levels = c("A", "B", "C")) + 
+  #plot_layout(guides = "collect") & 
+  theme_light() 
+dev.off()
+
+pdf("../output/beta_stack.pdf", width = 6.5, height = 4.5)
 (g1 | (g2 / g3)) + 
   plot_annotation(tag_levels = c("A", "B", "C")) + 
   #plot_layout(guides = "collect") & 
