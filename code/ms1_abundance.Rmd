@@ -12,6 +12,7 @@ library(tidymv)
 library(vegan)
 library(ggvegan)
 library(ggrepel)
+library(ggforce)
 library(tidyverse)
 library(lubridate)
 ```
@@ -61,7 +62,7 @@ fl_traits <- fl_tax %>%
 ### BB-FL visitation data
 net <- read_csv("../data/processed_data/network.csv") %>%
   filter(caste != "male",
-         !bb.sp %in% c("humi", "hypn")) %>% # too rare
+         !bb.sp %in% c("humi", "hypn", "lapi")) %>% # too rare
   dplyr::select(site, date, bb.sp, plant.sp) # drop unused columns
 
 ### Floral survey data
@@ -134,7 +135,7 @@ weights <- fl_abund_sp %>%
   distinct() %>%
   mutate(visited = rep(1, n())) %>%
   pivot_wider(values_from = visited, names_from = bb.sp, values_fill = 0) %>%
-  pivot_longer(cols = 2:15, values_to = "visited", names_to = "bb.sp")
+  pivot_longer(cols = 2:14, values_to = "visited", names_to = "bb.sp")
   
 weighted_fl_abund <- fl_abund_sp %>%
   group_by(site, date, plant.genus) %>%
@@ -196,6 +197,31 @@ ggplot(filter(bb_range2, bb.sp != "humi"), aes(elev.mean, abund)) +
   geom_smooth(method = "gam", formula = y ~ s(x, k = 6)) +
   facet_wrap(~bb.sp, scales = "free_y", ncol = 4) +
   geom_vline(xintercept = 1500, color = "red", linetype = "dashed")
+
+# Overall bumble bee abundance
+bb_abund_sum <- bb_abund_sp %>%
+  group_by(site, bb.sp) %>%
+  summarize(cum.abund = sum(bb.abund),
+            mean.abund = mean(bb.abund)) %>%
+  group_by(site) %>%
+  mutate(prop.abund = cum.abund/sum(cum.abund)) %>%
+  group_by(bb.sp) %>%
+  mutate(mean.prop.abund = mean(prop.abund))
+
+ggplot(bb_abund_sum, aes(site, prop.abund, fill = bb.sp)) +
+  geom_col()
+
+ggplot(bb_abund_sum, aes(bb.sp, mean.abund)) +
+  geom_boxplot()
+
+ggplot(bb_abund_sum, aes(reorder(bb.sp, -mean.prop.abund), prop.abund)) +
+  geom_boxplot(fill = "gray85") +
+  theme_light() +
+  ylab("Proportional abundance") +
+  xlab("Bumble bee species")
+
+ggsave("../output/bb_abundsum.pdf")
+ggsave("../output/bb_abundsum.png")
 ```
 
 ## 2.2. Aggregate analysis of max BB abundance and mean FL abundance  ~ elevation
@@ -220,7 +246,9 @@ abund_sum <- full_join(weighted_fl_abund_mean, bb_abund_sp_max) %>%
   unite(sp.year, c(bb.sp, year), remove = FALSE) %>%
   mutate(site = factor(site),
          bb.sp = factor(bb.sp),
-         sp.year = factor(sp.year)) 
+         sp.year = factor(sp.year)) %>%
+  unite(bb.sp.year, c(bb.sp, year), sep = "_", remove = FALSE) %>%
+  mutate(bb.sp.year = factor(bb.sp.year))
 ```
 
 ### 2.2.2 Preliminary visualizations
@@ -228,7 +256,7 @@ abund_sum <- full_join(weighted_fl_abund_mean, bb_abund_sp_max) %>%
 ## mean floral abundance
 ggplot(abund_sum, aes(elev.mean, mean.fl.abund, color = year)) +
   geom_point(alpha = 0.5) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 8), se = FALSE) +
+  #geom_smooth(method = "gam", formula = y ~ s(x, k = 8), se = FALSE) +
   facet_wrap(~bb.sp, scales = "free_y") +
   geom_vline(xintercept = 1500)
 
@@ -274,136 +302,209 @@ ggplot(abund_sum, aes(log(mean.fl.abund), max.bb.abund)) +
 ```
 
 ### 2.2.3 Abundance models
+I'm choosing to use site as a random intercept effect in these models because I think that is the correct way to specify a model involving repeated observations (in this case, bumble bee species) within site. The effect of this decision is that the elevation smoother is less influenced by individual sites and converges more strongly toward the mean. This creates less exciting curves, but I think it is a more principled way to model the data and less prone to overfitting. I can have my cake and eat it too, though, by plotting the actual data over the GAM fit so that the strong patterns of certain sites are visible. Then I can talk about the conditional elevation effect and the importance of certain peaks that are likely to be idiosyncrasies of my system (i.e. it would be overfitting to call them elevation effects).
+
 #### 2.2.3.1 Bumble bees
 ```{r}
+# Call model
 gam_max_bb_abund_00 <- gam(max.bb.abund ~ 
-                             year +
                              s(bb.sp, bs = "re") +
-                             s(elev.mean, by = bb.sp, k = 8),
+                             s(bb.sp.year, bs = "re") + # fixed intercept for bb.sp:year
+                             s(site, bs = "re") + # random intercept for site
+                             s(elev.mean, by = bb.sp, k = 8), # smoother for elev by BB sp.
                            method = "REML",
-                           family = "nb",
+                           family = "tw", # Tweedie distribution performs well
                            select = TRUE,
                            data = abund_sum) %>% getViz()
 
-check.gamViz(gam_max_bb_abund_00)
-summary(gam_max_bb_abund_00)
-print(plot(gam_max_bb_abund_00, allTerms = TRUE), pages = 1)
+gam_max_bb_abund_00_ilink <- family(gam_max_bb_abund_00)$linkinv # get inverse link function
 
-gam_max_bb_abund_00_pred <- predict.gam(gam_max_bb_abund_00, type = "terms", se.fit = TRUE) %>%
-  as.data.frame() %>%
-  as_tibble() %>%
-  select(sm.year = 1, sm.bb.sp = 2, gers = 3, hort = 4, jone = 5, lapi = 6, mend  = 7,
-         mont = 8, muci = 9, pasc = 10, prat = 11, psit = 12, pyre = 13, soro = 14,
-         telu = 15, wurf = 16,
-         se.year = 17, se.bb.sp = 18, gers.se = 19, hort.se = 20, jone.se = 21, lapi.se = 22, mend.se  = 23,
-         mont.se = 24, muci.se = 25, pasc.se = 26, prat.se = 27, psit.se = 28, pyre.se = 29, soro.se = 30,
-         telu.se = 31, wurf.se = 32) %>%
-  mutate(fit = sm.year + sm.bb.sp + gers + hort + jone + lapi + 
-           mend + mont + muci + pasc + prat + psit + pyre + 
-           soro + telu + wurf) %>%
-  mutate(se = se.year + se.bb.sp + gers.se + hort.se + jone.se + lapi.se + mend.se + mont.se + 
-           muci.se + pasc.se + prat.se + psit.se + pyre.se + soro.se + telu.se + wurf.se) %>%
-  select(fit, se) %>%
-  mutate(fit.plus = fit + se,
-         fit.min = fit - se,
-         fit.trans = exp(fit),
-         fit.plus.trans = exp(fit.plus),
-         fit.min.trans = exp(fit.min)) %>%
+check.gamViz(gam_max_bb_abund_00) # evaluate model
+gam_max_bb_abund_00_sum <- summary(gam_max_bb_abund_00) # summarize model
+print(plot(gam_max_bb_abund_00, allTerms = TRUE), pages = 1) # preliminary visualization
+
+# Plot smooths and year effect on the link scale
+## Individual plots
+gers_abund <- plot(sm(gam_max_bb_abund_00, 4)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "gers")
+hort_abund <- plot(sm(gam_max_bb_abund_00, 5)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "hort")
+jone_abund <- plot(sm(gam_max_bb_abund_00, 6)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "jone")
+mend_abund <- plot(sm(gam_max_bb_abund_00, 7)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "mend")
+mont_abund <- plot(sm(gam_max_bb_abund_00, 8)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "mont")
+muci_abund <- plot(sm(gam_max_bb_abund_00, 9)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "muci")
+pasc_abund <- plot(sm(gam_max_bb_abund_00, 10)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "pasc")
+prat_abund <- plot(sm(gam_max_bb_abund_00, 11)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "prat")
+psit_abund <- plot(sm(gam_max_bb_abund_00, 12)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "psit")
+pyre_abund <- plot(sm(gam_max_bb_abund_00, 13)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "pyre")
+soro_abund <- plot(sm(gam_max_bb_abund_00, 14)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "soro")
+telu_abund <- plot(sm(gam_max_bb_abund_00, 15)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "telu")
+wurf_abund <- plot(sm(gam_max_bb_abund_00, 16)) + l_fitLine() + l_ciLine() + 
+  labs(x = "Elevation (m.s.l.)", y = "Peak abundance", title = "wurf")
+
+## Arrange on grid plot
+grid_bb_abund <- gridPrint(gers_abund, hort_abund, jone_abund, 
+                           mend_abund, mont_abund, muci_abund, 
+                           pasc_abund, prat_abund, psit_abund, 
+                           pyre_abund, soro_abund, telu_abund, 
+                           wurf_abund, year_effect)
+
+pdf("../output/gam_max_bb_abund_grid.pdf")
+plot(grid_bb_abund)
+dev.off()
+
+# Plot model predictions on response scale and add data as points
+## Extract and prepare predictions
+gam_max_bb_abund_00_pred <- predict.gam(gam_max_bb_abund_00, # get model predictions
+                                        type = "terms") %>% 
+  as.data.frame() %>% # convert to data frame
+  as_tibble() %>% # convert to tibble
+  select(sm.bb.sp = 1, sm.bb.sp.year = 2, sm.site = 3, gers = 4, # rename
+         hort = 5, jone = 6, mend = 7, mont = 8, 
+         muci = 9, pasc = 10, prat = 11, psit = 12, 
+         pyre = 13, soro = 14, telu = 15, wurf = 16) %>%
+  mutate(fit = # get cumulative fit and se, ignoring site effect 
+           sm.bb.sp + sm.bb.sp.year + gers + 
+           hort + jone + mend + mont + 
+           muci + pasc + prat + psit + 
+           pyre + soro + telu + wurf 
+           ) %>%
+  select(fit) %>%
+  mutate(fit.trans = gam_max_bb_abund_00_ilink(fit)) %>%
   bind_cols(abund_sum)
   
+## Plot
 ggplot(gam_max_bb_abund_00_pred, aes(elev.mean, fit.trans, color = year)) +
-  geom_ribbon(aes(elev.mean, fit.trans, 
-                  ymax = fit.plus.trans, ymin = fit.min.trans,
-                  fill = year), alpha = 0.2, inherit.aes = FALSE) +
-  geom_line() +
+  # geom_ribbon(aes(elev.mean, fit.trans, 
+  #                 ymax = fit.plus.trans, ymin = fit.min.trans,
+  #                 fill = year), alpha = 0.2, inherit.aes = FALSE) +
+  geom_line(size = 1.5, alpha = 0.5) +
+  geom_point(aes(elev.mean, max.bb.abund, color = year), inherit.aes = FALSE, alpha = 0.25) +
   facet_wrap(~bb.sp, scales = "free_y") +
   geom_vline(xintercept = 1500, linetype = "dashed") +
-  theme_light()
+  theme_light() +
+  labs(x = "Elevation (m.s.l.)", 
+       y = bquote("Peak abundance"),
+       color = "Year",
+       fill = "Year")
+
+ggsave("../output/gam_max_bb_abund.pdf", width = 6.5, height = 4.5)
+ggsave("../output/gam_max_bb_abund.png", width = 6.5, height = 4.5)
 ```
 
 #### 2.2.3.2 Floral resources
 ```{r}
-# There are lots of ways this could be specified. From looking at the data and the models, it seems like BB species-level variation in floral resources is very low, and there is a strong global effect of elevation. I think the global model has the strongest message, namely the collapse of overall floral resource availability above the tree line. I can all report the species-level predictions, though.
-gam_max_fl_abund_00 <- gam(log(mean.fl.abund) ~ 
+gam_mean_fl_abund_00 <- gam(mean.fl.abund ~ 
+                             s(site, bs = "re") + # random intercept for site
                              s(elev.mean, year, bs = "fs", k = 8) +
                              s(elev.mean, bb.sp, bs = "fs", k = 8),
                            method = "REML",
-                           family = "gaussian",
+                           family = "tw",
                            select = TRUE,
                            data = abund_sum) %>% getViz()
 
-check.gamViz(gam_max_fl_abund_00)
-summary(gam_max_fl_abund_00)
-concurvity(gam_max_fl_abund_00)
-print(plot(gam_max_fl_abund_00, allTerms = TRUE), pages = 1)
-plot(gam_max_fl_abund_00)
+gam_mean_fl_abund_00_ilink <- family(gam_mean_fl_abund_00)$linkinv # get inverse link function
 
-gam_max_fl_abund_00_pred <- predict.gam(gam_max_fl_abund_00, type = "terms", se.fit = TRUE) %>%
-  as.data.frame() %>%
-  as_tibble() %>%
-  select(sm.year = 1, sm.bb.sp = 2,
-         se.year = 3, se.bb.sp = 4) %>%
-  mutate(fit = sm.year) %>%
-  mutate(se = se.year) %>%
+check.gamViz(gam_mean_fl_abund_00) # evaluate model
+gam_mean_fl_abund_00_sum <- summary(gam_mean_fl_abund_00) # summarize model
+print(plot(gam_mean_fl_abund_00, allTerms = TRUE), pages = 1) # preliminary visualization
+
+# Plot on the link scale
+elev_effect <- plot(sm(gam_mean_fl_abund_00, 2)) + l_fitLine(alpha = 0.6, size = 1)
+bb.sp_effect <- plot(sm(gam_mean_fl_abund_00, 3)) + l_fitLine(alpha = 0.6, size = 1)
+
+grid_fl_abund <- gridPrint(elev_effect, bb.sp_effect)
+
+pdf("../output/gam_mean_fl_abund_grid.pdf")
+plot(grid_fl_abund)
+dev.off()
+
+
+# Plot model predictions on response scale and add data as points
+## Extract and prepare predictions
+gam_mean_fl_abund_00_pred <- predict.gam(gam_mean_fl_abund_00, 
+                                         type = "terms", 
+                                         se.fit = TRUE) %>% # get model predictions and se
+  as.data.frame() %>% # convert to data frame
+  as_tibble() %>% # convert to tibble
+  select(sm.site = 1, sm.year = 2, sm.bb.sp = 3, # rename
+         se.site = 4, se.year = 5, se.bb.sp = 6) %>%
+  mutate(fit = sm.year, # get fit and se ignoring site and species
+         se = se.year) %>% 
   select(fit, se) %>%
-  mutate(fit.plus = fit + se,
-         fit.min = fit - se,
-         fit.trans = exp(fit),
-         fit.plus.trans = exp(fit.plus),
-         fit.min.trans = exp(fit.min)) %>%
+  mutate(fit.plus = fit + se, # upper CI bound
+         fit.min = fit - se, # lower CI bound
+         fit.trans = gam_mean_fl_abund_00_ilink(fit), # apply inverse link function
+         fit.plus.trans = gam_mean_fl_abund_00_ilink(fit.plus),
+         fit.min.trans = gam_mean_fl_abund_00_ilink(fit.min)) %>%
   bind_cols(na.omit(abund_sum)) %>% # the na.omit() drops the rows where floral surveying data were missing
-  select(fit.trans, fit.plus.trans, fit.min.trans, se, elev.mean, year) %>%
+  select(fit.trans, fit.plus.trans, fit.min.trans, 
+         se, elev.mean, year, mean.fl.abund) %>%
   distinct()
 
-ggplot(gam_max_fl_abund_00_pred, aes(elev.mean, fit.trans, color = year)) +
-  geom_ribbon(aes(elev.mean, fit.trans, 
-                  ymax = fit.plus.trans, ymin = fit.min.trans,
-                  fill = year), alpha = 0.2, inherit.aes = FALSE) +
-  geom_line() +
-  #geom_point(aes(elev.mean, mean.fl.abund, color = year), inherit.aes = FALSE, alpha = 0.25) +
+
+ggplot(gam_mean_fl_abund_00_pred, aes(elev.mean, fit.trans, color = year)) +
+  # geom_ribbon(aes(elev.mean, fit.trans, 
+  #                 ymax = fit.plus.trans, ymin = fit.min.trans,
+  #                 fill = year), alpha = 0.2, inherit.aes = FALSE) +
+  geom_line(size = 1.5, alpha = 0.5) +
+  geom_point(aes(elev.mean, mean.fl.abund, color = year), inherit.aes = FALSE, alpha = 0.15) +
   geom_vline(xintercept = 1500, linetype = "dashed") +
-  theme_light()
+  theme_light() +
+  labs(x = "Elevation (m.s.l.)", 
+       y = bquote("Mean flower cover" ~ (m^2)),
+       color = "Year",
+       fill = "Year")
 
-# Alternatively, since it seems like species basically has just an intercept effect
-gam_max_fl_abund_01 <- gam(log(mean.fl.abund) ~ 
-                             s(bb.sp, bs = "re") +
-                             s(elev.mean, year, bs = "fs", k = 8),
-                           method = "REML",
-                           family = "gaussian",
-                           select = TRUE,
-                           data = abund_sum) %>% getViz()
+ggsave("../output/gam_mean_fl_abund.pdf")
+ggsave("../output/gam_mean_fl_abund.png")
 
-check.gamViz(gam_max_fl_abund_01)
-summary(gam_max_fl_abund_01)
-concurvity(gam_max_fl_abund_01)
-print(plot(gam_max_fl_abund_01, allTerms = TRUE), pages = 1)
-plot(gam_max_fl_abund_01)
-
-gam_max_fl_abund_01_pred <- predict.gam(gam_max_fl_abund_00, type = "terms", se.fit = TRUE) %>%
-  as.data.frame() %>%
-  as_tibble() %>%
-  select(sm.year = 1, sm.bb.sp = 2,
-         se.year = 3, se.bb.sp = 4) %>%
-  mutate(fit = sm.year) %>%
-  mutate(se = se.year) %>%
-  select(fit, se) %>%
-  mutate(fit.plus = fit + se,
-         fit.min = fit - se,
-         fit.trans = exp(fit),
-         fit.plus.trans = exp(fit.plus),
-         fit.min.trans = exp(fit.min)) %>%
-  bind_cols(na.omit(abund_sum)) %>% # the na.omit() drops the rows where floral surveying data were missing
-  select(fit.trans, fit.plus.trans, fit.min.trans, se, elev.mean, year) %>%
-  distinct()
-
-ggplot(gam_max_fl_abund_00_pred, aes(elev.mean, fit.trans, color = year)) +
-  geom_ribbon(aes(elev.mean, fit.trans, 
-                  ymax = fit.plus.trans, ymin = fit.min.trans,
-                  fill = year), alpha = 0.2, inherit.aes = FALSE) +
-  geom_line() +
-  #geom_point(aes(elev.mean, mean.fl.abund, color = year), inherit.aes = FALSE, alpha = 0.25) +
+ggplot(gam_mean_fl_abund_00_pred, aes(elev.mean, fit.trans, color = year)) +
+  # geom_ribbon(aes(elev.mean, fit.trans, 
+  #                 ymax = fit.plus.trans, ymin = fit.min.trans,
+  #                 fill = year), alpha = 0.2, inherit.aes = FALSE) +
+  geom_line(size = 1.5, alpha = 0.5) +
+  geom_point(aes(elev.mean, mean.fl.abund, color = year), inherit.aes = FALSE, alpha = 0.15) +
   geom_vline(xintercept = 1500, linetype = "dashed") +
-  theme_light()
+  theme_light() +
+  labs(x = "Elevation (m.s.l.)", 
+       y = bquote("Mean flower cover" ~ (m^2)),
+       color = "Year",
+       fill = "Year") +
+  ylim(c(0, 10))
+
+ggsave("../output/gam_mean_fl_abund_sub.pdf")
+ggsave("../output/gam_mean_fl_abund_sub.png")
+
+
+ggplot(gam_mean_fl_abund_00_pred, aes(elev.mean, fit.trans, color = year)) +
+  # geom_ribbon(aes(elev.mean, fit.trans, 
+  #                 ymax = fit.plus.trans, ymin = fit.min.trans,
+  #                 fill = year), alpha = 0.2, inherit.aes = FALSE) +
+  geom_line(size = 1.5, alpha = 0.5) +
+  geom_point(aes(elev.mean, mean.fl.abund, color = year), inherit.aes = FALSE, alpha = 0.15) +
+  geom_vline(xintercept = 1500, linetype = "dashed") +
+  theme_light() +
+  labs(x = "Elevation (m.s.l.)", 
+       y = bquote("Mean flower cover" ~ (m^2)),
+       color = "Year",
+       fill = "Year") +
+  facet_zoom(ylim = c(0, 10), 
+             show.area = FALSE,
+             zoom.size = 1)
+
+ggsave("../output/gam_mean_fl_abund_zoom.pdf", width = 6.5, height = 4.5)
+ggsave("../output/gam_mean_fl_abund_zoom.png", width = 6.5, height = 4.5)
 ```
 
 ## 2.3 Elevation x time analysis
