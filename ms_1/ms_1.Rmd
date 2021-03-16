@@ -91,7 +91,7 @@ In the present study, we approach this topic at three levels of biological organ
 
 ## Field system
 
-The study was conducted 2010-2012 in Berchtesgaden National Park, located in the Northern Limestone Alps of southeast Germany (47.55°N, 12.92°E). The landscape is composed of mountain pastures mainly surrounded by coniferous forests. We selected 25 study sites (60 x 60 m) on mountain pastures at elevations ranging from 641-2032 meters above sea level (m.s.l.) **(Figure 1)**. Fourteen of these pastures are extensively grazed by cattle or sheep, 3 are mowed for hay production, and 8 have been abandoned throughout the last century and are no longer subject to any human management. Study sites were classified as falling either above or below the tree line based on an examination of Google Earth imagery and corroborated by the authors with field experience at our study sites (K. Kallnik, A. F. Maihoff, A. Claßen). Among our sites, the tree line generally fell at an elevation of around 1500 m.s.l., consistent with the previous descriptions of the tree line in the Berchtesgander Alps [@Kostler1970-ya; @Mayer1970-zn] **(Figure 2)**. Eight sites fell above the tree line and 17 fell below it **(Figures 1, 2)**.  
+The study was conducted 2010-2012 in Berchtesgaden National Park, located in the Northern Limestone Alps of southeast Germany (47.55°N, 12.92°E). The landscape is composed of mountain pastures mainly surrounded by coniferous forests. We selected 25 study sites (60 x 60 m) on mountain pastures at elevations ranging from 641-2032 meters above sea level (m.s.l.) **(Figure 1)**. Fourteen of these pastures are extensively grazed by cattle or sheep, 3 are mowed for hay production, and 8 have been abandoned throughout the last century and are no longer subject to any human management. Study sites were classified as lying either above or below the tree line based on an examination of Google Earth imagery and corroborated by the authors with field experience at our study sites (K. Kallnik, A. F. Maihoff, A. Claßen). Eight sites were located above the tree line, which generally fell at an elevation of around 1500 m.s.l., consistent with the previous descriptions of the tree line in the Berchtesgadener Alps [@Kostler1970-ya; @Mayer1970-zn].  
 
 
 ```{r fig1, echo = FALSE,  fig.cap = paste("Study sites in the Berchtesgadener Alps plotted over Google Earth imagery. Sites above the tree line are depecited in red and sites below the tree line in yellow. The elevation of each site is given in meters above sea level.")}
@@ -107,12 +107,16 @@ Although per-sample effort was standardized across all years, the total number o
 
 ### Data processing 
 
-Bumble bee abundance was quantified as the total number of recorded floral visits per bumble bee species per site-date. To represent floral abundance from the perspective of each bumble bee species in our network, we first scored each plant genus in our data set as either visited or not visited by each bumble bee species. We then calculated the total floral resource availability for each bumble bee species for each site-date by summing the observed flower cover of visited genera. We opted to work at the genus level based on the reasoning that if a bumble bee species visits one member of a given genus, other members of the same genus should also be considered potential floral hosts. This approach was intended to dampen the effects of false non-detection on the estimation of floral resource abundance, particularly for rare bumble bee species whose diet breadth would tend to be underestimated simply due to sparsity of observations [@Williams2005-yp]. We also opted to treat the cryptic *B. terrestris/lucorum* species pair as a single morphospecies, since these two species cannot be visually distinguished reliably. We also pooled representatives of the parasitic *Psithyrus* subgenus --- which included *B. barbutellus*, *B. bohemicus*, *B. campestris*, *B. flavidus*, *B. quadricolor*, and *B. sylvestris* --- into a single species group *B. psithryus*.   
+Bumble bee abundance was quantified as the total number of recorded floral visits per bumble bee species per site-date. To represent floral abundance from the perspective of each bumble bee species in our network, we first scored each plant genus in our data set as either visited or not visited by each bumble bee species. We then calculated the total floral resource availability for each bumble bee species for each site-date by summing the observed flower cover of visited genera. We opted to work at the genus level based on the reasoning that if a bumble bee species visits one member of a given genus, other members of the same genus should also be considered potential floral hosts. This approach was intended to dampen the effects of false non-detection on the estimation of floral resource abundance, particularly for rare bumble bee species whose diet breadth would tend to be underestimated simply due to sparsity of observations [@Williams2005-yp]. We also opted to treat the cryptic *B. terrestris/lucorum* species pair as a single morphospecies, since these two species cannot be visually distinguished reliably, and we similarly pooled representatives of the parasitic *Psithyrus* subgenus --- *B. barbutellus*, *B. bohemicus*, *B. campestris*, *B. flavidus*, *B. quadricolor*, and *B. sylvestris* --- into the species group *B. psithryus*.   
 
 
 ### Elevational distribution of bumble bees and floral resources
 
-We analyzed the abundance of bumble bees and floral resources using separate hierarchical generalized additive models (HGAM) [@Wood2011-pg; @Pedersen2019-kf]. We opted in both models to the collapse temporal variation of abundance within sites and focus on elevational patterns. For bumble bees, we modeled *peak* abundance at each site as a smooth response to elevation, with bumble bee species as a "by" smoothing factor and a random intercept effect. We also included species:year as a random intercept effect to capture annual diffences in species abundance and site as a random intercept effect to avoid overfitting due to pseudoreplication of elevation arising from the measurement of multiple bumble bee species at each site. This construction is a modification of the "type I" model form described in @Pedersen2019-kf. For floral resources, we modeled *mean* flower cover, weighted per bumble be species, as a smooth response to elevation, with bumble bee species and year as "factor-smooths" and site as a random intercept effect (again to avoid overfitting due to pseudoreplication). This construction is a modification of the "type S" model form described in @Pedersen2019-kf.
+We analyzed the abundance of bumble bees and floral resources using separate hierarchical generalized additive models (HGAMs) fit with the Tweedie distribution family (log link function) [@Wood2011-pg; @Pedersen2019-kf]. We opted in both models to collapse the temporal variation of abundance within sites and focus on elevational patterns.
+
+For bumble bees, we modeled *peak* abundance at each site as a smooth response to elevation, with bumble bee *species* as a smoothing factor and a random intercept term. We also included *species:year* as a random intercept term because exploratory analysis indicated that species varied differently across years. Finally, we included site as a random intercept effect to avoid overfitting due to pseudoreplication of elevation arising from the measurement of multiple bumble bee species at each site. This construction is a modification of the "type I" model form described in @Pedersen2019-kf. 
+
+For floral resources, we modeled *mean* flower cover, weighted per bumble bee species, as a smooth response to elevation, with year as a smoothing factor. To account for differences in mean resource abundance --- and potentially differences in the elevational response curve of resource abundance --- across bumble bee species, we added a group-level smoothing term of flower cover by elevation with bumble bee species as a smoothing factor. Again, we included site as a random intercept effect to avoid overfitting due to pseudoreplication. This construction is a modification of the "type GS" model form described in @Pedersen2019-kf. 
 
 
 ### Species and interaction β-diversity
@@ -135,26 +139,41 @@ We recorded a total of 12,918 bumble- bee-flower interactions (excluding males) 
 
 Floral surveying yielded a total of 352 plant species, representing 191 genera and 52 families. Of these, 155 species from 103 genera and 35 families were observed to be visited by bumble bees. Eight species --- *Rubus idaeus*, *Rosa canina*, *Juniperus communis*, *Larix decidua*, *Salix* sp., *Caltha palustris*, *Pulmonaria officinalis*, and *Rheum barbarum* --- were recorded in visitation data but not recorded during floral surveying. Each accounted for no more than 4 visits in total over the three years of our study, and they were omitted from the analysis of floral abundance.
 
-```{r fig1, echo = FALSE,  fig.cap = paste("Proportional abundances (cumulative within site) of bumble bee species in our study system, ordered by mean proportional abundance.")}
+```{r fig2, echo = FALSE,  fig.cap = paste("Proportional abundances (cumulative within site) of bumble bee species in our study system, ordered by mean proportional abundance.")}
 knitr::include_graphics("../output/bb_abundsum.png")
 ```
 
 
 ## Elevational distribution of bumble bees and floral resources
 
-Our model explained 71.5% of total deviance (adjusted R^2^ = 0.511).
+Our bumble bee abundance model explained 72% of total deviance (adjusted R^2^ = 0.51).
 
 *B. mendax*, *B. monticola*, *B. mucidus*, and *B. pyrenaeus* exhibited a positive response to elevation and peaked in abundance above the tree line (~ 1500 m.s.l.) (**Figure 3**), consistent with their known affinity for high elevation habitats [@Rasmont2010-ci]. The abundance of *B. soroensis* also tended to increase with elevation and peaked above the tree line, but it was also abundant at lower elevations. In contrast, the abundance of *B. pascorum* --- the most abundant species in our study system --- declined steeply with elevation, and a similar pattern was seen for *B. psithyrus*.
 
 while *B. gerstaeckeri* was sparsely distributed at mid-elevation sites.
 
-```{r fig3, echo = FALSE,  fig.cap = paste("Peak bumble bee abundance by elevation and year. Curves shows the conditional GAM predictions excluding the site random effect, and points show original data. Dotted vertical lines indicate the approximate location of the tree line at our study sites. Note different scales of y-axes.")}
-knitr::include_graphics("../output/gam_max_bb_abund2.png")
+```{r fig3, echo = FALSE,  fig.cap = paste("Peak bumble bee abundance by elevation and year. Curves shows the conditional GAM predictions excluding the site random intercept effect, and points show original data and are color-coded to indicate sites falling above the tree line. Note different scales of y-axes.")}
+knitr::include_graphics("../output/gam_max_bb_abund_grid.png")
 ```
 
-```{r fig4, echo = FALSE,  fig.cap = paste("Mean weighted floral abundance (area of flower cover) by elevation and year. Lines shows the conditional GAM predictions excluding the random effects of site and species, and points show original data. The right panel displays the full range of the data while the left panel displays a subset of the range, omitting extreme values of flower cover to highlight the prediction curves.")}
-knitr::include_graphics("../output/gam_mean_fl_abund_zoom.png")
+
+
+Floral resource abundance varied markedly across years **(Figure 4)**. In 2010, floral resource abundance peaked at the lowest sites and declined sharply with elevation. In 2011 and 2012, floral resource availability peaked at mid elevation. Overall floral resource abundance was highest in 2011 and lowest in 2012. 
+
+Sites near the tree line tended to have relatively high floral resource abundance, but floral resource abundance declined sharply above the tree line, reaching a minimum at the highest sites. 
+
+<!-- This is the message; not that it IS low above the tree line but that it turns steeply down above the tree line. -->
+
+Floral resource abundance differed across bumble bee species mainly as an intercept effect **(Figure 4C)**, with the most extreme case being *B. gerstaeckeri*, which had by far the lowest resource abundance. This is not surprising, since *B. gerstaeckeri* specializes on the genus *Aconitum* for pollen foraging (Ponchau2006-af), though in our study it was also observed (presumably collecting nectar) on *Gentiana*, *Salvia*, *Rhinanthus*, *Cirsium*, and *Clinopodium*. For most species, deviations from the shape of the global response curve were minimal, but the high-elevation species *B. mendax*, *B. monticola*, *B. mucidus*, and *B. pyrenaeus*, along with *B. jonellus*, experienced stable or increasing conditional floral resource availability with increasing elevation, while conditional floral resource availability declined for other species. Our floral resource abundance model explained 81% of total deviance (adjusted R^2^ = 0.56). 
+
+When interpreting the response curves of our model, it is important to note that certain sites exhibited extremely high floral resource availability, and this variance was explained by the random effect intercept effect of *site* (not depicted in plotted smooths) rather than the fixed effect of *elevation*. We opted for this model specification because it is more resistant to overfitting and therefore more likely to express a generalizable effect of elevation, but we visualize the empirical floral abundance data in **Figure 4** so that these strong site effects, which account for most of the residual variation with respect to the fitted smooth, can be appreciated. Whether these are, in fact, consistent elevational effects rather than site-specific idiosyncrasies would require corroboration from other data sets. 
+
+
+```{r fig4, echo = FALSE,  fig.cap = paste("Floral abundance HGAM analysis. Panels A and B depict mean weighted floral abundance (area of flower cover) by elevation and year, with lines showing the conditional GAM predictions (excluding the random effects of site and species) and points showing original data, color coded to show which sites fell above the tree line. Panel A displays the full data set while panel B displays a subset of the range to highlight the prediction curves. Panels C and D show the conditional smooth effects (on the link scale) of elevation-by-year and elevation-by-species")}
+knitr::include_graphics("../output/gam_mean_fl_abund_grid.png")
 ```
+
+
 
 
 
