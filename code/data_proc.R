@@ -3,7 +3,7 @@ library(lubridate)
 
 # Get the data cleaned up and properly organized
 ### Floral survey data
-fl_survey <- read_delim("./raw_data/data_plantcover_forDoug_2020.01.17.csv", delim = "\t", 
+fl_survey <- read_delim("./data/raw_data/data_plantcover_forDoug_2020.01.17.csv", delim = "\t", 
                            locale = locale(decimal_mark = ",", grouping_mark = ".")) %>%
   na.omit() %>%
   separate(col = species_plant, into = c("genus", "species", "w", "x", "y", "z"), sep = " ") %>%
@@ -14,7 +14,9 @@ fl_survey <- read_delim("./raw_data/data_plantcover_forDoug_2020.01.17.csv", del
                                            "Arctostaphylos alpina" = "Arctous alpina",
                                            "Calluna vulagris" = "Calluna vulgaris",
                                            "Deschampsia caespitosa" = "Deschampsia cespitosa",
-                                           "Gymnadenia bifolia" = "Platanthera bifolia"))) %>%
+                                           "Gymnadenia bifolia" = "Platanthera bifolia",
+                                           "Gentiana aspera" = "Gentianella aspera",
+                                           "Gentiana ciliata" = "Gentianella ciliata"))) %>%
   separate(species_plant, c("genus", "species"), remove = FALSE) %>%
   dplyr::select(year, dayofyear, site = site_name, snowcover, 
                 plant.sp = species_plant, plant.genus = genus, flower.cover = cover_all_flowers) %>%
@@ -25,7 +27,13 @@ fl_survey <- read_delim("./raw_data/data_plantcover_forDoug_2020.01.17.csv", del
   filter(plant.genus != "Huperzia") %>% # because I don't need the clubmoss
   dplyr::select(-temp.date)
   
-write_csv(fl_survey, "./processed_data/floral_survey.csv")
+write_csv(fl_survey, "./data/processed_data/floral_survey.csv")
+
+# 
+gentian_problem <- fl_survey %>%
+  select(plant.genus, plant.sp) %>%
+  filter(plant.genus %in% c("Gentiana", "Gentianella", "Gentianopsis")) %>%
+  distinct()
 
 ### Visitation data
 network <- read_delim("./data/raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim = ";", 
@@ -35,7 +43,9 @@ network <- read_delim("./data/raw_data/data_bumblebee_forDoug_2020.04.17.csv", d
                                            "Arctostaphylos alpina" = "Arctous alpina",
                                            "Calluna vulagris" = "Calluna vulgaris",
                                            "Deschampsia caespitosa" = "Deschampsia cespitosa",
-                                           "Gymnadenia bifolia" = "Platanthera bifolia")))%>%
+                                           "Gymnadenia bifolia" = "Platanthera bifolia",
+                                           "Gentiana aspera" = "Gentianella aspera",
+                                           "Gentiana ciliata" = "Gentianella ciliata")))%>%
   separate(col = plant_sp_latin, into = c("genus", "species", "w", "x", "y", "z"), sep = " ") %>%
   unite(plant_sp_latin, genus, species, sep = " ") %>%
   dplyr::select(-c(w,x,y,z)) %>%
@@ -63,6 +73,11 @@ network <- read_delim("./data/raw_data/data_bumblebee_forDoug_2020.04.17.csv", d
   dplyr::select(-temp.date)
 
 write_csv(network, "./data/processed_data/network.csv")
+
+gentian_problem_visitation <- network %>%
+  select(plant.genus, plant.sp) %>%
+  filter(plant.genus %in% c("Gentiana", "Gentianella", "Gentianopsis")) %>%
+  distinct()
 
 ### Floral taxonomy
 Sys.setenv(ENTREZ_KEY = "ab9a55ec842df6f86a750929aefc69143608")
@@ -96,7 +111,7 @@ fl_tax_gapfill <- fl_tax %>% # manually fill in some gaps in the NCBI database
   )
   
 write_csv(fl_tax_gapfill, "./processed_data/floral_tax.csv")
-
+fl_tax_gapfill <- read.csv("./processed_data/floral_tax.csv")
 
 ### Site data
 site_data <- read_tsv("./raw_data/SiteLocationFabriceUpdate2020.tsv",
@@ -114,7 +129,7 @@ site_data <- read_tsv("./raw_data/SiteLocationFabriceUpdate2020.tsv",
 write_csv(site_data, "./processed_data/site_data.csv")
 
 ### Floral trait data
-floral_k_type <-  read_delim("./BioFlor_traits/BioFlor_Kugler_classification.csv", delim = ";") %>%
+floral_k_type <-  read_delim("./data/raw_data/BioFlor_Kugler_classification.csv", delim = ";") %>%
   dplyr::select(taxon = 1, k.type = 2) %>% 
   na.omit() %>%
   mutate(taxon = str_replace_all(taxon, c(" x " = " x"))) %>%
@@ -157,14 +172,6 @@ floral_k_type <-  read_delim("./BioFlor_traits/BioFlor_Kugler_classification.csv
           k.type = "NA", k.type.s = "5.1", k.type.ss = "5") %>% # All scored Stachys were classified as 5.1
   add_row(plant.sp = "Taraxacum officinale", plant.genus = "Taraxacum", 
           k.type = "NA", k.type.s = "7.2", k.type.ss = "7") %>% # All scored Taraxacum (treated as a species group by Kugler) belong to 7.2
-  
-  # Scored Gentiana spp. belonged to either 2.1 or 4.1. 
-  # The unscored Gentiana aspera and Gentiana ciliata were classified as 2.1 and 4.1, respectively, by comparing them to scored Gentian spp.
-  add_row(plant.sp = "Gentiana aspera", plant.genus = "Gentiana", 
-          k.type = "NA", k.type.s = "2.1", k.type.ss = "2") %>%  
-  add_row(plant.sp = "Gentiana ciliata", plant.genus = "Gentiana", 
-          k.type = "NA", k.type.s = "4.1", k.type.ss = "4") %>%
-  
   add_row(plant.sp = "Alchemilla conjuncta", plant.genus = "Alchemilla", # All scored Alchemilla were classified as 1.2 
           k.type = "NA", k.type.s = "1.2", k.type.ss = "1") %>%
   add_row(plant.sp = "Arabis pumila", plant.genus = "Arabis", # All scored Arabis were classified as 1.2 
@@ -189,7 +196,12 @@ floral_k_type <-  read_delim("./BioFlor_traits/BioFlor_Kugler_classification.csv
           k.type = "NA", k.type.s = "0", k.type.ss = "0")
   
 
-write_csv(floral_k_type, "./processed_data/floral_k_type.csv")
+write_csv(floral_k_type, "./data/processed_data/floral_k_type.csv")
+
+gentian_problem_traits <- floral_k_type %>%
+  select(plant.genus, plant.sp, k.type.ss) %>%
+  filter(plant.genus %in% c("Gentiana", "Gentianella", "Gentianopsis")) %>%
+  distinct()
 
 floral_m_type <-  read_delim("./BioFlor_traits/BioFlor_Mueller_classification.csv", delim = ";") %>%
   dplyr::select(taxon = 1, m.type = 2) %>% 
