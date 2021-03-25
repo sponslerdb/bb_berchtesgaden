@@ -47,16 +47,6 @@ fl_tax <- read_csv("../data/processed_data/floral_tax.csv")
 ## Kugler morphotypes (accessed through Bioflor)
 fl_ktype <- read_csv("../data/processed_data/floral_k_type.csv") 
 
-## Flower colors (accessed through BioFlor)
-fl_color <- read_csv("../data/processed_data/floral_color.csv")
-
-## diameter and corolla depth data from Gita Benadi
-fl_morph <- read_csv("../data/processed_data/flower_morphology_GitaBenadi.csv") %>% 
-  dplyr::select(SampleID, plant.family = Family, plant.sp = Species, 
-                Unit, Flowers_per_unit, diam = Diameter, LN) %>%
-  group_by(plant.sp) %>%
-  summarize(diam = mean(diam), LN = mean(LN))
-
 ## verbal description of Kugler morphotypes
 fl_ktype_key <- read_delim("../data/processed_data/kugler_key.tsv", delim = "\t", col_names = FALSE) %>%
   dplyr::select(k.type = 1, description = 2)
@@ -64,9 +54,7 @@ fl_ktype_key <- read_delim("../data/processed_data/kugler_key.tsv", delim = "\t"
 ## join all floral trait tables
 fl_traits <- fl_tax %>%
   full_join(fl_ktype) %>%
-  full_join(fl_color) %>%
-  full_join(fl_morph) %>%
-  dplyr::select(plant.sp, plant.genus, plant.family, k.type, k.type.s, k.type.ss, color, diam, LN)
+  dplyr::select(plant.sp, plant.genus, plant.family, k.type, k.type.s, k.type.ss) 
 ```
 
 ## Align survey and visitation data with pseudodates
@@ -104,7 +92,7 @@ pseudodates <- full_join(visitation_only, survey_samples) %>%
 # BB visitation data
 visitation <- read_csv("../data/processed_data/network.csv") %>%
   filter(caste != "male") %>% # we will ignore males 
-  filter(!bb.sp %in% c("humi", "hypn")) %>% # drop rare species
+  filter(!bb.sp %in% c("humi")) %>% # humi too rare
   group_by(site, date, bb.sp, plant.sp) %>%
   summarize(visits = n()) %>% # visits per BB-FL pair
   ungroup() %>%
@@ -242,7 +230,7 @@ brm_pvis_prior <- prior(normal(0, 1.5),
 ```
 
 ### 1.2.2 Call models
-All these run cleanly.
+All these run cleanly. Well, brm_pvis_01 throws maximum tree depth warnings, but these are just about efficiency, not validity. These warnings are evidently a consequence of increasing adapt_delta to 0.99, which succeeded in getting rid of the divergent transition warnings (those warnings are much more serious and pertain to the validity of the model). 
 ```{r}
 ## Exploring the differential bias of bumble bee species and tongue length classes towards floral morphotypes
 ### Bernoulli with binarized visitation
@@ -256,8 +244,8 @@ brm_pvis_00 <- brm(as.integer(visits.bin) ~
                   file = "../output/brm_pvis_ktype_00",  # for running locally
                   #file = "brm_pvis_ktype_00", # for running on the HPC
                   chains = 4,
-                  cores = 12,
-                  iter = 2000,
+                  #cores = 12,
+                  iter = 5000,
                   data = filter(prop_visits_ktype, !ktype %in% c("0", "9", "10")))
 
 
@@ -267,11 +255,12 @@ brm_pvis_01 <- brm(as.integer(visits.bin) ~
                     (1 | ktype:site),  # a varying intercept term for ktype:site
                   family = "bernoulli", 
                   prior = brm_pvis_prior, # weakly regularizing
+                  control = list(adapt_delta = 0.99), # the default setting yielded divergent transitions
                   file = "../output/brm_pvis_ktype_01",  # for running locally
                   #file = "brm_pvis_ktype_01", # for running on the HPC
                   chains = 4,
-                  cores = 12,
-                  iter = 2000,
+                  #cores = 12,
+                  iter = 5000,
                   data = filter(prop_visits_ktype_pooled, !ktype %in% c("0", "9", "10")))
 
 
@@ -285,7 +274,7 @@ brm_pvis_02 <- brm(as.integer(visits.bin) ~
                   file = "../output/brm_pvis_ktype_02",  # for running locally
                   #file = "brm_pvis_ktype_02", # for running on the HPC
                   chains = 4,
-                  cores = 12,
+                  #cores = 12,
                   iter = 5000, # Bulk ESS was a bit low wit 2000 iter
                   data = filter(prop_visits_ktype, !ktype %in% c("0", "9", "10")))
 ```
@@ -367,9 +356,10 @@ separate(condition, c("ktype", "tongue"), sep = "_", remove = FALSE) %>% # separ
   ) %>%
   mutate(ktype = factor(ktype, levels = c("Disc (1)", "Funnel (2)", # relevel
                                           "Bell (3)", "Stalk-disc (4)", "Lip (5)", 
-                                          "Flag (6)", "Head (7)")))
+                                          "Flag (6)", "Head (7)"))) %>%
+  mutate(tongue = factor(tongue, levels = c("long", "med", "short")))
 
-ggplot(brm_pvis_00_plotframe1, aes(condition_mean_trans, tongue, 
+ggplot(brm_pvis_00_plotframe1, aes(condition_mean_trans, rev(tongue), 
                                  xmin = .lower_trans, xmax = .upper_trans,
                                  color = tongue, fill = tongue)) +
   geom_pointinterval() +
@@ -495,7 +485,7 @@ ggplot(brm_pvis_01_plotframe1, aes(condition_mean_trans, ktype,
   guides(fill = FALSE)
 
 ggsave(file = "../output/brm_pvis_01_plot1.pdf", width = 6, height = 7)
-
+ggsave(file = "../output/brm_pvis_01_plot1.png", width = 6, height = 7)
 ```
 
 ### 1.5.3 morphotype slope
@@ -529,60 +519,60 @@ ggsave(file = "../output/brm_pvis_01_plot2.png", width = 7, height = 5.5)
 
 ## 1.6 Model 1 hypothesis tests
 ```{r}
-get_variables(brm_pvis01)
+get_variables(brm_pvis_01)
 
-hypothesis(brm_pvis01, "r_ktype[1,Intercept] = r_ktype[4,Intercept]", class = "") 
-hypothesis(brm_pvis01, "r_ktype[2,Intercept] = r_ktype[4,Intercept]", class = "")
+hypothesis(brm_pvis_01, "r_ktype[1,Intercept] = r_ktype[4,Intercept]", class = "") 
+hypothesis(brm_pvis_01, "r_ktype[2,Intercept] = r_ktype[4,Intercept]", class = "")
 
-hypothesis(brm_pvis01, "r_ktype[2,Intercept] = r_ktype[1,Intercept]", class = "")
-hypothesis(brm_pvis01, "r_ktype[1,Intercept] = r_ktype[3,Intercept]", class = "") 
-hypothesis(brm_pvis01, "r_ktype[2,Intercept] = r_ktype[3,Intercept]", class = "")
-hypothesis(brm_pvis01, "r_ktype[4,Intercept] = r_ktype[3,Intercept]", class = "")
+hypothesis(brm_pvis_01, "r_ktype[2,Intercept] = r_ktype[1,Intercept]", class = "")
+hypothesis(brm_pvis_01, "r_ktype[1,Intercept] = r_ktype[3,Intercept]", class = "") 
+hypothesis(brm_pvis_01, "r_ktype[2,Intercept] = r_ktype[3,Intercept]", class = "")
+hypothesis(brm_pvis_01, "r_ktype[4,Intercept] = r_ktype[3,Intercept]", class = "")
 
 
-hypothesis(brm_pvis01, "r_ktype[5,Intercept] = r_ktype[6,Intercept]", class = "") 
-hypothesis(brm_pvis01, "r_ktype[5,Intercept] = r_ktype[7,Intercept]", class = "") 
+hypothesis(brm_pvis_01, "r_ktype[5,Intercept] = r_ktype[6,Intercept]", class = "") 
+hypothesis(brm_pvis_01, "r_ktype[5,Intercept] = r_ktype[7,Intercept]", class = "") 
 ```
 
 
 ## 1.7 Model 2 hypothesis tests
 ```{r}
-get_variables(brm_pvis00)
+get_variables(brm_pvis_00)
 
 # Disc (group  1)
-hypothesis(brm_pvis00, "r_ktype:tongue[1_short,Intercept] = r_ktype:tongue[1_med,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[1_short,Intercept] = r_ktype:tongue[1_long,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[1_med,Intercept] = r_ktype:tongue[1_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[1_short,Intercept] = r_ktype:tongue[1_med,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[1_short,Intercept] = r_ktype:tongue[1_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[1_med,Intercept] = r_ktype:tongue[1_long,Intercept]", class = "")
 
 # Funnel (group  2)
-hypothesis(brm_pvis00, "r_ktype:tongue[2_short,Intercept] = r_ktype:tongue[2_med,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[2_short,Intercept] = r_ktype:tongue[2_long,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[2_med,Intercept] = r_ktype:tongue[2_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[2_short,Intercept] = r_ktype:tongue[2_med,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[2_short,Intercept] = r_ktype:tongue[2_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[2_med,Intercept] = r_ktype:tongue[2_long,Intercept]", class = "")
 
 # Bell (group  3)
-hypothesis(brm_pvis00, "r_ktype:tongue[3_short,Intercept] = r_ktype:tongue[3_med,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[3_short,Intercept] = r_ktype:tongue[3_long,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[3_med,Intercept] = r_ktype:tongue[3_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[3_short,Intercept] = r_ktype:tongue[3_med,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[3_short,Intercept] = r_ktype:tongue[3_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[3_med,Intercept] = r_ktype:tongue[3_long,Intercept]", class = "")
 
 # Stalk-disc (group  4)
-hypothesis(brm_pvis00, "r_ktype:tongue[4_short,Intercept] = r_ktype:tongue[4_med,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[4_short,Intercept] = r_ktype:tongue[4_long,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[4_med,Intercept] = r_ktype:tongue[4_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[4_short,Intercept] = r_ktype:tongue[4_med,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[4_short,Intercept] = r_ktype:tongue[4_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[4_med,Intercept] = r_ktype:tongue[4_long,Intercept]", class = "")
 
 # Lip (group  5)
-hypothesis(brm_pvis00, "r_ktype:tongue[5_short,Intercept] = r_ktype:tongue[5_med,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[5_short,Intercept] = r_ktype:tongue[5_long,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[5_med,Intercept] = r_ktype:tongue[5_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[5_short,Intercept] = r_ktype:tongue[5_med,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[5_short,Intercept] = r_ktype:tongue[5_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[5_med,Intercept] = r_ktype:tongue[5_long,Intercept]", class = "")
 
 # Flag (group  6)
-hypothesis(brm_pvis00, "r_ktype:tongue[6_short,Intercept] = r_ktype:tongue[6_med,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[6_short,Intercept] = r_ktype:tongue[6_long,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[6_med,Intercept] = r_ktype:tongue[6_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[6_short,Intercept] = r_ktype:tongue[6_med,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[6_short,Intercept] = r_ktype:tongue[6_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[6_med,Intercept] = r_ktype:tongue[6_long,Intercept]", class = "")
 
 # Head (group  7)
-hypothesis(brm_pvis00, "r_ktype:tongue[7_short,Intercept] = r_ktype:tongue[7_med,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[7_short,Intercept] = r_ktype:tongue[7_long,Intercept]", class = "")
-hypothesis(brm_pvis00, "r_ktype:tongue[7_med,Intercept] = r_ktype:tongue[7_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[7_short,Intercept] = r_ktype:tongue[7_med,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[7_short,Intercept] = r_ktype:tongue[7_long,Intercept]", class = "")
+hypothesis(brm_pvis_00, "r_ktype:tongue[7_med,Intercept] = r_ktype:tongue[7_long,Intercept]", class = "")
 ```
 
 # 2. Ordination of dietary niche
@@ -594,13 +584,12 @@ fl_traits2 <- fl_traits %>%
   #select(plant.sp, plant.sp.abb, plant.genus, plant.family, k.type.ss, color) %>%
   select(plant.genus, k.type.ss) %>%
   mutate(k.type.ss = factor(k.type.ss)) %>%
-  distinct() %>%
-  na.omit() # THIS IS JUST A PLACEHOLDER UNTIL I FIX THE GENTIANA/ELLA/OPSIS NOMENCALTURE
+  distinct() 
 
 # Totally aggregated; note I'm using the full data, not the aligned and trimmed data. No need for complementary floral survey data.
 visitation2 <- read_csv("../data/processed_data/network.csv") %>%
   filter(caste != "male") %>% # we will ignore males 
-  filter(!bb.sp %in% c("hypn", "humi")) %>% # hypn and humi are too rare
+  filter(!bb.sp %in% c("humi")) %>% # humi is too rare
   #group_by(bb.sp, plant.sp.abb) %>%
   group_by(bb.sp, plant.genus) %>%
   summarize(visits = n()) %>%
@@ -612,7 +601,7 @@ visitation2 <- read_csv("../data/processed_data/network.csv") %>%
   column_to_rownames("bb.sp")
 
 bb_traits2 <- bb_traits %>%
-  filter(!bb.sp %in% c("humi", "hypn")) %>% # drop rare species
+  filter(!bb.sp %in% c("humi")) %>% # drop humi
   select(bb.sp, pbl.w.class2) %>%
   arrange(bb.sp) %>%
   mutate(pbl.w.class2.pool = case_when(
@@ -664,11 +653,12 @@ ggplot(pcoa_horn2.fort2, aes(MDS1, MDS2, color = pbl.w.class2)) +
   geom_polygon(data = pcoa_horn2_hulls, 
                aes(fill = pbl.w.class2, color = NULL),
                alpha = 0.25) +
-  geom_text(aes(label = bb.sp), key_glyph = "rect") +
-  geom_text_repel(data = filter(pcoa_horn2.fort1, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2), 
-            aes(MDS1, MDS2, label = plant.genus), inherit.aes = FALSE, color = "gray40") +
-  geom_point(data = filter(pcoa_horn2.fort1, abs(MDS1) >= 0.2 | abs(MDS2) >= 0.2),
-            aes(MDS1, MDS2, shape = k.type.ss), inherit.aes = FALSE, color = "gray40", size = 3) +
+  geom_point(data = filter(pcoa_horn2.fort1, abs(MDS1) >= 0.20 | abs(MDS2) >= 0.20),
+            aes(MDS1, MDS2, shape = k.type.ss), inherit.aes = FALSE, color = "gray40", size = 2) +
+  geom_text(aes(label = bb.sp), key_glyph = "rect", size = 3) +
+  geom_text_repel(data = filter(pcoa_horn2.fort1, abs(MDS1) >= 0.20 | abs(MDS2) >= 0.20), 
+            aes(MDS1, MDS2, label = plant.genus), inherit.aes = FALSE, color = "gray40",
+            size = 3) +
   scale_shape_discrete() +
   xlab(paste("MDS1 ", "(", pcoa_horn2_mds1, "%", ")", sep = "")) +
   ylab(paste("MDS2 ", "(", pcoa_horn2_mds2, "%", ")", sep = "")) +
@@ -770,15 +760,13 @@ niche_overlapper <- function(x, criterion) {
     unnest(cols = c(tidy_dist)) %>% # unnest back into a single data frame
     left_join(site_data) %>% # add site data
     # dplyr::select(site, year, bb.sp1 = item1, bb.sp2 = item2, distance, elev.mean) %>% # dplyr::select and rename vars
-    dplyr::select(site, bb.sp1 = item1, bb.sp2 = item2, distance, elev.mean) %>% # dplyr::select and rename vars
+    dplyr::select(site, bb.sp1 = item1, bb.sp2 = item2, distance, elev.mean, management) %>% # dplyr::select and rename vars
     left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>% # add traits for bb.sp1
     rename(subgenus1 = subgenus, tongue1 = pbl.w.class2) %>%
     left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>% # add traits for bb.sp2
     rename(subgenus2 = subgenus, tongue2 = pbl.w.class2) %>%
-    # dplyr::select(site, year, bb.sp1, bb.sp2, subgenus1, subgenus2, distance, 
-    #        tongue1, tongue2, elev.mean) %>%
     dplyr::select(site, bb.sp1, bb.sp2, subgenus1, subgenus2, distance, 
-       tongue1, tongue2, elev.mean) %>%
+       tongue1, tongue2, elev.mean, management) %>%
     mutate(tongue.diff = factor(if_else(tongue1 == tongue2, "same", "different")),
            tongue.pair = factor(case_when(
              tongue1 == "med" & tongue2 == "med" ~ "med:med",
@@ -800,65 +788,65 @@ niche_overlapper <- function(x, criterion) {
 
 
 # This one calculates niche overlap on fully resolved visitation data and then averages niche overlap across dates
-niche_overlapper2 <- function(x, criterion) {
-    
-  criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
-  
-  x %>%
-    #group_by(bb.sp, !!criterion, site, date, year) %>% # group by site-year and BB-FL pair
-    group_by(bb.sp, !!criterion, site, date) %>% # group by site-year and BB-FL pair
-    summarize(freq = sum(visits)) %>% # get interaction frequency for each BB-FL pair per site-year
-    group_by(bb.sp, site, date) %>% # group by site-year and BB species
-    mutate(prop = freq/sum(freq)) %>% # get proportional interaction frequency for each BB-FL pair
-    #group_by(bb.sp, site, year, !!criterion) %>%
-    # group_by(bb.sp, site, !!criterion) %>%
-    # summarize(mean.prop = mean(prop)) %>%
-    unite(sitedate, c(site, date), sep = "_") %>%
-    #pivot_wider(names_from = !!criterion, values_from = mean.prop, values_fill = 0) %>% # spread into the kind of array vegan likes
-    #pivot_wider(names_from = !!criterion, values_from = prop, values_fill = 0) %>% # spread into the kind of array vegan likes
-    #group_by(site, year) %>%
-    #group_by(site) %>%
-    select(-freq) %>%
-    group_by(sitedate) %>%
-    nest() %>% # nest into list-column
-    mutate(data2 = map(data, function(x) pivot_wider(x, names_from = !!criterion, values_from = prop, values_fill = 0)),
-           data3 = map(data2, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
-           dist = map(data3, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
-           tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
-    #dplyr::select(site, year, tidy_dist) %>% # drop intermediate list-columns
-    #dplyr::select(site, tidy_dist) %>% # drop intermediate list-columns
-    dplyr::select(sitedate, tidy_dist) %>% # drop intermediate list-columns
-    unnest(cols = c(tidy_dist)) %>% # unnest back into a single data frame
-    separate(sitedate, c("site", "date"), sep = "_") %>%
-    left_join(site_data) %>% # add site data
-    # dplyr::select(site, year, bb.sp1 = item1, bb.sp2 = item2, distance, elev.mean) %>% # dplyr::select and rename vars
-    dplyr::select(site, date, bb.sp1 = item1, bb.sp2 = item2, distance, elev.mean) %>% # dplyr::select and rename vars
-    left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>% # add traits for bb.sp1
-    rename(subgenus1 = subgenus, tongue1 = pbl.w.class2) %>%
-    left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>% # add traits for bb.sp2
-    rename(subgenus2 = subgenus, tongue2 = pbl.w.class2) %>%
-    # dplyr::select(site, year, bb.sp1, bb.sp2, subgenus1, subgenus2, distance, 
-    #        tongue1, tongue2, elev.mean) %>%
-    dplyr::select(site, date, bb.sp1, bb.sp2, subgenus1, subgenus2, distance, 
-       tongue1, tongue2, elev.mean) %>%
-    mutate(tongue.diff = factor(if_else(tongue1 == tongue2, "same", "different")),
-           tongue.pair = factor(case_when(
-             tongue1 == "med" & tongue2 == "med" ~ "med:med",
-             tongue1 == "med" & tongue2 == "long" ~ "med:long",
-             tongue1 == "med" & tongue2 == "short" ~ "short:med",
-             tongue1 == "long" & tongue2 == "med" ~ "med:long",
-             tongue1 == "short" & tongue2 == "med" ~ "short:med",
-             tongue1 == "long" & tongue2 == "short" ~ "short:long",
-             tongue1 == "short" & tongue2 == "long" ~ "short:long",
-             tongue1 == "long" & tongue2 == "long" ~ "long:long",
-             tongue1 == "short" & tongue2 == "short" ~ "short:short",
-           )),
-           subgenus.diff = if_else(subgenus1 == subgenus2, "same", "different")) %>%
-    unite(sp.pair, c(bb.sp1, bb.sp2), sep = ":", remove = FALSE) %>% # create a single species pair column...
-    mutate(sp.pair = factor(sp.pair)) %>% # ...and make it a factor so that mgcv can handle it
-    mutate(niche.overlap = 1-distance) %>% # express niche overlap so that 1 = perfect overlap and 0 = no overlap
-    select(-distance)
-}
+# niche_overlapper2 <- function(x, criterion) {
+#     
+#   criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
+#   
+#   x %>%
+#     #group_by(bb.sp, !!criterion, site, date, year) %>% # group by site-year and BB-FL pair
+#     group_by(bb.sp, !!criterion, site, date) %>% # group by site-year and BB-FL pair
+#     summarize(freq = sum(visits)) %>% # get interaction frequency for each BB-FL pair per site-year
+#     group_by(bb.sp, site, date) %>% # group by site-year and BB species
+#     mutate(prop = freq/sum(freq)) %>% # get proportional interaction frequency for each BB-FL pair
+#     #group_by(bb.sp, site, year, !!criterion) %>%
+#     # group_by(bb.sp, site, !!criterion) %>%
+#     # summarize(mean.prop = mean(prop)) %>%
+#     unite(sitedate, c(site, date), sep = "_") %>%
+#     #pivot_wider(names_from = !!criterion, values_from = mean.prop, values_fill = 0) %>% # spread into the kind of array vegan likes
+#     #pivot_wider(names_from = !!criterion, values_from = prop, values_fill = 0) %>% # spread into the kind of array vegan likes
+#     #group_by(site, year) %>%
+#     #group_by(site) %>%
+#     select(-freq) %>%
+#     group_by(sitedate) %>%
+#     nest() %>% # nest into list-column
+#     mutate(data2 = map(data, function(x) pivot_wider(x, names_from = !!criterion, values_from = prop, values_fill = 0)),
+#            data3 = map(data2, function(x) column_to_rownames(x, var = "bb.sp")), # column to rownames
+#            dist = map(data3, function(x) vegdist(x, method = "horn")), # convert to Horn's distance matrix
+#            tidy_dist = map(dist, tidy)) %>% # convert to tidy array of Horn's distances
+#     #dplyr::select(site, year, tidy_dist) %>% # drop intermediate list-columns
+#     #dplyr::select(site, tidy_dist) %>% # drop intermediate list-columns
+#     dplyr::select(sitedate, tidy_dist) %>% # drop intermediate list-columns
+#     unnest(cols = c(tidy_dist)) %>% # unnest back into a single data frame
+#     separate(sitedate, c("site", "date"), sep = "_") %>%
+#     left_join(site_data) %>% # add site data
+#     # dplyr::select(site, year, bb.sp1 = item1, bb.sp2 = item2, distance, elev.mean) %>% # dplyr::select and rename vars
+#     dplyr::select(site, date, bb.sp1 = item1, bb.sp2 = item2, distance, elev.mean) %>% # dplyr::select and rename vars
+#     left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>% # add traits for bb.sp1
+#     rename(subgenus1 = subgenus, tongue1 = pbl.w.class2) %>%
+#     left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>% # add traits for bb.sp2
+#     rename(subgenus2 = subgenus, tongue2 = pbl.w.class2) %>%
+#     # dplyr::select(site, year, bb.sp1, bb.sp2, subgenus1, subgenus2, distance, 
+#     #        tongue1, tongue2, elev.mean) %>%
+#     dplyr::select(site, date, bb.sp1, bb.sp2, subgenus1, subgenus2, distance, 
+#        tongue1, tongue2, elev.mean) %>%
+#     mutate(tongue.diff = factor(if_else(tongue1 == tongue2, "same", "different")),
+#            tongue.pair = factor(case_when(
+#              tongue1 == "med" & tongue2 == "med" ~ "med:med",
+#              tongue1 == "med" & tongue2 == "long" ~ "med:long",
+#              tongue1 == "med" & tongue2 == "short" ~ "short:med",
+#              tongue1 == "long" & tongue2 == "med" ~ "med:long",
+#              tongue1 == "short" & tongue2 == "med" ~ "short:med",
+#              tongue1 == "long" & tongue2 == "short" ~ "short:long",
+#              tongue1 == "short" & tongue2 == "long" ~ "short:long",
+#              tongue1 == "long" & tongue2 == "long" ~ "long:long",
+#              tongue1 == "short" & tongue2 == "short" ~ "short:short",
+#            )),
+#            subgenus.diff = if_else(subgenus1 == subgenus2, "same", "different")) %>%
+#     unite(sp.pair, c(bb.sp1, bb.sp2), sep = ":", remove = FALSE) %>% # create a single species pair column...
+#     mutate(sp.pair = factor(sp.pair)) %>% # ...and make it a factor so that mgcv can handle it
+#     mutate(niche.overlap = 1-distance) %>% # express niche overlap so that 1 = perfect overlap and 0 = no overlap
+#     select(-distance)
+# }
 ```
 
 ## 3.4 Calculate niche overlap pooled within site
@@ -881,27 +869,19 @@ niche_overlap <- bind_rows(niche_overlap_gen,
                            niche_overlap_fam, 
                            niche_overlap_ktype,) %>%
   mutate(level = factor(level, levels = c("family", "morphotype", "genus")),
-         site = factor(site)) %>%
+         site = factor(site),
+         management = factor(management, levels = c("none", "grasing", "mowing"))) %>%
   separate(sp.pair, c("sp1", "sp2"), sep = ":", remove = FALSE)
-
-ggplot(niche_overlap, aes(niche.overlap)) +
-  geom_histogram()
-
-ggplot(filter(niche_overlap,
-              sp1 %in% c("pasc", "prat", "soro", "telu", "wurf") &
-                sp2 %in% c("pasc", "prat", "soro", "telu", "wurf")), aes(niche.overlap)) +
-  geom_histogram() +
-  facet_wrap(~level)
 
 # Pool across species pairs within level and site to get community mean niche overlap
 niche_overlap_levels <- niche_overlap %>%
-  group_by(site, level, elev.mean) %>%
+  group_by(site, level, elev.mean, management) %>%
   summarize(mean.niche.overlap = mean(niche.overlap)) %>%
   mutate(level = factor(level, levels = c("family", "morphotype", "genus")))  # ordering them this way will make family the reference level, which is handy since I don't really care about it.
 
 # Isolate genus-level, then pool within dsp.pair and site
 niche_overlap_sppair <-  niche_overlap %>%
-  group_by(site, sp.pair, level, elev.mean) %>%
+  group_by(site, sp.pair, level, elev.mean, management) %>%
   summarize(mean.niche.overlap = mean(niche.overlap)) %>%
   mutate(level = factor(level, levels = c("family", "morphotype", "genus"))) %>%
   filter(level == "genus") %>%
@@ -909,15 +889,20 @@ niche_overlap_sppair <-  niche_overlap %>%
 
 # Isolate genus-level, then pool within tongue.pair and site
 niche_overlap_tongues <- niche_overlap %>%
-  group_by(site, level, tongue.pair, elev.mean) %>%
+  group_by(site, level, tongue.pair, elev.mean, management) %>%
   summarize(mean.niche.overlap = mean(niche.overlap)) %>%
   filter(level == "genus") 
 
 # Isolate genus-level, then pool within tongue.diff and site
 niche_overlap_tonguediff <- niche_overlap %>%
-  group_by(site, level, tongue.diff, elev.mean) %>%
+  group_by(site, level, tongue.diff, elev.mean, management) %>%
   summarize(mean.niche.overlap = mean(niche.overlap)) %>%
   filter(level == "genus")
+
+#################
+
+ggplot(niche_overlap_sppair, aes(management, mean.niche.overlap)) +
+  geom_boxplot()
 ```
 
 ## 3.5 Niche overlap ~ level + elevation
@@ -925,12 +910,13 @@ niche_overlap_tonguediff <- niche_overlap %>%
 ```{r}
 # Beta regression is probably the right way to do this; a gaussian model gives almost identical results, though, since our pooled data are approximately gaussian
 niche_gam_00 <- gam(mean.niche.overlap ~
-                     level + 
-                     s(elev.mean, by = level, k = 8, m = 2),
-                   method = "REML",
-                   family = betar(eps = 0.001),
-                   select = TRUE,
-                   data = niche_overlap_levels) %>% getViz()
+                      level + 
+                      #management +
+                      s(elev.mean, by = level, k = 8, m = 2),
+                    method = "REML",
+                    family = betar(eps = 0.001),
+                    select = TRUE,
+                    data = niche_overlap_levels) %>% getViz()
 
 check.gamViz(niche_gam_00)
 summary(niche_gam_00)
@@ -996,11 +982,24 @@ niche_gam_20 <- gam(mean.niche.overlap ~
 check.gamViz(niche_gam_20)
 summary(niche_gam_20)
 print(plot(niche_gam_20, allTerms = TRUE), pages = 1)
+
+niche_gam_21 <- gam(mean.niche.overlap ~
+                     tongue.pair +
+                     s(elev.mean, by = tongue.pair, k = 8, m = 2),
+                   method = "REML",
+                   family = betar(eps = 0.001),
+                   select = TRUE,
+                   data = niche_overlap_tongues) %>% getViz()
+
+check.gamViz(niche_gam_21)
+summary(niche_gam_21)
+print(plot(niche_gam_21, allTerms = TRUE), pages = 1)
 ```
 
 
 ### 3.7.2 Visualize
 ```{r}
+# Tongue diff
 # Get predictions
 niche_gam_20_pred <- get_gam_predictions(niche_gam_20, elev.mean) %>%
   as_tibble() %>%
@@ -1023,6 +1022,33 @@ ggplot(niche_gam_20_pred, aes(elev.mean, mean.niche.overlap_trans, color = tongu
 
 ggsave(file = "../output/niche_gam_20_plot1.pdf", width = 5, height = 4)
 ggsave(file = "../output/niche_gam_20_plot1.png", width = 5, height = 4)
+
+# Plot intercept effect of tongue.diff
+plot(pterm(niche_gam_20, 1))
+
+# Tongue pair
+# Get predictions
+niche_gam_21_pred <- get_gam_predictions(niche_gam_21, elev.mean) %>%
+  as_tibble() %>%
+  mutate(mean.niche.overlap_trans = inv_logit_scaled(mean.niche.overlap),
+         CI_upper_trans = inv_logit_scaled(CI_upper),
+         CI_lower_trans = inv_logit_scaled(CI_lower))
+
+# Plot smooths
+ggplot(niche_gam_21_pred, aes(elev.mean, mean.niche.overlap_trans, color = tongue.pair)) +
+  geom_ribbon(aes(elev.mean, mean.niche.overlap_trans, 
+                  ymax = CI_upper_trans, ymin = CI_lower_trans,
+                  fill = tongue.pair),
+              alpha = 0.3, inherit.aes = FALSE) +
+  geom_line() +
+  ylab("Niche overlap") +
+  xlab("Elevation (m)") +
+  guides(fill = FALSE) +
+  labs(color = "Tongue pair") +
+  theme_light()
+
+ggsave(file = "../output/niche_gam_21_plot1.pdf", width = 5, height = 4)
+ggsave(file = "../output/niche_gam_21_plot1.png", width = 5, height = 4)
 
 # Plot intercept effect of tongue.diff
 plot(pterm(niche_gam_20, 1))

@@ -29,11 +29,6 @@ fl_survey <- read_delim("./data/raw_data/data_plantcover_forDoug_2020.01.17.csv"
   
 write_csv(fl_survey, "./data/processed_data/floral_survey.csv")
 
-# 
-gentian_problem <- fl_survey %>%
-  select(plant.genus, plant.sp) %>%
-  filter(plant.genus %in% c("Gentiana", "Gentianella", "Gentianopsis")) %>%
-  distinct()
 
 ### Visitation data
 network <- read_delim("./data/raw_data/data_bumblebee_forDoug_2020.04.17.csv", delim = ";", 
@@ -45,7 +40,7 @@ network <- read_delim("./data/raw_data/data_bumblebee_forDoug_2020.04.17.csv", d
                                            "Deschampsia caespitosa" = "Deschampsia cespitosa",
                                            "Gymnadenia bifolia" = "Platanthera bifolia",
                                            "Gentiana aspera" = "Gentianella aspera",
-                                           "Gentiana ciliata" = "Gentianella ciliata")))%>%
+                                           "Gentiana ciliata" = "Gentianella ciliata"))) %>%
   separate(col = plant_sp_latin, into = c("genus", "species", "w", "x", "y", "z"), sep = " ") %>%
   unite(plant_sp_latin, genus, species, sep = " ") %>%
   dplyr::select(-c(w,x,y,z)) %>%
@@ -73,11 +68,6 @@ network <- read_delim("./data/raw_data/data_bumblebee_forDoug_2020.04.17.csv", d
   dplyr::select(-temp.date)
 
 write_csv(network, "./data/processed_data/network.csv")
-
-gentian_problem_visitation <- network %>%
-  select(plant.genus, plant.sp) %>%
-  filter(plant.genus %in% c("Gentiana", "Gentianella", "Gentianopsis")) %>%
-  distinct()
 
 ### Floral taxonomy
 Sys.setenv(ENTREZ_KEY = "ab9a55ec842df6f86a750929aefc69143608")
@@ -110,8 +100,8 @@ fl_tax_gapfill <- fl_tax %>% # manually fill in some gaps in the NCBI database
                                 plant.family)
   )
   
-write_csv(fl_tax_gapfill, "./processed_data/floral_tax.csv")
-fl_tax_gapfill <- read.csv("./processed_data/floral_tax.csv")
+write_csv(fl_tax_gapfill, "./data/processed_data/floral_tax.csv")
+#fl_tax_gapfill <- read.csv("./processed_data/floral_tax.csv")
 
 ### Site data
 site_data <- read_tsv("./raw_data/SiteLocationFabriceUpdate2020.tsv",
@@ -172,6 +162,8 @@ floral_k_type <-  read_delim("./data/raw_data/BioFlor_Kugler_classification.csv"
           k.type = "NA", k.type.s = "5.1", k.type.ss = "5") %>% # All scored Stachys were classified as 5.1
   add_row(plant.sp = "Taraxacum officinale", plant.genus = "Taraxacum", 
           k.type = "NA", k.type.s = "7.2", k.type.ss = "7") %>% # All scored Taraxacum (treated as a species group by Kugler) belong to 7.2
+  add_row(plant.sp = "Taraxacum alpinum", plant.genus = "Taraxacum", 
+          k.type = "NA", k.type.s = "7.2", k.type.ss = "7") %>% # All scored Taraxacum (treated as a species group by Kugler) belong to 7.2
   add_row(plant.sp = "Alchemilla conjuncta", plant.genus = "Alchemilla", # All scored Alchemilla were classified as 1.2 
           k.type = "NA", k.type.s = "1.2", k.type.ss = "1") %>%
   add_row(plant.sp = "Arabis pumila", plant.genus = "Arabis", # All scored Arabis were classified as 1.2 
@@ -193,284 +185,335 @@ floral_k_type <-  read_delim("./data/raw_data/BioFlor_Kugler_classification.csv"
   add_row(plant.sp = "Polygonum viviparum", plant.genus = "Polygonum", # Synonym: Bistorta vivipara
           k.type = "NA", k.type.s = "3.2", k.type.ss = "3") %>%
   add_row(plant.sp = "Sesleria caerulea", plant.genus = "Sesleria", # It's a grass
-          k.type = "NA", k.type.s = "0", k.type.ss = "0")
-  
+          k.type = "NA", k.type.s = "0", k.type.ss = "0") %>%
+  add_row(plant.sp = "Tolpis staticifolia", plant.genus = "Tolpis", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "7.2b", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Teucrium montanum", plant.genus = "Teucrium", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "5.1", k.type.s = "5.1", k.type.ss = "5") %>%
+  add_row(plant.sp = "Silene viscosa", plant.genus = "Silene", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "4.2", k.type.s = "4.2", k.type.ss = "4") %>%
+  add_row(plant.sp = "Silene pusilla", plant.genus = "Silene", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "4.2", k.type.s = "4.2", k.type.ss = "4") %>%
+  add_row(plant.sp = "Nigritella nigra", plant.genus = "Nigritella", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "7.1", k.type.s = "7.1", k.type.ss = "7") %>%
+  add_row(plant.sp = "Melampyrum pratense", plant.genus = "Melampyrum", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "5.3", k.type.s = "5.3", k.type.ss = "5") %>%
+  add_row(plant.sp = "Leontopodium alpinum", plant.genus = "Leontopodium", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "7.2a", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Leontodon sp.", plant.genus = "Leontodon", # Unanimous at genus level
+          k.type = "7.2b", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Laserpitium siler", plant.genus = "Laserpitium", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "1.2a", k.type.s = "1.2", k.type.ss = "1") %>%
+  add_row(plant.sp = "Hieracium sp. 1", plant.genus = "Hieracium", # Unanimous at genus level
+          k.type = "7.2b", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Hieracium sp. 2", plant.genus = "Hieracium", # Unanimous at genus level
+          k.type = "7.2b", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Hieracium sp. 3", plant.genus = "Hieracium", # Unanimous at genus level
+          k.type = "7.2b", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Hieracium sp. 4", plant.genus = "Hieracium", # Unanimous at genus level
+          k.type = "7.2b", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Hieracium glaucum", plant.genus = "Hieracium", # Unanimous at genus level
+          k.type = "7.2b", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Hieracium glanduliferum", plant.genus = "Hieracium", # Unanimous at genus level
+          k.type = "7.2b", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Galium uliginosum", plant.genus = "Galium", # Missing
+          k.type = "NA", k.type.s = "NA", k.type.ss = "NA") %>%
+  add_row(plant.sp = "Erigeron glabratus", plant.genus = "Erigeron", # Unanimous at genus level
+          k.type = "7.2c", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Crepis sp.", plant.genus = "Crepis", # Unanimous at genus level
+          k.type = "7.2b", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Clematis alpina", plant.genus = "Clematis", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "1.1", k.type.s = "1.1", k.type.ss = "1") %>%
+  add_row(plant.sp = "Cicerbita alpina", plant.genus = "Cicerbita", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "7.2b", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Chaerophyllum hirsutum ssp. Villarsii", plant.genus = "Chaerophyllum", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "1.2a", k.type.s = "1.2", k.type.ss = "1") %>%
+  add_row(plant.sp = "Aquilegia vulgaris", plant.genus = "Aquilegia", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "3.2", k.type.s = "3.2", k.type.ss = "3") %>%
+  add_row(plant.sp = "Anthriscus nitidus", plant.genus = "Anthriscus", # Synomnym
+          k.type = "1.2a", k.type.s = "1.2", k.type.ss = "1") %>%
+  add_row(plant.sp = "Antennaria carpatica", plant.genus = "Antennaria", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "7.2a", k.type.s = "7.2", k.type.ss = "7") %>%
+  add_row(plant.sp = "Allium lusitanicum", plant.genus = "Allium", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "1.2bd", k.type.s = "1.2", k.type.ss = "1") %>%
+  add_row(plant.sp = "Rheum rhabarbarum", plant.genus = "Rheum", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "1.2bb", k.type.s = "1.2", k.type.ss = "1") %>%
+  add_row(plant.sp = "Mentha aquatica", plant.genus = "Mentha", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "2.2", k.type.s = "2.2", k.type.ss = "2") %>%
+  add_row(plant.sp = "Gentianella ciliata", plant.genus = "Gentianella", # Added from BIOFLOR (not sure why it was missing)
+          k.type = "2.1", k.type.s = "2.1", k.type.ss = "2") %>%
+  add_row(plant.sp = "Phyteuma nigrum", plant.genus = "Phyteuma", # synonym
+          k.type = "7.1", k.type.s = "7.1", k.type.ss = "7") %>%
+  add_row(plant.sp = "Gentianella aspera", plant.genus = "Gentianella", # synonym
+          k.type = "2.1", k.type.s = "2.1", k.type.ss = "2") 
 
 write_csv(floral_k_type, "./data/processed_data/floral_k_type.csv")
-
-gentian_problem_traits <- floral_k_type %>%
-  select(plant.genus, plant.sp, k.type.ss) %>%
-  filter(plant.genus %in% c("Gentiana", "Gentianella", "Gentianopsis")) %>%
-  distinct()
-
-floral_m_type <-  read_delim("./BioFlor_traits/BioFlor_Mueller_classification.csv", delim = ";") %>%
-  dplyr::select(taxon = 1, m.type = 2) %>% 
-  na.omit() %>%
-  mutate(taxon = str_replace_all(taxon, c(" x " = " x"))) %>%
-  separate(taxon, c("genus", "species"), sep = " ") %>%
-  unite(plant.sp, genus, species, sep = " ", remove = FALSE) %>%
-  select(plant.sp, plant.genus = genus, m.type) 
-
-floral_color <-  read_delim("./BioFlor_traits/BioFlor_flower_color.csv", delim = ";") %>%
-  slice(-1) %>%
-  select(taxon = 1, color = 2) %>% 
-  na.omit() %>%
-  head(-1) %>%
-  mutate(taxon = str_replace_all(taxon, c(" x " = " x"))) %>%
-  separate(taxon, c("genus", "species"), sep = " ") %>%
-  unite(plant.sp, genus, species, sep = " ", remove = FALSE) %>%
-  select(plant.sp, plant.genus = genus, color) %>%
-  
+# 
+# floral_m_type <-  read_delim("./BioFlor_traits/BioFlor_Mueller_classification.csv", delim = ";") %>%
+#   dplyr::select(taxon = 1, m.type = 2) %>% 
+#   na.omit() %>%
+#   mutate(taxon = str_replace_all(taxon, c(" x " = " x"))) %>%
+#   separate(taxon, c("genus", "species"), sep = " ") %>%
+#   unite(plant.sp, genus, species, sep = " ", remove = FALSE) %>%
+#   select(plant.sp, plant.genus = genus, m.type) 
+# 
+# floral_color <-  read_delim("./BioFlor_traits/BioFlor_flower_color.csv", delim = ";") %>%
+#   slice(-1) %>%
+#   select(taxon = 1, color = 2) %>% 
+#   na.omit() %>%
+#   head(-1) %>%
+#   mutate(taxon = str_replace_all(taxon, c(" x " = " x"))) %>%
+#   separate(taxon, c("genus", "species"), sep = " ") %>%
+#   unite(plant.sp, genus, species, sep = " ", remove = FALSE) %>%
+#   select(plant.sp, plant.genus = genus, color) %>%
+#   
   # Fill in color data for plants present in my samples but missing from the Bioflor database
   # Colors based on review of iNaturalist "research-grade" observations or Wikimedia commons. Where color is too variable to classify, "various_colors". 
   # Where essentially absent as in conifers, "NA".
-  add_row(plant.sp = "Euphrasia rostkoviana", plant.genus = "Euphrasia", color = "var") %>%
-  add_row(plant.sp = "Euphrasia officinalis", plant.genus = "Euphrasia", color = "var") %>%
-  add_row(plant.sp = "Taraxacum officinale", plant.genus = "Taraxacum", color = "yellow") %>%
-  add_row(plant.sp = "Juniperus communis", plant.genus = "Juniperus", color = "green") %>%
-  add_row(plant.sp = "Gentiana aspera", plant.genus = "Gentiana", color = "purple") %>%
-  add_row(plant.sp = "Gentianella aspera", plant.genus = "Gentianella", color = "purple") %>%
-  add_row(plant.sp = "Carex ericetorum", plant.genus = "Carex", color = "yellow") %>%
-  add_row(plant.sp = "Euphrasia picta", plant.genus = "Euphrasia", color = "various colors") %>%
-  add_row(plant.sp = "Gentiana ciliata", plant.genus = "Gentiana", color = "violet") %>%
-  add_row(plant.sp = "Gentianopsis ciliata", plant.genus = "Gentiana", color = "violet") %>%
-  add_row(plant.sp = "Stachys alopecuros", plant.genus = "Stachys", color = "yellow") %>%
-  add_row(plant.sp = "Betonica alopecuros", plant.genus = "Betonica", color = "yellow") %>%
-  add_row(plant.sp = "Cardamine enneaphyllos", plant.genus = "Cardamine", color = "yellow") %>%
-  add_row(plant.sp = "Lamium galeobdolon", plant.genus = "Lamium", color = "yellow") %>%
-  add_row(plant.sp = "Larix decidua", plant.genus = "Larix", color = "red") %>%
-  add_row(plant.sp = "Silene flos-cuculi", plant.genus = "Silene", color = "pink") %>%
-  add_row(plant.sp = "Aconitum vulparia", plant.genus = "Aconitum", color = "yellow") %>%
-  add_row(plant.sp = "Rumex alpestris", plant.genus = "Rumex", color = "red") %>%
-  add_row(plant.sp = "Mentha aquatilis", plant.genus = "Mentha", color = "lilac") %>%
-  add_row(plant.sp = "Mentha aquatica", plant.genus = "Mentha", color = "lilac") %>%
-  add_row(plant.sp = "Salix spec.", plant.genus = "Salix", color = "var") %>%
-  add_row(plant.sp = "Stachys officinalis", plant.genus = "Stachys", color = "pink") %>%
-  add_row(plant.sp = "Betonica officinalis", plant.genus = "Betonica", color = "pink") %>%
-  add_row(plant.sp = "Rheum barbarum", plant.genus = "Rheum", color = "yellow") %>%
-  add_row(plant.sp = "Rheum rhabarbarum", plant.genus = "Rheum", color = "yellow")
-  
-
-write_csv(floral_color, "./processed_data/floral_color.csv")
+#   add_row(plant.sp = "Euphrasia rostkoviana", plant.genus = "Euphrasia", color = "var") %>%
+#   add_row(plant.sp = "Euphrasia officinalis", plant.genus = "Euphrasia", color = "var") %>%
+#   add_row(plant.sp = "Taraxacum officinale", plant.genus = "Taraxacum", color = "yellow") %>%
+#   add_row(plant.sp = "Juniperus communis", plant.genus = "Juniperus", color = "green") %>%
+#   add_row(plant.sp = "Gentiana aspera", plant.genus = "Gentiana", color = "purple") %>%
+#   add_row(plant.sp = "Gentianella aspera", plant.genus = "Gentianella", color = "purple") %>%
+#   add_row(plant.sp = "Carex ericetorum", plant.genus = "Carex", color = "yellow") %>%
+#   add_row(plant.sp = "Euphrasia picta", plant.genus = "Euphrasia", color = "various colors") %>%
+#   add_row(plant.sp = "Gentiana ciliata", plant.genus = "Gentiana", color = "violet") %>%
+#   add_row(plant.sp = "Gentianopsis ciliata", plant.genus = "Gentiana", color = "violet") %>%
+#   add_row(plant.sp = "Stachys alopecuros", plant.genus = "Stachys", color = "yellow") %>%
+#   add_row(plant.sp = "Betonica alopecuros", plant.genus = "Betonica", color = "yellow") %>%
+#   add_row(plant.sp = "Cardamine enneaphyllos", plant.genus = "Cardamine", color = "yellow") %>%
+#   add_row(plant.sp = "Lamium galeobdolon", plant.genus = "Lamium", color = "yellow") %>%
+#   add_row(plant.sp = "Larix decidua", plant.genus = "Larix", color = "red") %>%
+#   add_row(plant.sp = "Silene flos-cuculi", plant.genus = "Silene", color = "pink") %>%
+#   add_row(plant.sp = "Aconitum vulparia", plant.genus = "Aconitum", color = "yellow") %>%
+#   add_row(plant.sp = "Rumex alpestris", plant.genus = "Rumex", color = "red") %>%
+#   add_row(plant.sp = "Mentha aquatilis", plant.genus = "Mentha", color = "lilac") %>%
+#   add_row(plant.sp = "Mentha aquatica", plant.genus = "Mentha", color = "lilac") %>%
+#   add_row(plant.sp = "Salix spec.", plant.genus = "Salix", color = "var") %>%
+#   add_row(plant.sp = "Stachys officinalis", plant.genus = "Stachys", color = "pink") %>%
+#   add_row(plant.sp = "Betonica officinalis", plant.genus = "Betonica", color = "pink") %>%
+#   add_row(plant.sp = "Rheum barbarum", plant.genus = "Rheum", color = "yellow") %>%
+#   add_row(plant.sp = "Rheum rhabarbarum", plant.genus = "Rheum", color = "yellow")
+#   
+# 
+# write_csv(floral_color, "./processed_data/floral_color.csv")
 
 ### Bee colors from FReD database, downloaded December 8, 2020. http://www.reflectance.co.uk//index.php
-fred <- read_csv("./raw_data/FreD.csv") %>%
-  unite(plant.sp, c(Genus, Species), sep = " ") %>%
-  
-  # Fill in missing data where possible
-  
-  add_row(plant.sp = "Erica carnea", BeeColour = "blue", HumanColour = "pink") %>% # taxonomic synonym
-  add_row(plant.sp = "Centaurea jacea", BeeColour = "blue-green", HumanColour = "pink") %>% # Raine et al. (2007) PLoS ONE 
-  add_row(plant.sp = "Salvia verticillata", BeeColour = "uv-blue", HumanColour = "lilac") %>% # Raine et al. (2007) PLoS ONE
-  add_row(plant.sp = "Epilobium angustifolium", BeeColour = "blue", HumanColour = "pink") %>% # Raine et al. (2007) PLoS ONE
-  add_row(plant.sp = "Lamium galeobdolon", BeeColour = "uv-green", HumanColour = "yellow") # Raine et al. (2007) PLoS ONE
+# fred <- read_csv("./raw_data/FreD.csv") %>%
+#   unite(plant.sp, c(Genus, Species), sep = " ") %>%
+#   
+#   # Fill in missing data where possible
+#   
+#   add_row(plant.sp = "Erica carnea", BeeColour = "blue", HumanColour = "pink") %>% # taxonomic synonym
+#   add_row(plant.sp = "Centaurea jacea", BeeColour = "blue-green", HumanColour = "pink") %>% # Raine et al. (2007) PLoS ONE 
+#   add_row(plant.sp = "Salvia verticillata", BeeColour = "uv-blue", HumanColour = "lilac") %>% # Raine et al. (2007) PLoS ONE
+#   add_row(plant.sp = "Epilobium angustifolium", BeeColour = "blue", HumanColour = "pink") %>% # Raine et al. (2007) PLoS ONE
+#   add_row(plant.sp = "Lamium galeobdolon", BeeColour = "uv-green", HumanColour = "yellow") # Raine et al. (2007) PLoS ONE
+# 
+# survey_species <- read_csv("./processed_data/floral_survey.csv") %>%
+#   select(plant.genus, plant.sp) %>%
+#   distinct()
+# 
+# visits_species <- read_csv("./processed_data/network.csv") %>%
+#   select(plant.genus, plant.sp) %>%
+#   distinct()
+#   
+# fred_survey <- left_join(survey_species, fred) %>%
+#   select(plant.sp, BeeColour) %>%
+#   distinct()
+# 
+# fred_visits <- left_join(visits_species, fred) %>%
+#   select(plant.sp, BeeColour) %>%
+#   distinct()
+# 
+# missing_freds <- bind_rows(fred_survey, fred_visits) %>%
+#   distinct() %>%
+#   filter(is.na(BeeColour))
+# 
+# missing_freds.survey <- fred_survey %>%
+#   distinct() %>%
+#   filter(is.na(BeeColour))
+# 
+# missing_freds.visits <- fred_visits %>%
+#   distinct() %>%
+#   filter(is.na(BeeColour))
 
-survey_species <- read_csv("./processed_data/floral_survey.csv") %>%
-  select(plant.genus, plant.sp) %>%
-  distinct()
 
-visits_species <- read_csv("./processed_data/network.csv") %>%
-  select(plant.genus, plant.sp) %>%
-  distinct()
-  
-fred_survey <- left_join(survey_species, fred) %>%
-  select(plant.sp, BeeColour) %>%
-  distinct()
-
-fred_visits <- left_join(visits_species, fred) %>%
-  select(plant.sp, BeeColour) %>%
-  distinct()
-
-missing_freds <- bind_rows(fred_survey, fred_visits) %>%
-  distinct() %>%
-  filter(is.na(BeeColour))
-
-missing_freds.survey <- fred_survey %>%
-  distinct() %>%
-  filter(is.na(BeeColour))
-
-missing_freds.visits <- fred_visits %>%
-  distinct() %>%
-  filter(is.na(BeeColour))
-
-
-### Climate data
-climate <- read_delim("./raw_data/climate2.txt", delim = "\t") %>%
-  rename(site = PlotID) %>%
-  mutate(date = dmy(date),
-         year = year(date),
-         month = month(date),
-         site = str_to_lower(site)) %>%
-  mutate(gdd = case_when(
-    pred_Tmean_day - 10 > 0 ~ pred_Tmean_day - 10,
-    pred_Tmean_day - 10 <= 0 ~ 0)
-    ) %>%
-  group_by(site, year) %>%
-  mutate(gdd.cum = round(cumsum(gdd)))
-
-write_csv(climate, "./processed_data/climate.csv")
-
-### TRY data
-try <- read_delim("./raw_data/TRY_13_05_2020.txt", delim = "\t")
-
-### Parasite data
-#### 2010
-parasites2010 <- read_delim("./raw_data/lab-data_parasites_2010_raw-data.csv", delim = ";") %>%
-  select(-c(year, ovary_development, fatbody_look, comment, dissector)) %>%
-  gather(var, value, -sample_number) %>%
-  mutate(value = as.numeric(value),
-         var = str_replace_all(var, "-", "_")) %>%
-  na.omit() %>%
-  spread(var, value) %>%
-  filter(!is.na(size)) %>% #remove the few cases where size was not measured 
-  replace(is.na(.), 0) %>%
-  mutate(ecto.mites = ecto_mites_l + ecto_mites_m + ecto_mites_s + ecto_mites_xs,
-         conopids = parasitoid_conopidae_dead_larvae +
-           parasitoid_conopidae_dead_larvae +
-           parasitoid_conopidae_dorsal_egg +
-           parasitoid_conopidae_dorsal_larvae +
-           parasitoid_conopidae_ventral_egg +
-           parasitoid_conopidae_ventral_larvae) %>%
-  select(sample_number, size, ecto.mites, conopids, 
-         nosema = parasite_nosema, apicystis = parasite_apicystis,
-         crithidia = parasite_crithidia, braconids = parasitoid_braconidae_larvae,
-         tracheal.mites = tracheal_mites, nematodes = nematode) %>%
-  gather(var, value, -sample_number, -size) %>%
-  mutate(value = as.numeric(value),
-         bin.value = case_when(
-           value > 0 ~ TRUE,
-           value == 0 ~ FALSE
-         )) %>%
-  na.omit() 
-  
-sampling2010 <- read_delim("./raw_data/field-data_bumblebees_2010_raw-data.csv", delim = ";") %>%
-  select(site = site_name, elev.mean = site_elevation, year, date, yday = dayofyear, bb.sp = bumb_species, 
-         caste, plant.sp = forage_plant, sample_number) %>%
-  mutate(date = dmy(date),
-         caste = str_trim(caste))
-
-psite_2010 <- parasites2010 %>%
-  left_join(sampling2010, by = c("sample_number")) %>%
-  select(site, date, year, yday, elev.mean, bb.sp, size, caste, 
-         plant.sp, var, value, bin.value, sample_number)
-
-#### 2011
-parasites2011 <- read_delim("./raw_data/lab-data_parasites_2011_raw-data.csv", delim = ";") %>%
-  select(-c(year, ovary_development, fatbody_look, comment, dissector)) %>%
-  gather(var, value, -sample_number) %>%
-  mutate(value = as.numeric(value),
-         var = str_replace_all(var, "-", "_")) %>%
-  na.omit() %>%
-  spread(var, value) %>%
-  filter(!is.na(size)) %>% #remove the few cases where size was not measured 
-  replace(is.na(.), 0) %>%
-  mutate(ecto.mites = ecto_mites_l + ecto_mites_m + ecto_mites_s + ecto_mites_xs,
-         conopids = parasitoid_conopidae_dead_larvae +
-           parasitoid_conopidae_dead_larvae +
-           parasitoid_conopidae_dorsal_egg +
-           parasitoid_conopidae_dorsal_larvae +
-           parasitoid_conopidae_ventral_egg +
-           parasitoid_conopidae_ventral_larvae) %>%
-  select(sample_number, size, ecto.mites, conopids, 
-         braconids = parasitoid_braconidae_larvae,
-         tracheal.mites = tracheal_mites, nematodes = nematode) %>%
-  gather(var, value, -sample_number, -size) %>%
-  mutate(value = as.numeric(value),
-         bin.value = case_when(
-           value > 0 ~ TRUE,
-           value == 0 ~ FALSE
-         )) %>%
-  na.omit()  %>%
-  mutate(sample_number = as.character(sample_number))
-
-sampling2011 <- read_delim("./raw_data/field-data_bumblebees_2011_raw-data.csv", delim = ";") %>%
-  select(site = site_name, elev.mean = site_elevation, year, date, yday = dayofyear, bb.sp = bumb_species, 
-         caste, plant.sp = forage_plant, sample_number) %>%
-  mutate(date = dmy(date),
-         caste = str_trim(caste)) %>%
-  mutate(sample_number = as.character(sample_number))
-
-psite_2011 <- parasites2011 %>%
-  left_join(sampling2011, by = c("sample_number")) %>%
-  select(site, date, year, yday, elev.mean, bb.sp, size, caste, 
-         plant.sp, var, value, bin.value, sample_number)
-
-ggplot(psite_2011, aes(bin.value)) +
-  geom_bar() +
-  facet_wrap(~var, scale = "free")
-
-ggplot(psite_2011, aes(value)) +
-  geom_bar() +
-  facet_wrap(~var, scale = "free")
-
-#### 2012
-parasites2012 <- read_delim("./raw_data/lab-data_parasites_2012_raw-data_mod.csv", delim = "\t") %>%
-  select(-c(year, ovary_development, comment, dissector)) %>%
-  gather(var, value, -sample_number) %>%
-  mutate(value = as.numeric(value),
-         var = str_replace_all(var, "-", "_")) %>%
-  na.omit() %>%
-  spread(var, value) %>%
-  filter(!is.na(size)) %>% #remove the few cases where size was not measured 
-  replace(is.na(.), 0) %>%
-  mutate(ecto.mites = ecto_mites_l + ecto_mites_m + ecto_mites_s + ecto_mites_xs,
-         conopids = parasitoid_conopidae_dead_larvae +
-           parasitoid_conopidae_dead_larvae +
-           parasitoid_conopidae_dorsal_egg +
-           parasitoid_conopidae_dorsal_larvae +
-           parasitoid_conopidae_ventral_egg +
-           parasitoid_conopidae_ventral_larvae) %>%
-  select(sample_number, size, ecto.mites, conopids, 
-         nosema = parasite_nosema, apicystis = parasite_apicystis,
-         crithidia = parasite_crithidia, braconids = parasitoid_braconidae_larvae,
-         tracheal.mites = tracheal_mites, nematodes = nematode) %>%
-  gather(var, value, -sample_number, -size) %>%
-  mutate(value = as.numeric(value),
-         bin.value = case_when(
-           value > 0 ~ TRUE,
-           value == 0 ~ FALSE
-         )) %>%
-  na.omit() %>%
-  mutate(sample_number = as.character(sample_number))
-
-sampling2012 <- read_delim("./raw_data/field-data_bumblebees_2012_raw-data.csv", delim = ";") %>%
-  select(site = site_name, elev.mean = site_elevation, year, date, yday = dayofyear, bb.sp = bumb_species, 
-         caste, plant.sp = forage_plant, sample_number) %>%
-  mutate(caste = str_trim(caste)) %>%
-  filter(sample_number > 0) %>%
-  mutate(sample_number = as.character(sample_number))
-
-psite_2012 <- parasites2012 %>%
-  left_join(sampling2012, by = c("sample_number")) %>%
-  select(site, date, year, yday, elev.mean, bb.sp, size, caste, 
-         plant.sp, var, value, bin.value, sample_number)
-
-parasites <- bind_rows(psite_2010, psite_2011, psite_2012)
-
-write_csv(parasites, "./processed_data/parasites.csv")
-
-### Weather data
-weather2010 <- read_delim("./raw_data/field-data_bumblebees_2010_raw-data.csv", delim = ";") %>%
-  dplyr::select(site = site_name, date, weather, temperature) %>% 
-  unique() %>%
-  mutate(date = dmy(date))
-
-weather2011 <- read_delim("./raw_data/field-data_bumblebees_2011_raw-data.csv", delim = ";") %>%
-  dplyr::select(site = site_name, date, weather, temperature) %>% 
-  unique() %>%
-  mutate(date = dmy(date))
-
-weather2012 <- read_delim("./raw_data/field-data_bumblebees_2012_raw-data.csv", delim = ";") %>%
-  dplyr::select(site = site_name, date, weather, temperature) %>%
-  mutate(site = str_replace_all(site, "salix", "")) %>%
-  mutate(site = str_replace_all(site, "garden", "")) %>%
-  unique() 
-
-weather <- bind_rows(weather2010, weather2011, weather2012) %>%
-  write_csv("./processed_data/weather.csv")
-
-temperature <- read_delim("./raw_data/climate2.txt", delim = "\t") %>%
-  rename(site = PlotID) %>%
-  mutate(date = dmy(date),
-         site = str_to_lower(site)) %>%
-  write_csv("./processed_data/temperature.csv")
+# ### Climate data
+# climate <- read_delim("./raw_data/climate2.txt", delim = "\t") %>%
+#   rename(site = PlotID) %>%
+#   mutate(date = dmy(date),
+#          year = year(date),
+#          month = month(date),
+#          site = str_to_lower(site)) %>%
+#   mutate(gdd = case_when(
+#     pred_Tmean_day - 10 > 0 ~ pred_Tmean_day - 10,
+#     pred_Tmean_day - 10 <= 0 ~ 0)
+#     ) %>%
+#   group_by(site, year) %>%
+#   mutate(gdd.cum = round(cumsum(gdd)))
+# 
+# write_csv(climate, "./processed_data/climate.csv")
+# 
+# ### Parasite data
+# #### 2010
+# parasites2010 <- read_delim("./raw_data/lab-data_parasites_2010_raw-data.csv", delim = ";") %>%
+#   select(-c(year, ovary_development, fatbody_look, comment, dissector)) %>%
+#   gather(var, value, -sample_number) %>%
+#   mutate(value = as.numeric(value),
+#          var = str_replace_all(var, "-", "_")) %>%
+#   na.omit() %>%
+#   spread(var, value) %>%
+#   filter(!is.na(size)) %>% #remove the few cases where size was not measured 
+#   replace(is.na(.), 0) %>%
+#   mutate(ecto.mites = ecto_mites_l + ecto_mites_m + ecto_mites_s + ecto_mites_xs,
+#          conopids = parasitoid_conopidae_dead_larvae +
+#            parasitoid_conopidae_dead_larvae +
+#            parasitoid_conopidae_dorsal_egg +
+#            parasitoid_conopidae_dorsal_larvae +
+#            parasitoid_conopidae_ventral_egg +
+#            parasitoid_conopidae_ventral_larvae) %>%
+#   select(sample_number, size, ecto.mites, conopids, 
+#          nosema = parasite_nosema, apicystis = parasite_apicystis,
+#          crithidia = parasite_crithidia, braconids = parasitoid_braconidae_larvae,
+#          tracheal.mites = tracheal_mites, nematodes = nematode) %>%
+#   gather(var, value, -sample_number, -size) %>%
+#   mutate(value = as.numeric(value),
+#          bin.value = case_when(
+#            value > 0 ~ TRUE,
+#            value == 0 ~ FALSE
+#          )) %>%
+#   na.omit() 
+#   
+# sampling2010 <- read_delim("./raw_data/field-data_bumblebees_2010_raw-data.csv", delim = ";") %>%
+#   select(site = site_name, elev.mean = site_elevation, year, date, yday = dayofyear, bb.sp = bumb_species, 
+#          caste, plant.sp = forage_plant, sample_number) %>%
+#   mutate(date = dmy(date),
+#          caste = str_trim(caste))
+# 
+# psite_2010 <- parasites2010 %>%
+#   left_join(sampling2010, by = c("sample_number")) %>%
+#   select(site, date, year, yday, elev.mean, bb.sp, size, caste, 
+#          plant.sp, var, value, bin.value, sample_number)
+# 
+# #### 2011
+# parasites2011 <- read_delim("./raw_data/lab-data_parasites_2011_raw-data.csv", delim = ";") %>%
+#   select(-c(year, ovary_development, fatbody_look, comment, dissector)) %>%
+#   gather(var, value, -sample_number) %>%
+#   mutate(value = as.numeric(value),
+#          var = str_replace_all(var, "-", "_")) %>%
+#   na.omit() %>%
+#   spread(var, value) %>%
+#   filter(!is.na(size)) %>% #remove the few cases where size was not measured 
+#   replace(is.na(.), 0) %>%
+#   mutate(ecto.mites = ecto_mites_l + ecto_mites_m + ecto_mites_s + ecto_mites_xs,
+#          conopids = parasitoid_conopidae_dead_larvae +
+#            parasitoid_conopidae_dead_larvae +
+#            parasitoid_conopidae_dorsal_egg +
+#            parasitoid_conopidae_dorsal_larvae +
+#            parasitoid_conopidae_ventral_egg +
+#            parasitoid_conopidae_ventral_larvae) %>%
+#   select(sample_number, size, ecto.mites, conopids, 
+#          braconids = parasitoid_braconidae_larvae,
+#          tracheal.mites = tracheal_mites, nematodes = nematode) %>%
+#   gather(var, value, -sample_number, -size) %>%
+#   mutate(value = as.numeric(value),
+#          bin.value = case_when(
+#            value > 0 ~ TRUE,
+#            value == 0 ~ FALSE
+#          )) %>%
+#   na.omit()  %>%
+#   mutate(sample_number = as.character(sample_number))
+# 
+# sampling2011 <- read_delim("./raw_data/field-data_bumblebees_2011_raw-data.csv", delim = ";") %>%
+#   select(site = site_name, elev.mean = site_elevation, year, date, yday = dayofyear, bb.sp = bumb_species, 
+#          caste, plant.sp = forage_plant, sample_number) %>%
+#   mutate(date = dmy(date),
+#          caste = str_trim(caste)) %>%
+#   mutate(sample_number = as.character(sample_number))
+# 
+# psite_2011 <- parasites2011 %>%
+#   left_join(sampling2011, by = c("sample_number")) %>%
+#   select(site, date, year, yday, elev.mean, bb.sp, size, caste, 
+#          plant.sp, var, value, bin.value, sample_number)
+# 
+# ggplot(psite_2011, aes(bin.value)) +
+#   geom_bar() +
+#   facet_wrap(~var, scale = "free")
+# 
+# ggplot(psite_2011, aes(value)) +
+#   geom_bar() +
+#   facet_wrap(~var, scale = "free")
+# 
+# #### 2012
+# parasites2012 <- read_delim("./raw_data/lab-data_parasites_2012_raw-data_mod.csv", delim = "\t") %>%
+#   select(-c(year, ovary_development, comment, dissector)) %>%
+#   gather(var, value, -sample_number) %>%
+#   mutate(value = as.numeric(value),
+#          var = str_replace_all(var, "-", "_")) %>%
+#   na.omit() %>%
+#   spread(var, value) %>%
+#   filter(!is.na(size)) %>% #remove the few cases where size was not measured 
+#   replace(is.na(.), 0) %>%
+#   mutate(ecto.mites = ecto_mites_l + ecto_mites_m + ecto_mites_s + ecto_mites_xs,
+#          conopids = parasitoid_conopidae_dead_larvae +
+#            parasitoid_conopidae_dead_larvae +
+#            parasitoid_conopidae_dorsal_egg +
+#            parasitoid_conopidae_dorsal_larvae +
+#            parasitoid_conopidae_ventral_egg +
+#            parasitoid_conopidae_ventral_larvae) %>%
+#   select(sample_number, size, ecto.mites, conopids, 
+#          nosema = parasite_nosema, apicystis = parasite_apicystis,
+#          crithidia = parasite_crithidia, braconids = parasitoid_braconidae_larvae,
+#          tracheal.mites = tracheal_mites, nematodes = nematode) %>%
+#   gather(var, value, -sample_number, -size) %>%
+#   mutate(value = as.numeric(value),
+#          bin.value = case_when(
+#            value > 0 ~ TRUE,
+#            value == 0 ~ FALSE
+#          )) %>%
+#   na.omit() %>%
+#   mutate(sample_number = as.character(sample_number))
+# 
+# sampling2012 <- read_delim("./raw_data/field-data_bumblebees_2012_raw-data.csv", delim = ";") %>%
+#   select(site = site_name, elev.mean = site_elevation, year, date, yday = dayofyear, bb.sp = bumb_species, 
+#          caste, plant.sp = forage_plant, sample_number) %>%
+#   mutate(caste = str_trim(caste)) %>%
+#   filter(sample_number > 0) %>%
+#   mutate(sample_number = as.character(sample_number))
+# 
+# psite_2012 <- parasites2012 %>%
+#   left_join(sampling2012, by = c("sample_number")) %>%
+#   select(site, date, year, yday, elev.mean, bb.sp, size, caste, 
+#          plant.sp, var, value, bin.value, sample_number)
+# 
+# parasites <- bind_rows(psite_2010, psite_2011, psite_2012)
+# 
+# write_csv(parasites, "./processed_data/parasites.csv")
+# 
+# ### Weather data
+# weather2010 <- read_delim("./raw_data/field-data_bumblebees_2010_raw-data.csv", delim = ";") %>%
+#   dplyr::select(site = site_name, date, weather, temperature) %>% 
+#   unique() %>%
+#   mutate(date = dmy(date))
+# 
+# weather2011 <- read_delim("./raw_data/field-data_bumblebees_2011_raw-data.csv", delim = ";") %>%
+#   dplyr::select(site = site_name, date, weather, temperature) %>% 
+#   unique() %>%
+#   mutate(date = dmy(date))
+# 
+# weather2012 <- read_delim("./raw_data/field-data_bumblebees_2012_raw-data.csv", delim = ";") %>%
+#   dplyr::select(site = site_name, date, weather, temperature) %>%
+#   mutate(site = str_replace_all(site, "salix", "")) %>%
+#   mutate(site = str_replace_all(site, "garden", "")) %>%
+#   unique() 
+# 
+# weather <- bind_rows(weather2010, weather2011, weather2012) %>%
+#   write_csv("./processed_data/weather.csv")
+# 
+# temperature <- read_delim("./raw_data/climate2.txt", delim = "\t") %>%
+#   rename(site = PlotID) %>%
+#   mutate(date = dmy(date),
+#          site = str_to_lower(site)) %>%
+#   write_csv("./processed_data/temperature.csv")
