@@ -669,6 +669,8 @@ ggplot(pcoa_horn2.fort2, aes(MDS1, MDS2, color = pbl.w.class2)) +
   theme_light(9)
 
 ggsave("../output/pcoa_aggregate.png")
+ggsave("../output/pcoa_aggregate.pdf")
+
 ```
 
 # 3. Dietary niche overlap (i.e. potential competition)
