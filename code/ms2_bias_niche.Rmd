@@ -893,7 +893,9 @@ niche_overlap_sppair <-  niche_overlap %>%
 niche_overlap_tongues <- niche_overlap %>%
   group_by(site, level, tongue.pair, elev.mean, management) %>%
   summarize(mean.niche.overlap = mean(niche.overlap)) %>%
-  filter(level == "genus") 
+  filter(level == "genus") %>%
+  mutate(tongue.pair = factor(tongue.pair, levels = c("short:long", "short:med", "short:short",
+                                                      "med:long", "med:med", "long:long")))
 
 # Isolate genus-level, then pool within tongue.diff and site
 niche_overlap_tonguediff <- niche_overlap %>%
@@ -1053,7 +1055,7 @@ ggsave(file = "../output/niche_gam_21_plot1.pdf", width = 5, height = 4)
 ggsave(file = "../output/niche_gam_21_plot1.png", width = 5, height = 4)
 
 # Plot intercept effect of tongue.diff
-plot(pterm(niche_gam_20, 1))
+plot(pterm(niche_gam_21, 1))
 ```
 
 
