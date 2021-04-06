@@ -1051,11 +1051,25 @@ ggplot(niche_gam_21_pred, aes(elev.mean, mean.niche.overlap_trans, color = tongu
   labs(color = "Tongue pair") +
   theme_light()
 
+ggplot(niche_gam_21_pred, aes(elev.mean, mean.niche.overlap_trans)) +
+  geom_ribbon(aes(elev.mean, mean.niche.overlap_trans, 
+                  ymax = CI_upper_trans, ymin = CI_lower_trans),
+              alpha = 0.3, inherit.aes = FALSE) +
+  geom_line() +
+  ylab("Niche overlap") +
+  xlab("Elevation (m)") +
+  guides(fill = FALSE) +
+  facet_wrap(~tongue.pair) +
+  theme_light()
+
+
 ggsave(file = "../output/niche_gam_21_plot1.pdf", width = 5, height = 4)
 ggsave(file = "../output/niche_gam_21_plot1.png", width = 5, height = 4)
 
 # Plot intercept effect of tongue.diff
-plot(pterm(niche_gam_21, 1))
+pdf("../output/niche_gam_21_plot2.pdf", width = 5, height = 4)
+plot(pterm(niche_gam_21, 1)) + labs(x = "Tongue pair", y = "Niche overlap") + theme_light()
+dev.off()
 ```
 
 

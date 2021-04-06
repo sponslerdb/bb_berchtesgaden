@@ -74,9 +74,12 @@ interaction_gdm_prep <- function(x) {
     filter(caste != "male") %>%
     group_by(site) %>%
     summarize(samples = length(unique(date))) %>%
-    #dplyr::select(bb.sp, plant.sp.abb, site) %>% #
     left_join(site_data) %>% # add site data
-    dplyr::select(site, elev.mean, x, y, samples) %>%
+    ungroup() %>%
+    mutate(mowing = if_else(management == "mowing", 1, 0),
+           grasing = if_else(management == "grasing", 1, 0),
+           none = if_else(management == "none", 1, 0)) %>%
+    dplyr::select(site, elev.mean, x, y, samples, mowing, grasing, none) %>%
     distinct() # return unique site-dates
 
   # Prep site-pairs for GDM analysis
@@ -174,8 +177,7 @@ net <- read_csv("../data/processed_data/network.csv") %>%
 survey <- read_csv("../data/processed_data/floral_survey.csv") %>%
   filter(flower.cover > 0) %>%
   semi_join(net, by = "plant.sp") %>% # Consider only visited plant spp. (anytime, anywhere, not specifically for a given site*date)
-  dplyr::select(site, date, plant.sp, flower.cover) %>%
-  left_join(fl_traits)
+  dplyr::select(site, date, plant.sp, flower.cover) 
 ```
 
 ### Get beta-diversity for BBs and plants (not their interactions)
@@ -210,14 +212,14 @@ fl_beta <- survey %>%
 species_beta <- full_join(bb_beta, fl_beta) %>%
   left_join(site_data, by = c("site1" = "site")) %>% # add site data
   dplyr::select(site1, site2, FL, BB, # first for site 1
-                elev1 = elev.mean, x1 = x, y1 = y) %>%
+                elev1 = elev.mean, x1 = x, y1 = y, mgmt1 = management) %>%
   left_join(site_data, by = c("site2" = "site")) %>%
   dplyr::select(site1, site2, FL, BB, # then for site 2
-                elev1, elev2 = elev.mean, x1, y1, x2 = x, y2 = y) %>%
+                elev1, elev2 = elev.mean, x1, y1, x2 = x, y2 = y, mgmt1, mgmt2 = management) %>%
   mutate(site1 = factor(site1), 
          site2 = factor(site2),
          elev.diff = elev1 - elev2,
-         mean.elev = (elev1 + elev2)/2) %>%
+         mean.elev = (elev1 + elev2)/2, mgmt.diff = if_else(mgmt1 == mgmt2, 0, 1)) %>%
   pivot_longer(cols = c(BB, FL), names_to = "group", values_to = "beta") %>%
   filter(elev.diff >= 0) # For each site pair, one will be higher and the other lower; thus, when their order is reversed only the sign of the difference changes. Since no two sites have exactly the same elevation, this deduplicates the data by dropping the ordering of a given pair of sites (one of the two orderings) that yields a negative elevation difference while retaining the alternative ordering that yields a positive elevation difference. By >= 0, I retain comparisons of a site to itself. I drop (in the ggplot call) within-site comparisons when I plot against elevation difference, and I isolate within-site comparison when I plot against time. In the latter case, it is also necessary to deduplicate, since each pair of site dates occurs in A-B and B-A. For that, I filter (again, in the ggplot call) so that yday.diff > 0, similarly dropping the orderings that yield negative differences. Note that all this deduplication nonsense is not necessary for the betalinkr call because it deduplicates internally.
 
@@ -256,16 +258,17 @@ beta_mit_data <- beta_site %>%
   left_join(site_data, by = c("site1" = "site")) %>%
   dplyr::select(site1, site2, S, OS, WN, ST, 
                 ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
-                elev1 = elev.mean, x1 = x, y1 = y) %>%
+                elev1 = elev.mean, x1 = x, y1 = y, mgmt1 = management) %>%
   left_join(site_data, by = c("site2" = "site")) %>%
   dplyr::select(site1, site2, S, OS, WN, ST, 
                 ST.l, ST.h, ST.lh, WN.repl, OS.repl, WN.rich, OS.rich, 
-                elev1, elev2 = elev.mean, x1, y1, x2 = x, y2 = y) %>%
+                elev1, elev2 = elev.mean, x1, y1, x2 = x, y2 = y, mgmt1, mgmt2 = management) %>%
   mutate(elev.diff = abs(elev1 - elev2),
-         mean.elev = (elev1 + elev2)/2) %>%
+         mean.elev = (elev1 + elev2)/2,
+         mgmt.diff = if_else(mgmt1 == mgmt2, 0, 1)) %>%
   gather(metric, value, -c(site1, site2, elev1, elev2, 
                            elev.diff, mean.elev, 
-                           x1, y1, x2, y2)) %>%
+                           x1, y1, x2, y2, mgmt1, mgmt2, mgmt.diff)) %>%
   mutate(metric.class = case_when(
     metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
     metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
@@ -281,15 +284,6 @@ beta_mit_data <- beta_site %>%
 #### For time difference, we will control for elevation by only comparing within site.
 ```{r}
 # Set palette
-# p <- c("OS" = "darkorange1", "ST" = "green3", 
-#        "ST.h" = "firebrick1", "ST.l" = "darkorchid", 
-#        "ST.lh" = "deepskyblue", "WN" = "black")
-# 
-# 
-# p <- c("OS" = "#66c2a5", "ST" = "#fc8d62", 
-#        "ST.h" = "#8da0cb", "ST.l" = "#e78ac3", 
-#        "ST.lh" = "#a6d854", "WN" = "black")
-
 p1 <- c("OS" = "#e7298a", "ST" = "#66a61e", "WN" = "black")
 
 p2 <- c("ST.h" = "#7570b3", "ST.l" = "#1b9e77", "ST.lh" = "#d95f02")
@@ -365,6 +359,7 @@ library(ecodist)
 survey_sample_diff <- survey %>%
   group_by(site) %>%
   summarize(samples = length(unique(date))) %>%
+  remove_rownames() %>%
   column_to_rownames("site") %>%
   vegdist(method = "euclidean", upper = TRUE) %>%
   as.matrix() %>%
@@ -375,6 +370,7 @@ survey_sample_diff <- survey %>%
 net_sample_diff <- net %>%
   group_by(site) %>%
   summarize(samples = length(unique(date))) %>%
+  remove_rownames() %>%
   column_to_rownames("site") %>%
   vegdist(method = "euclidean", upper = TRUE) %>%
   as.matrix() %>%
@@ -385,60 +381,60 @@ net_sample_diff <- net %>%
 mrm_survey_data <- species_beta %>%
   filter(group == "FL" & site1 != site2) %>%
   left_join(survey_sample_diff) %>%
-  dplyr::select(site1, site2, beta, elev.diff, sample.diff) %>%
+  dplyr::select(site1, site2, beta, elev.diff, sample.diff, mgmt.diff) %>%
   mutate(elev.diff = scale(elev.diff), # gotta scale variables for MRM
          sample.diff = scale(sample.diff))
 
 mrm_net_data <- species_beta %>%
   filter(group == "BB" & site1 != site2) %>%
   left_join(net_sample_diff)  %>%
-  dplyr::select(site1, site2, beta, elev.diff, sample.diff) %>%
+  dplyr::select(site1, site2, beta, elev.diff, sample.diff, mgmt.diff) %>%
   mutate(elev.diff = scale(elev.diff),
          sample.diff = scale(sample.diff))
 
 mrm_beta_data <- beta_mit_data %>%
   filter(site1 != site2) %>%
   left_join(net_sample_diff)  %>%
-  dplyr::select(site1, site2, value, metric, elev.diff, sample.diff) %>%
+  dplyr::select(site1, site2, value, metric, elev.diff, sample.diff, mgmt.diff) %>%
   mutate(elev.diff = scale(elev.diff),
          sample.diff = scale(sample.diff))
 
-mrm_fl <- MRM(beta ~ elev.diff + sample.diff, 
+mrm_fl <- MRM(beta ~ elev.diff + sample.diff + mgmt.diff, 
               data = mrm_survey_data,
               nperm = 1000,
               method = "logistic")
 
-mrm_bb <- MRM(beta ~ elev.diff + sample.diff, 
+mrm_bb <- MRM(beta ~ elev.diff + sample.diff + mgmt.diff, 
               data = mrm_net_data,
               nperm = 1000,
               method = "logistic")
 
-mrm_WN <- MRM(value ~ elev.diff + sample.diff, 
+mrm_WN <- MRM(value ~ elev.diff + sample.diff + mgmt.diff, 
               data = filter(mrm_beta_data, metric == "WN"),
               nperm = 1000,
               method = "logistic")
 
-mrm_ST <- MRM(value ~ elev.diff + sample.diff, 
+mrm_ST <- MRM(value ~ elev.diff + sample.diff + mgmt.diff, 
               data = filter(mrm_beta_data, metric == "ST"),
               nperm = 1000,
               method = "logistic")
 
-mrm_ST.l <- MRM(value ~ elev.diff + sample.diff, 
+mrm_ST.l <- MRM(value ~ elev.diff + sample.diff + mgmt.diff, 
               data = filter(mrm_beta_data, metric == "ST.l"),
               nperm = 1000,
               method = "logistic")
 
-mrm_ST.h <- MRM(value ~ elev.diff + sample.diff, 
+mrm_ST.h <- MRM(value ~ elev.diff + sample.diff + mgmt.diff, 
               data = filter(mrm_beta_data, metric == "ST.h"),
               nperm = 1000,
               method = "logistic")
 
-mrm_ST.lh <- MRM(value ~ elev.diff + sample.diff, 
+mrm_ST.lh <- MRM(value ~ elev.diff + sample.diff + mgmt.diff, 
               data = filter(mrm_beta_data, metric == "ST.lh"),
               nperm = 1000,
               method = "logistic")
 
-mrm_OS <- MRM(value ~ elev.diff + sample.diff, 
+mrm_OS <- MRM(value ~ elev.diff + sample.diff + mgmt.diff, 
               data = filter(mrm_beta_data, metric == "OS"),
               nperm = 1000,
               method = "logistic")
@@ -484,8 +480,9 @@ mrm_OS <- MRM(value ~ elev.diff + sample.diff,
 sitepair.WN <- interaction_gdm_prep(net)
 
 # Run GDM analysis
-gdm_WN <- gdm(sitepair.WN, geo = TRUE)
+gdm_WN <- gdm(sitepair.WN, geo = FALSE)
 summary(gdm_WN)
+gdm.varImp_WN <- gdm.varImp(sitepair.WN, geo = FALSE)
 
 # Plot
 plot(gdm_WN)

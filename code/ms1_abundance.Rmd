@@ -91,7 +91,7 @@ surv_sp <- survey %>%
 missing <- anti_join(vis_sp, surv_sp)
 ```
 
-## 1.4 Calculate FL and BB abundance / diversity
+## 1.4 Calculate FL and BB abundance
 ```{r echo=FALSE, include=TRUE, message=FALSE}
 # Per-transect BB abundance
 ## full dataset
@@ -139,7 +139,7 @@ weights <- fl_abund_sp %>%
   pivot_wider(values_from = visited, names_from = bb.sp, values_fill = 0) %>%
   pivot_longer(cols = 2:14, values_to = "visited", names_to = "bb.sp")
   
-weighted_flfl_abund <- fl_abund_sp %>%
+weighted_fl_abund <- fl_abund_sp %>%
   group_by(site, date, plant.genus) %>%
   summarize(flower.cover = sum(fl.abund)) %>%
   left_join(weights) %>%
@@ -231,7 +231,7 @@ ggsave("../output/bb_abundsum.png")
 ### 2.2.1 Calculate max and mean abundances within site and year
 ```{r}
 # Get mean total weighted floral abundance by BB sp
-weighted_fl_abund_mean <- weighted_flfl_abund %>%
+weighted_fl_abund_mean <- weighted_fl_abund %>%
   group_by(site, bb.sp, year) %>%
   summarize(mean.fl.abund = mean(total.weighted.flower.cover),
             max.fl.abund = max(total.weighted.flower.cover)) 
@@ -250,23 +250,46 @@ abund_sum <- full_join(weighted_fl_abund_mean, bb_abund_sp_max) %>%
          sp.year = factor(sp.year)) %>%
   unite(bb.sp.year, c(bb.sp, year), sep = "_", remove = FALSE) %>%
   mutate(bb.sp.year = factor(bb.sp.year)) %>%
-  left_join(site_data)
+  left_join(site_data) %>%
+  mutate(management = factor(management))
 ```
 
 ### 2.2.2 Call models
 ```{r}
 # BB
-gam_max_bb_abund_00 <- gam(max.bb.abund ~ 
+# gam_max_bb_abund_00 <- gam(max.bb.abund ~ 
+#                              s(bb.sp, bs = "re") + # random intercept for bb.sp
+#                              s(bb.sp.year, bs = "re") + # random intercept for bb.sp:year
+#                              s(elev.mean, by = bb.sp, k = 8), # smoother for elev by bb.sp.
+#                            method = "REML",
+#                            family = "tw", # Tweedie distribution performs well
+#                            select = TRUE,
+#                            data = abund_sum) %>% getViz()
+# 
+# # FL
+# gam_mean_fl_abund_00 <- gam(mean.fl.abund ~
+#                               year +
+#                               s(bb.sp, bs = "re") +
+#                               s(elev.mean, by = bb.sp, k = 8),
+#                            method = "REML",
+#                            family = "tw",
+#                            select = TRUE,
+#                            data = abund_sum) %>% getViz()
+
+# BB
+gam_max_bb_abund_01 <- gam(max.bb.abund ~ 
+                             management +
                              s(bb.sp, bs = "re") + # random intercept for bb.sp
                              s(bb.sp.year, bs = "re") + # random intercept for bb.sp:year
                              s(elev.mean, by = bb.sp, k = 8), # smoother for elev by bb.sp.
                            method = "REML",
-                           family = "tw", # Tweedie distribution performs well
+                           family = "nb",
                            select = TRUE,
                            data = abund_sum) %>% getViz()
 
 # FL
-gam_mean_fl_abund_00 <- gam(mean.fl.abund ~
+gam_mean_fl_abund_01 <- gam(mean.fl.abund ~
+                              management +
                               year +
                               s(bb.sp, bs = "re") +
                               s(elev.mean, by = bb.sp, k = 8),
@@ -279,14 +302,15 @@ gam_mean_fl_abund_00 <- gam(mean.fl.abund ~
 ### 2.2.3 Evaluate model
 ```{r}
 # BB
-check.gamViz(gam_max_bb_abund_00) # evaluate model
-gam_max_bb_abund_00_sum <- summary(gam_max_bb_abund_00) # summarize model
-print(plot(gam_max_bb_abund_00, allTerms = TRUE), pages = 1) # preliminary visualization
+check.gamViz(gam_max_bb_abund_01) # evaluate model
+gam_max_bb_abund_01_sum <- summary(gam_max_bb_abund_01) # summarize model
+print(plot(gam_max_bb_abund_01, allTerms = TRUE), pages = 1) # preliminary visualization
 
 # FL
-check.gamViz(gam_mean_fl_abund_00) # evaluate model
-gam_mean_fl_abund_00_sum <- summary(gam_mean_fl_abund_00) # summarize model
-print(plot(gam_mean_fl_abund_00, allTerms = TRUE), pages = 1) # preliminary visualization
+check.gamViz(gam_mean_fl_abund_01) # evaluate model
+gam_mean_fl_abund_01_sum <- summary(gam_mean_fl_abund_01) # summarize model
+print(plot(gam_mean_fl_abund_01, allTerms = TRUE), pages = 1) # preliminary visualization
+
 ```
 
 ### 2.2.4 Visualize
@@ -296,40 +320,41 @@ print(plot(gam_mean_fl_abund_00, allTerms = TRUE), pages = 1) # preliminary visu
 # Plot smooths and year effect on the link scale
 
 ## Individual plots
-gers_abund <- plot(sm(gam_max_bb_abund_00, 3)) + l_fitLine() + l_ciLine() + 
+gers_abund <- plot(sm(gam_max_bb_abund_01, 3)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "gers")
-hort_abund <- plot(sm(gam_max_bb_abund_00, 4)) + l_fitLine() + l_ciLine() + 
+hort_abund <- plot(sm(gam_max_bb_abund_01, 4)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "hort")
-jone_abund <- plot(sm(gam_max_bb_abund_00, 5)) + l_fitLine() + l_ciLine() + 
+jone_abund <- plot(sm(gam_max_bb_abund_01, 5)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "jone")
-mend_abund <- plot(sm(gam_max_bb_abund_00, 6)) + l_fitLine() + l_ciLine() + 
+mend_abund <- plot(sm(gam_max_bb_abund_01, 6)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "mend")
-mont_abund <- plot(sm(gam_max_bb_abund_00, 7)) + l_fitLine() + l_ciLine() + 
+mont_abund <- plot(sm(gam_max_bb_abund_01, 7)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "mont")
-muci_abund <- plot(sm(gam_max_bb_abund_00, 8)) + l_fitLine() + l_ciLine() + 
+muci_abund <- plot(sm(gam_max_bb_abund_01, 8)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "muci")
-pasc_abund <- plot(sm(gam_max_bb_abund_00, 9)) + l_fitLine() + l_ciLine() + 
+pasc_abund <- plot(sm(gam_max_bb_abund_01, 9)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "pasc")
-prat_abund <- plot(sm(gam_max_bb_abund_00, 10)) + l_fitLine() + l_ciLine() + 
+prat_abund <- plot(sm(gam_max_bb_abund_01, 10)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "prat")
-psit_abund <- plot(sm(gam_max_bb_abund_00, 11)) + l_fitLine() + l_ciLine() + 
+psit_abund <- plot(sm(gam_max_bb_abund_01, 11)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "psit")
-pyre_abund <- plot(sm(gam_max_bb_abund_00, 12)) + l_fitLine() + l_ciLine() + 
+pyre_abund <- plot(sm(gam_max_bb_abund_01, 12)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "pyre")
-soro_abund <- plot(sm(gam_max_bb_abund_00, 13)) + l_fitLine() + l_ciLine() + 
+soro_abund <- plot(sm(gam_max_bb_abund_01, 13)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "soro")
-telu_abund <- plot(sm(gam_max_bb_abund_00, 14)) + l_fitLine() + l_ciLine() + 
+telu_abund <- plot(sm(gam_max_bb_abund_01, 14)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "telu")
-wurf_abund <- plot(sm(gam_max_bb_abund_00, 15)) + l_fitLine() + l_ciLine() + 
+wurf_abund <- plot(sm(gam_max_bb_abund_01, 15)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "wurf")
-
+mgmt_bb_effect <- plot(pterm(gam_max_bb_abund_01, 1)) + l_fitPoints() + l_ciBar() + 
+  labs(x = NULL, y = NULL, title = "Management")
 
 
 ## Arrange smooths on grid plot
 
 grid_bb_abund <- gridPrint(gers_abund, hort_abund, jone_abund, mend_abund, mont_abund, muci_abund, 
                            pasc_abund, prat_abund, psit_abund, pyre_abund, 
-                           soro_abund, telu_abund, wurf_abund, ncol = 4)
+                           soro_abund, telu_abund, wurf_abund, mgmt_bb_effect, ncol = 4)
 
 pdf("../output/gam_bb_abund_grid.pdf", width = 8, height = 6)
 plot(grid_bb_abund)
@@ -343,33 +368,34 @@ dev.off()
 
 # Extract predictions and plot on response scale
 
-gam_max_bb_abund_00_ilink <- family(gam_max_bb_abund_00)$linkinv # get inverse link function
+gam_max_bb_abund_01_ilink <- family(gam_max_bb_abund_01)$linkinv # get inverse link function
 
-gam_max_bb_abund_00_pred <- predict.gam(gam_max_bb_abund_00, # get model predictions
+gam_max_bb_abund_01_pred <- predict.gam(gam_max_bb_abund_01, # get model predictions
                                         type = "terms") %>% 
   as.data.frame() %>% # convert to data frame
   as_tibble() %>% # convert to tibble
-  select(bb.sp = 1, bb.sp.year = 2, gers = 3, # rename
-         hort = 4, jone = 5, mend = 6, mont = 7, 
-         muci = 8, pasc = 9, prat = 10, psit = 11, 
-         pyre = 12, soro = 13, telu = 14, wurf = 15) %>%
+  dplyr::select(mgmt = 1, bb.sp = 2, bb.sp.year = 3, gers = 4, # rename
+         hort = 5, jone = 6, mend = 7, mont = 8, 
+         muci = 9, pasc = 10, prat = 11, psit = 12, 
+         pyre = 13, soro = 14, telu = 15, wurf = 16) %>%
   mutate(fit = # get cumulative fit
-           bb.sp + bb.sp.year + gers + 
+           mgmt + bb.sp + bb.sp.year + gers + 
            hort + jone + mend + mont + 
            muci + pasc + prat + psit + 
            pyre + soro + telu + wurf 
            ) %>%
-  select(fit) %>%
-  mutate(fit.trans = gam_max_bb_abund_00_ilink(fit)) %>% # back-transform to response scale
+  dplyr::select(fit) %>%
+  mutate(fit.trans = gam_max_bb_abund_01_ilink(fit)) %>% # back-transform to response scale
   bind_cols(abund_sum)
 
-ggplot(gam_max_bb_abund_00_pred, aes(elev.mean, fit.trans, linetype = year)) + # map year to linetype
-  geom_point(aes(elev.mean, max.bb.abund, color = tree_line), inherit.aes = FALSE, alpha = 0.5) + # add original data and map tree line to color
-  geom_line(size = 0.5, alpha = 0.5) +
+ggplot(gam_max_bb_abund_01_pred, aes(elev.mean, fit.trans, linetype = year)) + # map year to linetype
+  geom_point(aes(elev.mean, max.bb.abund, shape = tree_line, color = management), 
+             inherit.aes = FALSE, alpha = 0.5, size = 2) + # add original data and map tree line to color
+  #geom_line(size = 0.5, alpha = 0.5) +
   facet_wrap(~bb.sp, scales = "free_y") +
   theme_light() +
   labs(x = "Elevation (m.s.l.)", 
-       y = bquote("Peak abundance"),
+       y = bquote("Peak bumble bee abundance"),
        color = "Tree line",
        shape = "Year",
        linetype = "Year")
@@ -384,33 +410,35 @@ ggsave("../output/gam_bb_abund.png")
 
 ## Individual plots
 
-gers_fl_abund <- plot(sm(gam_mean_fl_abund_00, 2)) + l_fitLine() + l_ciLine() + 
+gers_fl_abund <- plot(sm(gam_mean_fl_abund_01, 2)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "gers")
-hort_fl_abund <- plot(sm(gam_mean_fl_abund_00, 3)) + l_fitLine() + l_ciLine() + 
+hort_fl_abund <- plot(sm(gam_mean_fl_abund_01, 3)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "hort")
-jone_fl_abund <- plot(sm(gam_mean_fl_abund_00, 4)) + l_fitLine() + l_ciLine() + 
+jone_fl_abund <- plot(sm(gam_mean_fl_abund_01, 4)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "jone")
-mend_fl_abund <- plot(sm(gam_mean_fl_abund_00, 5)) + l_fitLine() + l_ciLine() + 
+mend_fl_abund <- plot(sm(gam_mean_fl_abund_01, 5)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "mend")
-mont_fl_abund <- plot(sm(gam_mean_fl_abund_00, 6)) + l_fitLine() + l_ciLine() + 
+mont_fl_abund <- plot(sm(gam_mean_fl_abund_01, 6)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "mont")
-muci_fl_abund <- plot(sm(gam_mean_fl_abund_00, 7)) + l_fitLine() + l_ciLine() + 
+muci_fl_abund <- plot(sm(gam_mean_fl_abund_01, 7)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "muci")
-pasc_fl_abund <- plot(sm(gam_mean_fl_abund_00, 8)) + l_fitLine() + l_ciLine() + 
+pasc_fl_abund <- plot(sm(gam_mean_fl_abund_01, 8)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "pasc")
-prat_fl_abund <- plot(sm(gam_mean_fl_abund_00, 9)) + l_fitLine() + l_ciLine() + 
+prat_fl_abund <- plot(sm(gam_mean_fl_abund_01, 9)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "prat")
-psit_fl_abund <- plot(sm(gam_mean_fl_abund_00, 10)) + l_fitLine() + l_ciLine() + 
+psit_fl_abund <- plot(sm(gam_mean_fl_abund_01, 10)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "psit")
-pyre_fl_abund <- plot(sm(gam_mean_fl_abund_00, 11)) + l_fitLine() + l_ciLine() + 
+pyre_fl_abund <- plot(sm(gam_mean_fl_abund_01, 11)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "pyre")
-soro_fl_abund <- plot(sm(gam_mean_fl_abund_00, 12)) + l_fitLine() + l_ciLine() + 
+soro_fl_abund <- plot(sm(gam_mean_fl_abund_01, 12)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "soro")
-telu_fl_abund <- plot(sm(gam_mean_fl_abund_00, 13)) + l_fitLine() + l_ciLine() + 
+telu_fl_abund <- plot(sm(gam_mean_fl_abund_01, 13)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "telu")
-wurf_fl_abund <- plot(sm(gam_mean_fl_abund_00, 14)) + l_fitLine() + l_ciLine() + 
+wurf_fl_abund <- plot(sm(gam_mean_fl_abund_01, 14)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "wurf")
-year_fl_effect <- plot(pterm(gam_mean_fl_abund_00, 1)) + l_fitPoints() + l_ciBar() + 
+mgmt_fl_effect <- plot(pterm(gam_mean_fl_abund_01, 1)) + l_fitPoints() + l_ciBar() + 
+  labs(x = NULL, y = NULL, title = "Management")
+year_fl_effect <- plot(pterm(gam_mean_fl_abund_01, 2)) + l_fitPoints() + l_ciBar() + 
   labs(x = NULL, y = NULL, title = "Year")
 
 
@@ -419,7 +447,7 @@ year_fl_effect <- plot(pterm(gam_mean_fl_abund_00, 1)) + l_fitPoints() + l_ciBar
 
 grid_fl_abund <- gridPrint(gers_fl_abund, hort_fl_abund, jone_fl_abund, mend_fl_abund, mont_fl_abund, muci_fl_abund, 
                            pasc_fl_abund, prat_fl_abund, psit_fl_abund, pyre_fl_abund, 
-                           soro_fl_abund, telu_fl_abund, wurf_fl_abund, year_fl_effect, ncol = 4)
+                           soro_fl_abund, telu_fl_abund, wurf_fl_abund, year_fl_effect, mgmt_fl_effect, ncol = 4)
 
 pdf("../output/gam_fl_abund_grid.pdf", width = 8, height = 6)
 plot(grid_fl_abund)
@@ -433,33 +461,33 @@ dev.off()
 
 # Extract predictions and plot on response scale
 
-gam_mean_fl_abund_00_ilink <- family(gam_mean_fl_abund_00)$linkinv # get inverse link function to transform to the response scale
+gam_mean_fl_abund_01_ilink <- family(gam_mean_fl_abund_01)$linkinv # get inverse link function to transform to the response scale
 
-gam_mean_fl_abund_00_pred <- predict.gam(gam_mean_fl_abund_00, # get model predictions
+gam_mean_fl_abund_01_pred <- predict.gam(gam_mean_fl_abund_01, # get model predictions
                                         type = "terms") %>% 
   as.data.frame() %>% # convert to data frame
   as_tibble() %>% # convert to tibble
-  select(year = 1, bb.sp = 2, gers = 3, # rename
-         hort = 4, jone = 5, mend = 6, mont = 7, 
-         muci = 8, pasc = 9, prat = 10, psit = 11, 
-         pyre = 12, soro = 13, telu = 14, wurf = 15) %>%
+  dplyr::select(mgmt = 1, year = 2, bb.sp = 3, gers = 4, # rename
+         hort = 5, jone = 6, mend = 7, mont = 8, 
+         muci = 9, pasc = 10, prat = 11, psit = 12, 
+         pyre = 13, soro = 14, telu = 15, wurf = 16) %>%
   mutate(fit = # get cumulative fit
-           year + bb.sp + gers + 
+           mgmt + year + bb.sp + gers + 
            hort + jone + mend + mont + 
            muci + pasc + prat + psit + 
            pyre + soro + telu + wurf 
            ) %>%
-  select(fit) %>%
-  mutate(fit.trans = gam_max_bb_abund_00_ilink(fit)) %>% # back-transform to response scale
+  dplyr::select(fit) %>%
+  mutate(fit.trans = gam_max_bb_abund_01_ilink(fit)) %>% # back-transform to response scale
   bind_cols(na.omit(abund_sum)) # the na.omit() drops the rows where floral surveying data were missing
 
-ggplot(gam_mean_fl_abund_00_pred, aes(elev.mean, fit.trans, linetype = year)) + # map year to linetype
-  geom_point(aes(elev.mean, mean.fl.abund, color = tree_line), inherit.aes = FALSE, alpha = 0.5) + # add original data and map tree line to color
-  geom_line(size = 0.5, alpha = 0.5) +
+ggplot(gam_mean_fl_abund_01_pred, aes(elev.mean, fit.trans, linetype = year)) + # map year to linetype
+  geom_point(aes(elev.mean, mean.fl.abund, color = management), inherit.aes = FALSE, alpha = 0.5) + # add original data and map tree line to color
+  #geom_line(size = 0.5, alpha = 0.5) +
   facet_wrap(~bb.sp, scales = "free_y") +
   theme_light() +
   labs(x = "Elevation (m.s.l.)", 
-       y = bquote("Peak abundance"),
+       y = bquote("Peak floral abundance"),
        color = "Tree line",
        shape = "Year",
        linetype = "Year")
