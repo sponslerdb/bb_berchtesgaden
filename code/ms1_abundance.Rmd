@@ -8,55 +8,23 @@ output: html_document
 ```{r setup, include=FALSE, echo=FALSE}
 library(mgcv)
 library(mgcViz)
-library(gratia)
 library(patchwork)
 library(tidymv)
 library(vegan)
-library(ggvegan)
-library(ggrepel)
-library(ggforce)
 library(tidyverse)
 library(lubridate)
 ```
 
-## 1.2 Load site and trait data
+## 1.2 Load site data and floral taxonomy data
 ```{r, include=FALSE, echo=FALSE}
 site_data <- read_csv("../data/processed_data/site_data.csv") %>%
-  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean)) %>% # drop these variables
-  mutate(elev.class2 = factor(elev.class2, levels = c("low", "mid", "high")),
-         site = factor(site),
-         tree_line = factor(tree_line)) # turn elev.class into an ordered factor and site into a regular factor
-
-# BB traits
-bb_traits <- read_csv("../data/processed_data/bb_traits.csv") 
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean, elev.class, elev.class2)) %>% 
+  mutate(site = factor(site),
+         tree_line = factor(tree_line))
 
 # FL traits
 ## family-level taxonomy
 fl_tax <- read_csv("../data/processed_data/floral_tax.csv") 
-
-## Kugler morphotypes (accessed through Bioflor)
-fl_ktype <- read_csv("../data/processed_data/floral_k_type.csv") 
-
-## Flower colors (accessed through BioFlor)
-fl_color <- read_csv("../data/processed_data/floral_color.csv")
-
-## diameter and corolla depth data from Gita Benadi
-fl_morph <- read_csv("../data/processed_data/flower_morphology_GitaBenadi.csv") %>% 
-  dplyr::select(SampleID, plant.family = Family, plant.sp = Species, 
-                Unit, Flowers_per_unit, diam = Diameter, LN) %>%
-  group_by(plant.sp) %>%
-  summarize(diam = mean(diam), LN = mean(LN))
-
-## verbal description of Kugler morphotypes
-fl_ktype_key <- read_delim("../data/processed_data/kugler_key.tsv", delim = "\t", col_names = FALSE) %>%
-  dplyr::select(k.type = 1, description = 2)
-
-## join all floral trait tables
-fl_traits <- fl_tax %>%
-  full_join(fl_ktype) %>%
-  full_join(fl_color) %>%
-  full_join(fl_morph) %>%
-  dplyr::select(plant.sp, plant.genus, plant.family, k.type, k.type.s, k.type.ss, color, diam, LN)
 ```
 
 ## 1.3 Load network and survey data
@@ -78,6 +46,7 @@ survey <- read_csv("../data/processed_data/floral_survey.csv") %>%
   )) %>%
   filter(present == TRUE) # Ignore plants that never had any flower cover
 
+### Identify species that were visited but not recorded in the survey
 vis_sp <- net %>%
   left_join(fl_tax) %>%
   select(plant.sp, plant.genus, plant.family) %>%
@@ -108,23 +77,20 @@ bb_abund_sp <- net %>%
          bb.sp = factor(bb.sp),
          management = factor(management),
          site = factor(site),
-         transect = factor(transect)) %>%
-  left_join(bb_traits) %>%
-  mutate(tongue = factor(pbl.w.class2))
+         transect = factor(transect)) 
 
 ### Per-transect floral abund by species
 fl_abund_sp <- survey %>%
   group_by(site, date, plant.sp) %>% # group by plant.sp*transect
-  summarize(fl.abund = sum(flower.cover)) %>% # get plant.sp*transect total flower cover; this step really shouldn't be required, but in a few cases, there is more than one abundance entry for the same species on a given transect; not sure how that happened, but it's in the original data that Fabrice sent me; alternatively, I could drop the dups or average them. We'll see what Kalli and Fabrice have to say.
+  summarize(fl.abund = sum(flower.cover)) %>% # get plant.sp*transect total flower cover; this step really shouldn't be required, but in a few cases, there is more than one abundance entry for the same species on a given transect; not sure how that happened, but it's in the original data; alternatively, I could drop the dups or average them. 
   group_by(site, date) %>%
   mutate(prop.fl.abund = fl.abund/sum(fl.abund)) %>% # get the proportional flower cover for each species.
   ungroup() %>%
-  #full_join(dplyr::select(net, site, date, plant.sp), by = c("site", "date", "plant.sp")) %>% # add the handful of species occurring in the visitation network but missing from the survey data
   complete(site, date, plant.sp, fill = list(fl.abund = 0, prop.fl.abund = 0)) %>%
   semi_join(survey, by = c("site", "date")) %>%  # only include site-dates that actually occurred
   unique() %>%
   mutate(year = factor(year(date))) %>%
-  left_join(fl_traits)
+  left_join(fl_tax)
 ```
 
 ## 1.5 Calculate binary "preference" for each plant genus by each bumble bee species; score species 0 or 1 based on whether they were visited
@@ -185,20 +151,6 @@ ggplot(bb_range, aes(reorder(bb.sp, elev.med), elev.mean)) +
 ggsave("../output/bb_range_ms1.pdf")
 ggsave("../output/bb_range_ms1.png")
 
-# What happens if I plot max abundance by elevation?
-
-bb_range2 <- net %>%
-  left_join(site_data) %>%
-  group_by(site, date, elev.mean, tree_line, bb.sp) %>%
-  summarize(abund = n()) %>%
-  group_by(site, elev.mean, tree_line, bb.sp) %>%
-  summarize(abund = max(abund)) 
-
-ggplot(filter(bb_range2, bb.sp != "humi"), aes(elev.mean, abund)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 6)) +
-  facet_wrap(~bb.sp, scales = "free_y", ncol = 4) +
-  geom_vline(xintercept = 1500, color = "red", linetype = "dashed")
 
 # Overall bumble bee abundance
 bb_abund_sum <- bb_abund_sp %>%
@@ -209,12 +161,6 @@ bb_abund_sum <- bb_abund_sp %>%
   mutate(prop.abund = cum.abund/sum(cum.abund)) %>%
   group_by(bb.sp) %>%
   mutate(mean.prop.abund = mean(prop.abund))
-
-ggplot(bb_abund_sum, aes(site, prop.abund, fill = bb.sp)) +
-  geom_col()
-
-ggplot(bb_abund_sum, aes(bb.sp, mean.abund)) +
-  geom_boxplot()
 
 ggplot(bb_abund_sum, aes(reorder(bb.sp, -mean.prop.abund), prop.abund)) +
   geom_boxplot(fill = "gray85") +
@@ -259,9 +205,9 @@ abund_sum <- full_join(weighted_fl_abund_mean, bb_abund_sp_max) %>%
 # BB
 gam_max_bb_abund_01 <- gam(max.bb.abund ~ 
                              management +
-                             s(bb.sp, bs = "re") + # random intercept for bb.sp
-                             s(bb.sp.year, bs = "re") + # random intercept for bb.sp:year
-                             s(elev.mean, by = bb.sp, k = 8), # smoother for elev by bb.sp.
+                             s(bb.sp, bs = "re") + 
+                             s(bb.sp.year, bs = "re") + 
+                             s(elev.mean, by = bb.sp, k = 8), 
                            method = "REML",
                            family = "nb",
                            select = TRUE,
@@ -279,7 +225,7 @@ gam_mean_fl_abund_01 <- gam(mean.fl.abund ~
                            data = abund_sum) %>% getViz()
 ```
 
-### 2.2.3 Evaluate model
+### 2.2.3 Evaluate models
 ```{r}
 # BB
 check.gamViz(gam_max_bb_abund_01) # evaluate model
@@ -297,6 +243,7 @@ print(plot(gam_mean_fl_abund_01, allTerms = TRUE), pages = 1) # preliminary visu
 
 #### 2.2.4.1 BB
 ```{r}
+# Plot on the link scale
 ## Individual plots
 gers_abund <- plot(sm(gam_max_bb_abund_01, 3)) + l_fitLine() + l_ciLine() + 
   labs(x = NULL, y = NULL, title = "gers") +

@@ -1,0 +1,109 @@
+---
+title: "Abundance and beta-diversity of bumble bees and wildflowers in the Berchtesgadener Alps"
+
+author: Katharina Kallnik^1^, Johanna Sieger^3^, Fabrice Requier^2^, Douglas B. Sponsler^1^*,  Alice Claßen^1^, A. Fabienne Maihoff^1^,  Ingolf Steffan-Dewenter^1^
+
+output: pdf_document
+---
+
+^1^ Department of Animal Ecology and Tropical Biology, Biocenter, University of Würzburg, Würzburg, Germany
+
+^2^ Université Paris-Saclay, CNRS, IRD, UMR Évolution, Génomes, Comportement et Écologie, 91198, Gif-sur-Yvette, France
+
+^3^ Naturpark Frankenhöhe, Ansbach, Germany
+
+`*` Corresponding author: douglas.sponsler@uni-wuerzburg.de
+
+
+<!-- # GENERAL INFORMATION -->
+
+<!-- ## Timeframe of data collection -->
+
+
+<!-- ## Location of data collection -->
+
+
+<!-- ## Funding sources -->
+
+
+# DATA FILES
+
+## 1. `floral_tax.csv`
+
+### Description: Supplies family-level taxonomy for the floral taxa in our study. 
+
+### Columns:
+  1. `plant.sp` = plant species
+  2. `plant.genus` = plant genus
+  3. `plant.family` = plant family
+
+## 2. `network.csv`
+
+### Description: Bumble- bee-wildflower visitation data used in all analyses of (1) bumble bee abundance, (2) bumble bee beta-diversity, and (3) interaction beta-diversity. 
+
+### Columns:
+  1. `year` = year
+  2. `dayofyear` = day of year since January 1
+  3. `site` = site name
+  4. `snowcover` = whether site was snow-covered
+  10. `plant.sp` = full plant species name
+  11. `plant.genus` = plant genus name
+  12. `flower cover` = flower cover in m^2^ to the nearest 0.01 m^2^
+  12. `day` = day of month
+  13. `month` = month
+  14. `date` = date
+
+## 3. `floral_survey.csv` 
+
+### Description: Floral survey data used in all analysis of (1) floral abundance and (2) floral beta-diversity. 
+
+### Columns:
+  1. `year` = year
+  2. `dayofyear` = day of year since January 1
+  3. `site` = site name
+  4. `trap.time` = time interaction was observed
+  5. `caste` = bumble bee caste (queen, male, worker, NA = parasitic *Psithryus*)
+  6. `pollen` = whether the bee had visible pollen loads
+  7. `bb.sp` = abbreviated bumble bee species name
+  8. `bb.sp.lat` = full bumble bee species name
+  9. `plant.sp.abb` = abbreviated plant species name
+  10. `plant.sp` = full plant species name
+  11. `plant.genus` = plant genus name
+  12. `day` = day of month
+  13. `month` = month
+  14. `date` = date
+
+
+## 4. `site_data.csv`
+
+### Description: Site data including elevation, management, and geographic coordinates. 
+
+### Columns:
+ 1. `site` = site name
+ 2. `elev.class` = elevation category (oben, mitte, unten)
+ 3. `management` = site management (mowing, grasing, none)
+ 4. `temp.mean` = mean temperature recorded with iButton devices
+ 5. `elev.mean` = mean elevation
+ 6. `transect` = transect name
+ 7. `slope.calc` = slope calculated from min and max elevation
+ 8. `slope.est` = estimated slope
+ 9. `elev.min` = minimum elevation within site
+ 10. `elev.max` = maximum elevation within site
+ 11. `lat` = latitude (decimal degrees)
+ 12. `lon` = longitude (decimal degrees)
+ 13. `elev.class2` = alternative elevation binning
+ 14. `tree_line` = whether a site was above or below the tree line; only for sites included in analysis (hence NAs)
+
+
+# CODE FILES
+
+## 1. `ms1_abundance.Rmd`
+
+### Description: R script for running abundance analyses.
+
+## 2. `ms1_beta_diversity.Rmd`
+
+### Description: R script for running beta-diversity analyses.
+
+
+
