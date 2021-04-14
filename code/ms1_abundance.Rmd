@@ -213,6 +213,8 @@ gam_max_bb_abund_01 <- gam(max.bb.abund ~
                            select = TRUE,
                            data = abund_sum) %>% getViz()
 
+saveRDS(gam_max_bb_abund_01, "../output/gam_max_bb_abund_01.rds")
+
 # FL
 gam_mean_fl_abund_01 <- gam(mean.fl.abund ~
                               management +
@@ -223,17 +225,19 @@ gam_mean_fl_abund_01 <- gam(mean.fl.abund ~
                            family = "tw",
                            select = TRUE,
                            data = abund_sum) %>% getViz()
+
+saveRDS(gam_mean_fl_abund_01, "../output/gam_mean_fl_abund_01.rds")
 ```
 
 ### 2.2.3 Evaluate models
 ```{r}
 # BB
-check.gamViz(gam_max_bb_abund_01) # evaluate model
+gam_max_bb_abund_01_check <- check.gamViz(gam_max_bb_abund_01) # evaluate model
 gam_max_bb_abund_01_sum <- summary(gam_max_bb_abund_01) # summarize model
 print(plot(gam_max_bb_abund_01, allTerms = TRUE), pages = 1) # preliminary visualization
 
 # FL
-check.gamViz(gam_mean_fl_abund_01) # evaluate model
+gam_mean_fl_abund_01_check <- check.gamViz(gam_mean_fl_abund_01) # evaluate model
 gam_mean_fl_abund_01_sum <- summary(gam_mean_fl_abund_01) # summarize model
 print(plot(gam_mean_fl_abund_01, allTerms = TRUE), pages = 1) # preliminary visualization
 

@@ -1,0 +1,292 @@
+---
+title: "visitation_bias"
+author: "Doug Sponsler"
+date: "12/14/2020"
+output: html_document
+---
+# Preparations
+## Packages 
+```{r, warning=FALSE, include=FALSE, echo = FALSE}
+library(bipartite)
+library(econullnetr)
+library(patchwork)
+library(mgcv)
+library(mgcViz)
+library(tidymv)
+library(tidyverse)
+library(lubridate)
+```
+
+## Load data
+```{r message=FALSE, warning=FALSE, include=FALSE, echo = FALSE}
+prop_visits_ktype <- read_csv("../data/processed_data/prop_visits_ktype.csv") %>%
+  mutate(ktype = factor(ktype), # recode variables
+         tongue = factor(tongue),
+         visits = as.integer(visits))
+ 
+prop_visits_ktype_pooled <- read_csv("../data/processed_data/prop_visits_ktype_pool.csv") %>%
+  mutate(ktype = factor(ktype), # recode variables
+         visits = as.integer(visits))
+
+bb_traits <- read_csv("../data/processed_data/bb_traits.csv") %>%
+  select(bb.sp, pbl.w, tongue = pbl.w.class2)
+
+site_data <- read_csv("../data/processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean, elev.class, elev.class2)) %>% 
+  mutate(site = factor(site),
+         tree_line = factor(tree_line))
+```
+
+# Null model by species
+```{r}
+# The "consumers" table input to generate_null_net()
+con <- prop_visits_ktype %>%
+  unite(id, c(site, date)) %>%
+  select(id, bb.sp, ktype, visits) %>%
+  pivot_wider(values_from = visits, names_from = ktype, values_fill = 0) %>%
+  select(-c("0", "10", "9"))
+
+# The "resources" table input to generate_null_net()
+res <- prop_visits_ktype %>%
+  unite(id, c(site, date)) %>%
+  select(id, ktype, perc.flower.cover) %>%
+  distinct() %>%
+  pivot_wider(values_from = perc.flower.cover, names_from = ktype, values_fill = 0) %>%
+  select(-c("0", "10", "9")) 
+
+# Generate null model
+null1 <- generate_null_net(consumers = con[, 2:9],
+                           resources = res[, 2:8],
+                           sims = 5000, # raised from default of 1000 (takes a while to run)
+                           data.type = "counts",
+                           c.samples = con[, 1], # parsed by sample
+                           r.samples = res[, 1])
+
+#saveRDS(null1, file = "../output/nullmodel_ktype.rds")
+null1 <- readRDS("../output/nullmodel_ktype.rds")
+
+# Tabulate output and generate tests
+null_tab1 <- test_interactions(null1, signif.level = 0.99) %>% # make it a bit more conservative to account for multiple comparisons
+  as_tibble() %>%
+  select(bb.sp = Consumer, ktype = Resource, everything()) %>%
+  group_by(bb.sp) %>%
+  mutate(total.abund = sum(Observed), # total abundance per species
+         preference = Observed - Null, # a working definition of preference
+         preference.upper99 = Observed - Upper.99.CL, 
+         preference.lower99 = Observed - Lower.99.CL,
+         
+         # If preference equals the difference between # observed visits and the null model prediction, then dividing preference by the total abundance of each species yields a standardized preference. Right? 
+         preference.std = preference/total.abund, 
+         Observed.std = Observed/total.abund,
+         Upper.99.CL.std = Upper.99.CL/total.abund,
+         Lower.99.CL.std = Lower.99.CL/total.abund) %>%
+  left_join(bb_traits) %>%
+  ungroup() %>%
+  mutate(bb.sp = fct_reorder(factor(bb.sp), pbl.w))
+```
+
+## Visualize network
+```{r}
+plot_bipartite(null1, signif.level = 0.99)
+```
+
+## Visualize species model
+```{r}
+# Standardized observed vs. null predictions
+## Species-wise
+ggplot(null_tab1, aes(Observed.std, ktype)) +
+  geom_segment(aes(y = ktype, yend = ktype, 
+                   x = Lower.99.CL.std, xend = Upper.99.CL.std), 
+               color = "gray40", inherit.aes = FALSE) +
+  geom_point(aes(color = Test)) +
+  facet_wrap(~bb.sp) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(values = c("gray40", "#00B6EB", "#F8766D")) +
+  labs(x = "Standardized visits", y = "Floral morphotype", color = "Test (p < 0.01)") +
+  theme_light()
+
+ggsave("../output/null_model_spwise_preference.pdf", height = 6, width = 7)
+ggsave("../output/null_model_spwise_preference.png", height = 6, width = 7)
+
+## Morphotype-wise
+ggplot(null_tab1, aes(Observed.std, bb.sp)) +
+  geom_segment(aes(y = bb.sp, yend = bb.sp, 
+                   x = Lower.99.CL.std, xend = Upper.99.CL.std), 
+               color = "gray40", inherit.aes = FALSE) +
+  geom_point(aes(color = Test)) +
+  facet_wrap(~ktype) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(values = c("gray40", "#00B6EB", "#F8766D")) +
+  labs(x = "Standardized visits", y = "Bumble bee species", color = "Test (p < 0.01)") +
+  theme_light()
+
+ggsave("../output/null_model_ktypewise_preference.pdf", height = 6, width = 7)
+ggsave("../output/null_model_ktypewise_preference.png", height = 6, width = 7)
+
+
+# Standardized preference ~ morphotype
+ggplot(null_tab1, aes(ktype, preference.std)) +
+  #geom_violin(fill = "#F8766D", color = "#F8766D") +
+  geom_violin(fill = "gray70", color = "gray70") +
+  geom_boxplot(fill = NA, color = "black") +
+  theme_light(14) +
+  labs(x = "Floral morphotype", 
+       y = "Standardized preference")
+
+ggsave("../output/null_model_ktype_preference.pdf", height = 6, width = 7)
+ggsave("../output/null_model_ktype_preference.png", height = 6, width = 7)
+
+
+# Standardized preference ~ morphotype * tongue class
+ggplot(null_tab1, aes(ktype, preference.std)) +
+  #geom_violin(fill = "#F8766D", color = "#F8766D") +
+  geom_violin(fill = "gray70", color = "gray70") +
+  geom_boxplot(fill = NA, color = "black") +
+  theme_light(14) +
+  labs(x = "Floral morphotype", 
+       y = "Standardized preference") +
+  facet_wrap(~tongue)
+
+ggsave("../output/null_model_ktypeXtongueclass_preference.pdf", height = 6, width = 7)
+ggsave("../output/null_model_ktypeXtongueclass_preference.png", height = 6, width = 7)
+
+
+# Standardized preference ~ tongue length
+ggplot(null_tab1, aes(pbl.w, preference.std)) +
+  geom_point(aes(color = Test)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5), color = "gray20", size = 0.5) +
+  facet_wrap(~ktype, scales = "free") +
+  theme_light()
+```
+
+## Model standardized preference ~ tongue length
+```{r}
+gam1 <- gam(preference.std ~ 
+              #s(ktype, bs = "re") + 
+              ktype + 
+              s(pbl.w, by = ktype, k = 5), 
+            data = null_tab1) %>% getViz()
+
+summary(gam1)
+check.gamViz(gam1)
+plot.gamViz(gam1, allTerms = TRUE)
+
+# Extract predictions
+gam1_pred <- predict_gam(gam1) %>%
+  mutate(fit.plus.se = fit + (2*se.fit),
+         fit.minus.se = fit - (2*se.fit))
+
+# Plot
+ggplot(gam1_pred, aes(pbl.w, fit)) +
+  geom_line() + # fit line
+  geom_ribbon(aes(ymin = fit.minus.se, ymax = fit.plus.se), # Uncertainty
+              fill = "black", alpha = 0.2) +
+  geom_point(data = null_tab1, # Original data
+             aes(pbl.w, preference.std, color = Test), 
+             inherit.aes = FALSE) +
+  facet_wrap(~ktype) +
+  labs(x = "Tongue length (mm)", y = "Standardized preference", 
+       color = "Test (p < 0.01)") +
+  theme_light()
+
+ggsave("../output/null_model_ktypeXtonguelength_preference.pdf", height = 6, width = 7)
+ggsave("../output/null_model_ktypeXtonguelength_preference.png", height = 6, width = 7)
+```
+
+## Model standardized preference by morphotype
+```{r}
+library(brms)
+
+x <- seq(-2, 2, by = .1)
+z <- seq(-20, 20, by = .1)
+
+# This seems like a good place to start
+y <- (dnorm(x, mean = 0, sd = 0.5))
+plot(x, y, type = "l")
+
+ktype_brm <- brm(preference.std ~ ktype,
+                 prior = c(prior(normal(0, 0.5), class = b)),
+                 iter = 2000,
+                 chains = 4,
+                 data = null_tab1)
+
+conditional_effects(ktype_brm)
+
+```
+
+# Null model by site
+```{r}
+# Nest and join consumer and resource data frames
+con_nest <- prop_visits_ktype %>%
+  select(site, date, bb.sp, ktype, visits) %>%
+  pivot_wider(values_from = visits, names_from = ktype, values_fill = 0) %>%
+  select(-c("0", "10", "9")) %>%
+  group_by(site) %>%
+  nest() %>%
+  rename(bees = data)
+
+res_nest <- prop_visits_ktype %>%
+  select(site, date, ktype, perc.flower.cover) %>%
+  distinct() %>%
+  pivot_wider(values_from = perc.flower.cover, names_from = ktype, values_fill = 0) %>%
+  select(-c("0", "10", "9")) %>%
+  group_by(site) %>%
+  nest() %>%
+  rename(plants = data)
+
+conres <- full_join(con_nest, res_nest)
+
+# Create a big beautiful table of data and models
+sitewise_null_models <- conres %>%
+  
+  # Generate null models
+  mutate(null.model = map2(bees, plants, function(x, y) 
+    generate_null_net(consumers = x[, 2:9],
+                      resources = y[, 2:8],
+                      sims = 5000,
+                      data.type = "counts",
+                      c.samples = x[, 1],
+                      r.samples = y[, 1]))) %>%
+  
+  # Tabulate results (with test)
+  mutate(null.model.tab = map(null.model, function(x) 
+    test_interactions(x, signif.level = 0.99) %>%
+      as_tibble() %>%
+      mutate(preference = Observed - Null,
+             preference.upper99 = Observed - Upper.99.CL,
+             preference.lower99 = Observed - Lower.99.CL) %>%
+      select(bb.sp = Consumer, ktype = Resource, everything()))) %>%
+  
+  # Unnest and add site data and bumble bee trait data
+  unnest(null.model.tab) %>%
+  left_join(site_data) %>%
+  left_join(bb_traits) %>%
+  
+  # Calculate preference/total abundance per species
+  group_by(site, bb.sp) %>%
+  mutate(total.abund = sum(Observed)) %>%
+  ungroup() %>%
+  mutate(preference.std = preference/total.abund)
+
+write_rds(sitewise_null_models, "../output/nullmodel_ktype_sitewise.rds")
+sitewise_null_models <- readRDS("../output/nullmodel_ktype_sitewise.rds")
+```
+
+## Visualize site model
+```{r}
+ggplot(sitewise_null_models, aes(elev.mean, preference, color = ktype)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~bb.sp, scales = "free")
+
+ggplot(sitewise_null_models, aes(elev.mean, SES, color = ktype)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~bb.sp, scales = "free")
+
+ggplot(sitewise_null_models, aes(elev.mean, preference.std, color = ktype)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~bb.sp, scales = "free")
+```
+

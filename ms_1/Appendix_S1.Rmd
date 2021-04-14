@@ -1,0 +1,185 @@
+---
+title: "Appendix S1"
+output: pdf_document
+---
+
+# Packages
+```{r message=FALSE, warning=FALSE}
+library(mgcViz)
+library(lubridate)
+library(tidyverse)
+```
+
+# Sampling patterns
+## Load sampling data
+```{r message=FALSE, warning=FALSE}
+### BB-FL visitation data
+visitation_sampling <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>%
+  dplyr::select(site, date, bb.sp, plant.sp) # drop unused columns
+
+### Floral survey data
+floral_surveying <- read_csv("../data/processed_data/floral_survey.csv") %>%
+  dplyr::select(site, date, plant.sp, flower.cover) %>%
+  group_by(plant.sp) %>%
+  mutate(present = case_when(
+    max(flower.cover) > 0 ~ TRUE,
+    max(flower.cover) == 0 ~ FALSE
+  )) %>%
+  filter(present == TRUE) # Ignore plants that never had any flower cover
+
+site_data <- read_csv("../data/processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean, elev.class, elev.class2)) %>% 
+  mutate(site = factor(site),
+         tree_line = factor(tree_line))
+```
+
+## Process sampling data
+```{r message=FALSE, warning=FALSE}
+bb_obs_per_year <- visitation_sampling %>%
+  mutate(year = year(date)) %>%
+  group_by(year) %>%
+  summarize(obs = n())
+
+bb_obs_per_sample <- visitation_sampling %>%
+  mutate(year = factor(year(date))) %>%
+  group_by(year, site, date) %>%
+  summarize(obs = n()) %>%
+  left_join(site_data) %>%
+  mutate(date =as_date(yday(date)))
+
+bb_samples_per_year <- visitation_sampling %>%
+  mutate(year = year(date)) %>%
+  select(year, site, date) %>%
+  unique() %>%
+  group_by(year) %>%
+  summarize(samples = n())
+
+bb_summary <- full_join(bb_obs_per_year, bb_samples_per_year) %>%
+  mutate(obs.per.sample = obs/samples)
+```
+
+## Visualize
+```{r message=FALSE, warning=FALSE}
+ggplot(visitation_sampling, aes(x = "x")) +
+  geom_bar(fill = "gray60") +
+  ylab("Observations") +
+  facet_wrap(~year(date)) +
+  theme_light(12) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  ggtitle("Bumble bee observations per study year")
+
+ggplot(bb_obs_per_sample, aes(x = "x")) +
+  geom_bar(fill = "gray60") +
+  ylab("Samples") +
+  facet_wrap(~year) +
+  theme_light(12) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  ggtitle("Sampling events (site/day) per year")
+
+ggplot(bb_obs_per_sample, aes(x = "x", y = obs)) +
+  geom_violin(draw_quantiles = 0.5, fill = "gray60", color = NA) +
+  geom_boxplot(fill = NA) +
+  #geom_density(outline.type = "full", position = "fill") +
+  ylab("Observations/sample") +
+  #xlab(NULL) +
+  facet_wrap(~year) +
+  theme_light(12) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  ggtitle("Bumble bee observations per sampling event")
+
+ggplot(bb_obs_per_sample, aes(as_date(yday(date)), elev.mean/10)) +
+  geom_point(size = 1, aes(alpha = obs)) +
+  facet_wrap(~year) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_alpha_continuous(name = "Observations") +
+  scale_x_date(date_labels = "%b", breaks = as_date(c("1970-04-01", "1970-05-01", "1970-06-01",
+                                                    "1970-07-01", "1970-08-01", "1970-09-01"))) +
+  theme_light(12) +
+  labs(x = NULL,
+       y = "Elevation (m x 10)") +
+  ggtitle("Bumble bee observations through elevation and time")
+```
+
+# Bumble bee abundance
+```{r message=FALSE, warning=FALSE}
+bb_range <- visitation_sampling %>%
+  left_join(site_data) %>%
+  group_by(site, date, elev.mean, tree_line, bb.sp) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, tree_line, bb.sp) %>%
+  summarize(abund = max(abund)) %>%
+  filter(abund > 0) %>%
+  group_by(bb.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2))
+
+ggplot(bb_range, aes(reorder(bb.sp, elev.med), elev.mean)) +
+  geom_line(size = 2, alpha = 0.25) +
+  geom_point(aes(size = abund, color = tree_line), alpha = 0.5) +
+  theme_light(14) +
+  scale_size_continuous(name = "Peak abundance",
+                        breaks = c(1, 10, 20, 40, 80)) +
+  scale_color_discrete(name = "Tree line") +
+  xlab("Bumble bee species") +
+  ylab("Elevation (m)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Range and peak abundance of each bumble bee sp.")
+
+
+# Overall bumble bee abundance
+bb_abund_sp <- visitation_sampling %>%
+  dplyr::select(site, date, bb.sp) %>%
+  group_by(site, date, bb.sp) %>% # 
+  summarize(bb.abund = n()) %>% # get per transect bb abundance
+  ungroup() %>%
+  complete(site, date, bb.sp, fill = list(bb.abund = 0)) %>% # complete implicit absences
+  semi_join(visitation_sampling, by = c("site", "date")) %>% # drop site-dates that did not exist in the data set
+  left_join(site_data) %>% # add site data
+  mutate(year = factor(year(date)),
+         yday = yday(date),
+         bb.sp = factor(bb.sp),
+         management = factor(management),
+         site = factor(site),
+         transect = factor(transect)) 
+
+bb_abund_sum <- bb_abund_sp %>%
+  group_by(site, bb.sp) %>%
+  summarize(cum.abund = sum(bb.abund),
+            mean.abund = mean(bb.abund)) %>%
+  group_by(site) %>%
+  mutate(prop.abund = cum.abund/sum(cum.abund)) %>%
+  group_by(bb.sp) %>%
+  mutate(mean.prop.abund = mean(prop.abund))
+
+ggplot(bb_abund_sum, aes(reorder(bb.sp, -mean.prop.abund), prop.abund)) +
+  geom_boxplot(fill = "gray85") +
+  theme_light() +
+  ylab("Proportional abundance") +
+  xlab("Bumble bee species") +
+  ggtitle("Relative abundances of bumble bee species")
+```
+
+# GAM diagnostics
+
+## Bumble bee abundance GAM
+```{r message=FALSE, warning=FALSE}
+bb_abund_gam <- readRDS("../output/gam_max_bb_abund_01.rds")
+summary(bb_abund_gam)
+check.gamViz
+```
+
+## Floral abundance GAM
+```{r message=FALSE, warning=FALSE}
+fl_abund_gam <- readRDS("../output/gam_mean_fl_abund_01.rds")
+summary(fl_abund_gam)
+check.gamViz(fl_abund_gam)
+```
