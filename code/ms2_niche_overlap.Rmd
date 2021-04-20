@@ -19,9 +19,6 @@ library(patchwork)
 library(tidymodels)
 library(tidyverse)
 library(lubridate)
-
-rstan::rstan_options(auto_write = TRUE)
-options(mc.cores = parallel::detectCores())
 ```
 
 ## Load data
@@ -40,6 +37,7 @@ fl_traits <- read_csv("../data/processed_data/fl_traits.csv")
 
 # Visitation data
 visitation <- read_csv("../data/processed_data/visitation.csv")
+visit_cover <- read_csv("../data/processed_data/visitation.csv")
 ```
 
 # 2. Ordination of dietary niche
@@ -203,7 +201,7 @@ niche_data <- visitation %>%
 
 ## 3.3 Function for calculating niche overlap
 ```{r}
-# This one averages visitation and then calculates niche overlaps
+# This one averages visitation and then calculates niche overlaps using 1 - Horn-Morisita distance
 niche_overlapper <- function(x, criterion) {
     
   criterion <- enquo(criterion) # criterion is set to either plant.sp (for taxonomic) or k.type.s (for morphological)
@@ -306,16 +304,13 @@ niche_overlapper <- function(x, criterion) {
 ```{r}
 # Pooled across dates within level, site, and species pair
 niche_overlap_gen <- niche_overlapper(niche_data, plant.genus) %>%
-  mutate(level = rep("genus", n()),
-         niche.overlap.genus = niche.overlap)
+  mutate(level = rep("genus", n()))
 
 niche_overlap_fam <- niche_overlapper(niche_data, plant.family) %>%
-  mutate(level = rep("family", n()),
-         niche.overlap.family = niche.overlap)
+  mutate(level = rep("family", n()))
 
 niche_overlap_ktype <- niche_overlapper(niche_data, k.type.ss) %>%
-  mutate(level = rep("morphotype", n()),
-         niche.overlap.ktype = niche.overlap)
+  mutate(level = rep("morphotype", n()))
 
 
 ggplot(niche_overlap_gen, aes(tongue.diff, niche.overlap)) +
@@ -336,11 +331,11 @@ ggplot(niche_overlap_ktype, aes(tongue.diff, niche.overlap)) +
 # Collate across levels
 niche_overlap <- bind_rows(niche_overlap_gen,
                            niche_overlap_fam, 
-                           niche_overlap_ktype,) %>%
+                           niche_overlap_ktype) %>%
   mutate(level = factor(level, levels = c("family", "morphotype", "genus")),
          site = factor(site),
          management = factor(management, levels = c("none", "grasing", "mowing"))) %>%
-  separate(sp.pair, c("sp1", "sp2"), sep = ":", remove = FALSE)
+  separate(sp.pair, c("sp1", "sp2"), sep = ":", remove = FALSE) 
 
 write_csv(niche_overlap, "../output/niche_overlap.csv")
 

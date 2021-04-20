@@ -45,22 +45,6 @@ output: pdf_document
   1. `year` = year
   2. `dayofyear` = day of year since January 1
   3. `site` = site name
-  4. `snowcover` = whether site was snow-covered
-  10. `plant.sp` = full plant species name
-  11. `plant.genus` = plant genus name
-  12. `flower cover` = flower cover in m^2^ to the nearest 0.01 m^2^
-  12. `day` = day of month
-  13. `month` = month
-  14. `date` = date
-
-## 3. `floral_survey.csv` 
-
-### Description: Floral survey data used in all analysis of (1) floral abundance and (2) floral beta-diversity. 
-
-### Columns:
-  1. `year` = year
-  2. `dayofyear` = day of year since January 1
-  3. `site` = site name
   4. `trap.time` = time interaction was observed
   5. `caste` = bumble bee caste (queen, male, worker, NA = parasitic *Psithryus*)
   6. `pollen` = whether the bee had visible pollen loads
@@ -73,6 +57,21 @@ output: pdf_document
   13. `month` = month
   14. `date` = date
 
+## 3. `floral_survey.csv` 
+
+### Description: Floral survey data used in all analysis of (1) floral abundance and (2) floral beta-diversity. 
+
+### Columns:
+  1. `year` = year
+  2. `dayofyear` = day of year since January 1
+  3. `site` = site name
+  4. `snowcover` = whether site was snow-covered
+  10. `plant.sp` = full plant species name
+  11. `plant.genus` = plant genus name
+  12. `flower cover` = flower cover in m^2^ to the nearest 0.01 m^2^
+  12. `day` = day of month
+  13. `month` = month
+  14. `date` = date
 
 ## 4. `site_data.csv`
 

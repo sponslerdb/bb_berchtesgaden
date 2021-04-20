@@ -7,7 +7,6 @@ output: html_document
 # Preparations
 ## Packages 
 ```{r, warning=FALSE, include=FALSE, echo = FALSE}
-library(bipartite)
 library(econullnetr)
 library(patchwork)
 library(mgcv)
@@ -39,7 +38,23 @@ site_data <- read_csv("../data/processed_data/site_data.csv") %>%
   mutate(site = factor(site),
          tree_line = factor(tree_line))
 
-visit_cover <- read_csv("../data/processed_data/visit_cover.csv")
+# For setting up the HPC
+# prop_visits_ktype <- read_csv("./prop_visits_ktype.csv") %>%
+#   mutate(ktype = factor(ktype), # recode variables
+#          tongue = factor(tongue),
+#          visits = as.integer(visits))
+# 
+# prop_visits_ktype_pooled <- read_csv("./prop_visits_ktype_pool.csv") %>%
+#   mutate(ktype = factor(ktype), # recode variables
+#          visits = as.integer(visits))
+# 
+# bb_traits <- read_csv("./bb_traits.csv") %>%
+#   select(bb.sp, pbl.w, tongue = pbl.w.class2)
+# 
+# site_data <- read_csv("./site_data.csv") %>%
+#   dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean, elev.class, elev.class2)) %>%
+#   mutate(site = factor(site),
+#          tree_line = factor(tree_line))
 ```
 
 # Null model 1: bb.sp x ktype, fully pooled
@@ -47,8 +62,8 @@ visit_cover <- read_csv("../data/processed_data/visit_cover.csv")
 # The "consumers" table input to generate_null_net()
 con <- prop_visits_ktype %>%
   unite(id, c(site, date)) %>%
-  select(id, bb.sp, ktype, visits) %>%
-  pivot_wider(values_from = visits, names_from = ktype, values_fill = 0) %>%
+  select(id, bb.sp, ktype, prop.visits) %>%
+  pivot_wider(values_from = prop.visits, names_from = ktype, values_fill = 0) %>%
   select(-c("0", "10", "9"))
 
 # The "resources" table input to generate_null_net()
@@ -62,29 +77,22 @@ res <- prop_visits_ktype %>%
 # Generate null model
 null1 <- generate_null_net(consumers = con[, 2:9],
                            resources = res[, 2:8],
-                           sims = 5000, # raised from default of 1000 (takes a while to run)
-                           data.type = "counts",
+                           sims = 1000, # raised from default of 100 (takes a while to run)
+                           data.type = "quantities", # since we are using proportional visitation
                            c.samples = con[, 1], # parsed by sample
                            r.samples = res[, 1])
 
-#saveRDS(null1, file = "../output/nullmodel_ktype.rds")
-null1 <- readRDS("../output/nullmodel_ktype.rds")
+saveRDS(null1, file = "./null1.rds")
+null1 <- readRDS("../output/null1.rds")
 
 # Tabulate output and generate tests
 null_tab1 <- test_interactions(null1, signif.level = 0.99) %>% # make it a bit more conservative to account for multiple comparisons
   as_tibble() %>%
   select(bb.sp = Consumer, ktype = Resource, everything()) %>%
   group_by(bb.sp) %>%
-  mutate(total.abund = sum(Observed), # total abundance per species
-         preference = Observed - Null, # a working definition of preference
+  mutate(preference = Observed - Null, # a working definition of preference
          preference.upper99 = Observed - Upper.99.CL, 
-         preference.lower99 = Observed - Lower.99.CL,
-         
-         # If preference equals the difference between # observed visits and the null model prediction, then dividing preference by the total abundance of each species yields a standardized preference. Right? 
-         preference.std = preference/total.abund, 
-         Observed.std = Observed/total.abund,
-         Upper.99.CL.std = Upper.99.CL/total.abund,
-         Lower.99.CL.std = Lower.99.CL/total.abund) %>%
+         preference.lower99 = Observed - Lower.99.CL) %>%
   left_join(bb_traits) %>%
   ungroup() %>%
   mutate(bb.sp = fct_reorder(factor(bb.sp), pbl.w))
@@ -311,6 +319,24 @@ ggplot(null_tab1, aes(ktype, preference.std)) +
 
 ggsave("../output/null_model_ktypeXtongueclass_preference.pdf", height = 6, width = 7)
 ggsave("../output/null_model_ktypeXtongueclass_preference.png", height = 6, width = 7)
+
+ggplot(null_tab1, aes(pbl.w, SES)) +
+  geom_point(aes(color = Test)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  facet_wrap(~ktype) +
+  labs(x = "Tongue length (mm)", y = "SES", 
+       color = "Test (p < 0.01)") +
+  theme_light()
+
+ggplot(null_tab1B, aes(pbl.w, preference)) +
+  geom_point(aes(color = Test)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  facet_wrap(~ktype) +
+  labs(x = "Tongue length (mm)", y = "Standardized preference", 
+       color = "Test (p < 0.01)") +
+  theme_light()
 ```
 
 ## Model standardized preference ~ tongue length
@@ -373,8 +399,8 @@ conditional_effects(ktype_brm)
 ```{r}
 # Nest and join consumer and resource data frames
 con_nest <- prop_visits_ktype %>%
-  select(site, date, bb.sp, ktype, visits) %>%
-  pivot_wider(values_from = visits, names_from = ktype, values_fill = 0) %>%
+  select(site, date, bb.sp, ktype, prop.visits) %>%
+  pivot_wider(values_from = prop.visits, names_from = ktype, values_fill = 0) %>%
   select(-c("0", "10", "9")) %>%
   group_by(site) %>%
   nest() %>%
@@ -394,90 +420,66 @@ conres <- full_join(con_nest, res_nest)
 # Create a big beautiful table of data and models
 
 ## RUN ON HPC!
-# sitewise_null_models <- conres %>%
-#   
-#   # Generate null models
-#   mutate(null.model = map2(bees, plants, function(x, y) 
-#     generate_null_net(consumers = x[, 2:9],
-#                       resources = y[, 2:8],
-#                       sims = 2000,
-#                       data.type = "counts",
-#                       c.samples = x[, 1],
-#                       r.samples = y[, 1]))) %>%
-#   
+null2 <- conres %>%
+
+  # Generate null models
+  mutate(null.model = map2(bees, plants, function(x, y)
+    generate_null_net(consumers = x[, 2:9],
+                      resources = y[, 2:8],
+                      sims = 1000, # raised from default of 100
+                      data.type = "quantities",
+                      c.samples = x[, 1],
+                      r.samples = y[, 1])))
+
+#write_rds(null2, "../output/nullmodel_ktype_sitewise.rds")
+write_rds(null2, "./null2.rds") # hpc
+
+
+# 
 #   # Tabulate results (with test)
-#   mutate(null.model.tab = map(null.model, function(x) 
+#   mutate(null.model.tab = map(null.model, function(x)
 #     test_interactions(x, signif.level = 0.99) %>%
 #       as_tibble() %>%
 #       mutate(preference = Observed - Null,
 #              preference.upper99 = Observed - Upper.99.CL,
 #              preference.lower99 = Observed - Lower.99.CL) %>%
 #       select(bb.sp = Consumer, ktype = Resource, everything()))) %>%
-#   
+# 
 #   # Unnest and add site data and bumble bee trait data
 #   unnest(null.model.tab) %>%
 #   left_join(site_data) %>%
 #   left_join(bb_traits) %>%
-#   
-#   # Calculate preference/total abundance per species
-#   group_by(site, bb.sp) %>%
-#   mutate(total.abund = sum(Observed)) %>%
-#   ungroup() %>%
-#   mutate(preference.std = preference/total.abund)
-
-#write_rds(sitewise_null_models, "../output/nullmodel_ktype_sitewise.rds")
-#write_rds(sitewise_null_models, "./nullmodel_ktype_sitewise.rds") # hpc
-sitewise_null_models <- readRDS("../output/nullmodel_ktype_sitewise.rds") 
-
-sitewise_null_models <- sitewise_null_models %>%
-  filter(total.abund > 0) %>% # for each species, drop sites where the species did not occur
-  unite(bb.ktype, c(bb.sp, ktype), remove = FALSE) %>%
-  mutate(ktype = factor(ktype),
-         bb.sp = factor(bb.sp),
-         bb.ktype = factor(bb.ktype))
-```
-
-## Diet similarity vs. preference similarity
-```{r}
-prefs2 <- sitewise_null_models %>%
-  select(site, bb.sp, ktype, preference.std) %>%
-  unite(site.bb.sp, c(site, bb.sp)) %>%
-  pivot_wider(names_from = ktype, values_from = preference.std) %>%
-  column_to_rownames("site.bb.sp")
-
-visits.ktype <- null_tab1 %>%
-  select(bb.sp, ktype, Observed.std) %>%
-  pivot_wider(names_from = ktype, values_from = Observed.std) %>%
-  column_to_rownames("bb.sp")
-
-visits_diffmat <- vegdist(visits, method = "horn") %>%
-  broom::tidy() %>%
-  select(bb.sp1 = 1, bb.sp2 = 2, distance) %>%
-  left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>%
-  select(bb.sp1, bb.sp2, distance, pbl.w1 = pbl.w) %>%
-  left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
-  select(bb.sp1, bb.sp2, distance, pbl.w1, pbl.w2 = pbl.w) %>%
-  mutate(tongue.diff = abs(pbl.w1 - pbl.w2),
-         diet.similarity = 1 - distance) %>%
-  select(-distance)
-
-prefs_diffmat <- vegdist(prefs, method = "euclidean") %>%
-  broom::tidy() %>%
-  select(bb.sp1 = 1, bb.sp2 = 2, distance) %>%
-  left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>%
-  select(bb.sp1, bb.sp2, distance, pbl.w1 = pbl.w) %>%
-  left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
-  select(bb.sp1, bb.sp2, distance, pbl.w1, pbl.w2 = pbl.w) %>%
-  mutate(tongue.diff = abs(pbl.w1 - pbl.w2),
-         preference.similarity = 1 - distance) %>%
-  select(-distance)
-
-visits_prefs <- full_join(visits_diffmat, prefs_diffmat)
-
+#   filter(total.abund > 0) %>% # for each species, drop sites where the species did not occur
+#   unite(bb.ktype, c(bb.sp, ktype), remove = FALSE)
+# 
+# 
+# 
+# sitewise_null_models <- readRDS("../output/nullmodel_ktype_sitewise.rds") %>%
+#   mutate(ktype = factor(ktype),
+#          bb.sp = factor(bb.sp),
+#          bb.ktype = factor(bb.ktype))
 ```
 
 ## Visualize site model
 ```{r}
+ggplot(sitewise_null_models, aes(pbl.w, preference.std)) +
+  geom_point(aes(color = Test)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  facet_wrap(~ktype) +
+  labs(x = "Tongue length (mm)", y = "Standardized preference", 
+       color = "Test (p < 0.01)") +
+  theme_light()
+
+ggplot(sitewise_null_models, aes(pbl.w, SES)) +
+  geom_point(aes(color = Test)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  facet_wrap(~ktype) +
+  labs(x = "Tongue length (mm)", y = "Standardized preference", 
+       color = "Test (p < 0.01)") +
+  theme_light()
+
 # ktype preference x bb.sp ~ elevation
 ggplot(sitewise_null_models, aes(elev.mean, preference.std, color = ktype)) +
   geom_point() +
@@ -583,111 +585,53 @@ ggplot(filter(sitewise_null_models, ktype == 7), aes(pbl.w, preference.std)) +
   facet_wrap(~site)
 ```
 
-## Overall preference of each ktype ~ elevation
+# Diet similarity vs. preference similarity
 ```{r}
+diet_similarity <- read_csv("../output/niche_overlap.csv") %>%
+  select(site, bb.sp1, bb.sp2, diet.similarity = niche.overlap, level) 
+# %>%
+#   pivot_wider(values_from = niche.overlap, names_from = level) %>%
+#   rename(genus.overlap = genus, family.overlap = family, morphotype.overlap = morphotype)
 
-```
-
-# Null model 3: bb.sp x plant genus, fully pooled
-```{r}
-# The "consumers" table input to generate_null_net()
-con3 <- visit_cover %>%
-  group_by(site, date, bb.sp, plant.genus) %>%
-  summarize(visits = sum(visits)) %>%
-  unite(id, c(site, date)) %>%
-  select(id, bb.sp, plant.genus, visits) %>%
-  pivot_wider(values_from = visits, names_from = plant.genus, values_fill = 0)
-
-# The "resources" table input to generate_null_net()
-res3 <- visit_cover %>%
-  group_by(site, date, bb.sp, plant.genus) %>%
-  summarize(flower.cover = sum(flower.cover)) %>%
-  group_by(site, date) %>%
-  mutate(perc.flower.cover = flower.cover/sum(flower.cover)) %>%
-  unite(id, c(site, date)) %>%
-  select(id, plant.genus, perc.flower.cover) %>%
-  distinct() %>%
-  pivot_wider(values_from = perc.flower.cover, names_from = plant.genus, values_fill = 0) 
-
-# Generate null model
-null3 <- generate_null_net(consumers = con3[, 2:201],
-                           resources = res3[, 2:200],
-                           sims = 5000, # raised from default of 1000 (takes a while to run)
-                           data.type = "counts",
-                           c.samples = con3[, 1], # parsed by sample
-                           r.samples = res3[, 1])
-
-saveRDS(null3, file = "./nullmodel_plant.genus.rds") # hpc
-null3 <- readRDS("../output/nullmodel_ktype.rds")
-
-# Tabulate output and generate tests
-null_tab1 <- test_interactions(null1, signif.level = 0.99) %>% # make it a bit more conservative to account for multiple comparisons
-  as_tibble() %>%
-  select(bb.sp = Consumer, ktype = Resource, everything()) %>%
-  group_by(bb.sp) %>%
-  mutate(total.abund = sum(Observed), # total abundance per species
-         preference = Observed - Null, # a working definition of preference
-         preference.upper99 = Observed - Upper.99.CL, 
-         preference.lower99 = Observed - Lower.99.CL,
-         
-         # If preference equals the difference between # observed visits and the null model prediction, then dividing preference by the total abundance of each species yields a standardized preference. Right? 
-         preference.std = preference/total.abund, 
-         Observed.std = Observed/total.abund,
-         Upper.99.CL.std = Upper.99.CL/total.abund,
-         Lower.99.CL.std = Lower.99.CL/total.abund) %>%
-  left_join(bb_traits) %>%
+pref_proc <- function(x) {
+  x %>%
+    pivot_wider(names_from = ktype, values_from = preference.std) %>%
+    column_to_rownames("bb.sp") %>%
+    vegdist(method = "euclidean") %>%
+    broom::tidy() %>%
+    select(bb.sp1 = 1, bb.sp2 = 2, distance)
+}
+  
+preference_similarity_sitewise <- sitewise_null_models %>%
+  select(site, bb.sp, ktype, preference.std) %>%
+  group_by(site) %>%
+  nest() %>%
+  mutate(pdif = map(data, pref_proc)) %>%
+  unnest(pdif) %>%
+  left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>%
+  select(bb.sp1, bb.sp2, distance, pbl.w1 = pbl.w) %>%
+  left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
+  select(bb.sp1, bb.sp2, distance, pbl.w1, pbl.w2 = pbl.w) %>%
+  mutate(tongue.diff = abs(pbl.w1 - pbl.w2)) %>%
   ungroup() %>%
-  mutate(bb.sp = fct_reorder(factor(bb.sp), pbl.w))
-```
+  mutate(distance.std = distance/max(distance),
+         pref.similarity = 1-distance.std)
 
-# Null model 4: bb.sp x plant genus, fully pooled
-```{r}
-# The "consumers" table input to generate_null_net()
-con4 <- visit_cover %>%
-  group_by(site, date, bb.sp, plant.family) %>%
-  summarize(visits = sum(visits)) %>%
-  unite(id, c(site, date)) %>%
-  select(id, bb.sp, plant.family, visits) %>%
-  pivot_wider(values_from = visits, names_from = plant.family, values_fill = 0)
+diet_preference <- full_join(preference_similarity_sitewise, diet_similarity) %>%
+  filter(!is.na(pref.similarity)) # the data set that was used to generate the niche overlap data includes slightly more data than the one used to generate the preference data due to a filtering step during the alignment of visitation data to floral. Only 10 rows are missing, so the difference is trivial. We can just drop the resulting NAs. 
 
-# The "resources" table input to generate_null_net()
-res4 <- visit_cover %>%
-  group_by(site, date, bb.sp, plant.family) %>%
-  summarize(flower.cover = sum(flower.cover)) %>%
-  group_by(site, date) %>%
-  mutate(perc.flower.cover = flower.cover/sum(flower.cover)) %>%
-  unite(id, c(site, date)) %>%
-  select(id, plant.family, perc.flower.cover) %>%
-  distinct() %>%
-  pivot_wider(values_from = perc.flower.cover, names_from = plant.family, values_fill = 0) 
+ggplot(diet_preference, aes(pref.similarity, diet.similarity, color = level)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~site)
 
-# Generate null model
-null4 <- generate_null_net(consumers = con4[, 2:56],
-                           resources = res4[, 2:55],
-                           sims = 5000, # raised from default of 1000 (takes a while to run)
-                           data.type = "counts",
-                           c.samples = con4[, 1], # parsed by sample
-                           r.samples = res4[, 1])
+ggplot(diet_preference, aes(tongue.diff, pref.similarity)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~site)
 
-saveRDS(null4, file = "./nullmodel_plant.family.rds") # hpc
-null3 <- readRDS("../output/nullmodel_ktype.rds")
-
-# Tabulate output and generate tests
-null_tab1 <- test_interactions(null1, signif.level = 0.99) %>% # make it a bit more conservative to account for multiple comparisons
-  as_tibble() %>%
-  select(bb.sp = Consumer, ktype = Resource, everything()) %>%
-  group_by(bb.sp) %>%
-  mutate(total.abund = sum(Observed), # total abundance per species
-         preference = Observed - Null, # a working definition of preference
-         preference.upper99 = Observed - Upper.99.CL, 
-         preference.lower99 = Observed - Lower.99.CL,
-         
-         # If preference equals the difference between # observed visits and the null model prediction, then dividing preference by the total abundance of each species yields a standardized preference. Right? 
-         preference.std = preference/total.abund, 
-         Observed.std = Observed/total.abund,
-         Upper.99.CL.std = Upper.99.CL/total.abund,
-         Lower.99.CL.std = Lower.99.CL/total.abund) %>%
-  left_join(bb_traits) %>%
-  ungroup() %>%
-  mutate(bb.sp = fct_reorder(factor(bb.sp), pbl.w))
+ggplot(diet_preference, aes(tongue.diff, diet.similarity, color = level)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~site)
 ```
