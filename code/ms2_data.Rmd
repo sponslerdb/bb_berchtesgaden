@@ -37,6 +37,8 @@ fl_ktype_key <- read_delim("../data/processed_data/kugler_key.tsv", delim = "\t"
 fl_traits <- fl_tax %>%
   full_join(fl_ktype) %>%
   dplyr::select(plant.sp, plant.genus, plant.family, k.type, k.type.s, k.type.ss) 
+
+write_csv(fl_traits, "../data/processed_data/fl_traits.csv")
 ```
 
 ## Align survey and visitation data with pseudodates
@@ -87,6 +89,8 @@ visitation <- read_csv("../data/processed_data/network.csv") %>%
   group_by(site, date) %>%
   complete(bb.sp, plant.sp, fill = list(visits = 0)) # generate all possible BB-FL combos for each site date and fill in zeros for visits
 
+write_csv(visitation, "../data/processed_data/visitation.csv")
+
 # Floral cover data
 flower_cover <- read_csv("../data/processed_data/floral_survey.csv") %>%
   filter(flower.cover > 0) %>% # ignore plants that were not blooming
@@ -129,6 +133,8 @@ visit_cover <- flower_cover %>%
   left_join(fl_traits) %>% # add floral traits
   ungroup() %>%
   mutate(k.type.ss = factor(k.type.ss))
+
+write_csv(visit_cover, "../data/processed_data/visit_cover.csv")
 
 ## Get total visits by BB sp and site-date; this will be a measure of BB abundance that we can use after we've calculated d'. I could, of course, work this into the biaseval function, but I'll put that off for now.
 bb_abundance <- visit_cover %>%
