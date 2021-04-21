@@ -14,6 +14,7 @@ library(mgcViz)
 library(tidymv)
 library(tidyverse)
 library(lubridate)
+library(broom)
 library(vegan)
 library(ggvegan)
 library(ggrepel)
@@ -57,7 +58,25 @@ site_data <- read_csv("../data/processed_data/site_data.csv") %>%
 #          tree_line = factor(tree_line))
 ```
 
-# Null model 1: bb.sp x ktype, fully pooled
+# Get number of presences by date and site-date for each species
+
+In null model 1, the calculation of total Observed vs. Null-predicted visitation involves the summing of observed and null-predicted visitation across the sampling unit of site-date. This causes the absolute values of total preference (totalObserved - totalNull) to vary with the number of site-dates that were summed, which inflates the absolute value of preference in abundant species relative to rare species. By dividing each species' preferences by the nuber of site-dates in which it was observed, we can standardize preference as per-site-date totalObserved - totalNull, which gets all species on a comparable scale and enables comparisons of preference across ktype or in response to tongue length to be meaningful. 
+
+Similarly, in null model 2, the calculation of preference involves summing across the sampling unit of date within site, and we cna standardize preference by dividing by the number of dates each species was observed at each site.
+```{r}
+# Site-date presences for null model 1
+site_date_presences <- prop_visits_ktype %>%
+  unite(sitedate, site, date) %>%
+  group_by(bb.sp) %>%
+  summarize(presences = length(unique(sitedate)))
+
+# Date presences for null model 2
+date_presences <- prop_visits_ktype %>%
+  group_by(site, bb.sp) %>%
+  summarize(presences = length(unique(date))) 
+```
+
+# 1. Null model 1: bb.sp x ktype, fully pooled
 ```{r}
 # The "consumers" table input to generate_null_net()
 con <- prop_visits_ktype %>%
@@ -82,7 +101,7 @@ null1 <- generate_null_net(consumers = con[, 2:9],
                            c.samples = con[, 1], # parsed by sample
                            r.samples = res[, 1])
 
-saveRDS(null1, file = "./null1.rds")
+#saveRDS(null1, file = "./null1.rds")
 null1 <- readRDS("../output/null1.rds")
 
 # Tabulate output and generate tests
@@ -95,177 +114,19 @@ null_tab1 <- test_interactions(null1, signif.level = 0.99) %>% # make it a bit m
          preference.lower99 = Observed - Lower.99.CL) %>%
   left_join(bb_traits) %>%
   ungroup() %>%
+  left_join(site_date_presences) %>%
+  mutate(preference.std = preference/presences, # standardize preference
+         observed.std = Observed/presences, # standardize visitation
+         lower99.std = Lower.99.CL/presences, # standardize confidence intervals
+         upper99.std = Upper.99.CL/presences) %>% 
   mutate(bb.sp = fct_reorder(factor(bb.sp), pbl.w))
 ```
-
-## Similarity of preferences across species
+## 1.1 Standardized observed vs. null predictions
 ```{r}
-prefs <- null_tab1 %>%
-  select(bb.sp, ktype, preference.std) %>%
-  pivot_wider(names_from = ktype, values_from = preference.std) %>%
-  column_to_rownames("bb.sp")
-
-visits.ktype <- null_tab1 %>%
-  select(bb.sp, ktype, Observed.std) %>%
-  pivot_wider(names_from = ktype, values_from = Observed.std) %>%
-  column_to_rownames("bb.sp")
-
-visits_diffmat <- vegdist(visits, method = "horn") %>%
-  broom::tidy() %>%
-  select(bb.sp1 = 1, bb.sp2 = 2, distance) %>%
-  left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>%
-  select(bb.sp1, bb.sp2, distance, pbl.w1 = pbl.w) %>%
-  left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
-  select(bb.sp1, bb.sp2, distance, pbl.w1, pbl.w2 = pbl.w) %>%
-  mutate(tongue.diff = abs(pbl.w1 - pbl.w2),
-         diet.similarity = 1 - distance) %>%
-  select(-distance)
-
-prefs_diffmat <- vegdist(prefs, method = "euclidean") %>%
-  broom::tidy() %>%
-  select(bb.sp1 = 1, bb.sp2 = 2, distance) %>%
-  left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>%
-  select(bb.sp1, bb.sp2, distance, pbl.w1 = pbl.w) %>%
-  left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
-  select(bb.sp1, bb.sp2, distance, pbl.w1, pbl.w2 = pbl.w) %>%
-  mutate(tongue.diff = abs(pbl.w1 - pbl.w2),
-         preference.similarity = 1 - distance) %>%
-  select(-distance)
-
-visits_prefs <- full_join(visits_diffmat, prefs_diffmat)
-
-ggplot(visits_prefs, aes(preference.similarity, diet.similarity)) +
-  geom_point()
-
-ggplot(visits_prefs, aes(tongue.diff, diet.similarity)) +
-  geom_point()
-
-ggplot(visits_prefs, aes(tongue.diff, preference.similarity)) +
-  geom_point()
-
-
-
-pca_pref <- rda(prefs)
-plot(pca_pref)
-
-pca_visit <- rda(visits)
-plot(pca_visit)
-
-tongues <- bb_traits %>%
-  semi_join(null_tab1) %>%
-  arrange(bb.sp)
-
-ordisurf_pref <- ordisurf(pca_pref, tongues$pbl.w) 
-summary(ordisurf_pref)
-plot(ordisurf_pref)
-
-ordisurf_visit <- ordisurf(pca_visit, tongues$pbl.w) 
-summary(ordisurf_visit)
-plot(ordisurf_visit)
-
-fortify(ordisurf_pref)
-fortify(ordisurf_visit)
-
-# Get variance explained
-pcoa_pref_pc1 <- round(pca_pref$CA$eig[[1]] / sum(pca_pref$CA$eig)*100)
-pcoa_pref_pc2 <- round(pca_pref$CA$eig[[2]] / sum(pca_pref$CA$eig)*100)
-
-pcoa_visit_pc1 <- round(pca_visit$CA$eig[[1]] / sum(pca_visit$CA$eig)*100)
-pcoa_visit_pc2 <- round(pca_visit$CA$eig[[2]] / sum(pca_visit$CA$eig)*100)
-
-# Fortify whole model
-pca_pref.fort <- fortify(pca_pref, axes = 1:2) 
-pca_visit.fort <- fortify(pca_visit, axes = 1:2) 
-
-# Fortify plants
-pca_pref.fort1 <- fortify(pca_pref, axes = 1:2) %>%
-  filter(Score == "species") %>%
-  rename(ktype = Label) 
-
-pca_visit.fort1 <- fortify(pca_visit, axes = 1:2) %>%
-  filter(Score == "species") %>%
-  rename(ktype = Label) 
-
-# Fortify bees
-pca_pref.fort2 <- fortify(pca_pref, axes = 1:2) %>%
-  filter(Score == "sites") %>%
-  rename(bb.sp = Label) %>%
-  left_join(bb_traits)
-
-pca_visit.fort2 <- fortify(pca_visit, axes = 1:2) %>%
-  filter(Score == "sites") %>%
-  rename(bb.sp = Label) %>%
-  left_join(bb_traits)
-
-# Generate convex hulls around tongue length classes
-# pca_pref_hulls <- pca_pref.fort2 %>%
-#   group_by(tongue) %>%
-#   slice(chull(PC1, PC2))
-
-# Plot
-ggplot(pca_pref.fort2, aes(PC1, PC2, color = tongue)) +
-  geom_polygon(data = pca_pref_hulls, 
-               aes(fill = tongue, color = NULL),
-               alpha = 0.25) +
-  geom_point(data = pca_pref.fort1, aes(PC1, PC2), inherit.aes = FALSE, color = "gray40", size = 2) +
-  geom_text(aes(label = bb.sp), key_glyph = "rect", size = 3) +
-  geom_text_repel(data = pca_pref.fort1, 
-            aes(PC1, PC2, label = ktype), inherit.aes = FALSE, color = "gray40",
-            size = 3) +
-  scale_shape_discrete() +
-  xlab(paste("PC1 ", "(", pcoa_pref_pc1, "%", ")", sep = "")) +
-  ylab(paste("PC2 ", "(", pcoa_pref_pc2, "%", ")", sep = "")) +
-  labs(fill = "Tongue length", 
-       shape = "Morphotype") +
-  guides(color = FALSE) +
-  coord_fixed() +
-  theme_light(9)
-
-# Plot ordisurf
-## Based on https://oliviarata.wordpress.com/2014/07/17/ordinations-in-ggplot2-v2-ordisurf/
-surfplot <- function(x, y, min_score = 0) {
-  
-  grid <- x$grid # extracts the ordisurf object
-  grid_exp <- expand.grid(x = grid$x, y = grid$y) # get x and ys
-  grid_exp$z <- as.vector(grid$z) # unravel the matrix for the z scores
-  
-  contours <- data.frame(na.omit(grid_exp)) %>% # gets rid of the nas
-    as_tibble() %>%
-    rename(PC1 = x, PC2 = y)
-  
-  scores <- y %>% 
-    filter((abs(PC1) > min_score | abs(PC2) > min_score) | Score == "BB.sp") %>%
-    mutate(max.score = max(PC1, PC2))
-  
-  ggplot(scores, aes(PC1, PC2, pch = Score)) +
-    geom_contour(data = contours, 
-                 aes(PC1, PC2, z = z, color = stat(level)),
-                 size = 1.5, alpha = 0.75, inherit.aes = FALSE) +
-    #geom_point(size = 2) +
-    geom_text_repel(aes(PC1, PC2, label = Label), key_glyph = "rect") +
-    #geom_text(aes(MDS1, MDS2, label = Label, alpha = max.score), key_glyph = "rect") +
-    theme_light() +
-    scale_color_viridis_c(name = "Tongue length") +
-    #scale_shape_manual(values = c(16, 1), name = "Level") +
-    coord_fixed() # Gavin Simpson says this is **really** important
-}
-
-surfplot(ordisurf_pref, pca_pref.fort)
-surfplot(ordisurf_visit, pca_visit.fort)
-```
-
-## Visualize network
-```{r}
-plot_bipartite(null1, signif.level = 0.99)
-```
-
-## Visualize species model
-```{r}
-# Standardized observed vs. null predictions
-## Species-wise
-ggplot(null_tab1, aes(Observed.std, ktype)) +
+# Species-wise
+ggplot(null_tab1, aes(observed.std, ktype)) +
   geom_segment(aes(y = ktype, yend = ktype, 
-                   x = Lower.99.CL.std, xend = Upper.99.CL.std), 
+                   x = lower99.std, xend = upper99.std), 
                color = "gray40", inherit.aes = FALSE) +
   geom_point(aes(color = Test)) +
   facet_wrap(~bb.sp) +
@@ -278,9 +139,9 @@ ggsave("../output/null_model_spwise_preference.pdf", height = 6, width = 7)
 ggsave("../output/null_model_spwise_preference.png", height = 6, width = 7)
 
 ## Morphotype-wise
-ggplot(null_tab1, aes(Observed.std, bb.sp)) +
+ggplot(null_tab1, aes(observed.std, bb.sp)) +
   geom_segment(aes(y = bb.sp, yend = bb.sp, 
-                   x = Lower.99.CL.std, xend = Upper.99.CL.std), 
+                   x = lower99.std, xend = upper99.std), 
                color = "gray40", inherit.aes = FALSE) +
   geom_point(aes(color = Test)) +
   facet_wrap(~ktype, ncol = 4) +
@@ -291,9 +152,10 @@ ggplot(null_tab1, aes(Observed.std, bb.sp)) +
 
 ggsave("../output/null_model_ktypewise_preference.pdf", height = 5, width = 7)
 ggsave("../output/null_model_ktypewise_preference.png", height = 5, width = 7)
+```
 
-
-# Standardized preference ~ morphotype
+## 1.2 Standardized preference by morphotype
+```{r}
 ggplot(null_tab1, aes(ktype, preference.std)) +
   #geom_violin(fill = "gray70", color = "white", draw_quantiles = c(0.25, 0.5, 0.75)) +
   geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
@@ -305,31 +167,13 @@ ggplot(null_tab1, aes(ktype, preference.std)) +
 
 ggsave("../output/null_model_ktype_preference.pdf", height = 6, width = 7)
 ggsave("../output/null_model_ktype_preference.png", height = 6, width = 7)
+```
 
-
-# Standardized preference ~ morphotype * tongue class
-ggplot(null_tab1, aes(ktype, preference.std)) +
-  #geom_violin(fill = "#F8766D", color = "#F8766D") +
-  geom_violin(fill = "gray70", color = "gray70") +
-  geom_boxplot(fill = NA, color = "black") +
-  theme_light(14) +
-  labs(x = "Floral morphotype", 
-       y = "Standardized preference") +
-  facet_wrap(~tongue)
-
-ggsave("../output/null_model_ktypeXtongueclass_preference.pdf", height = 6, width = 7)
-ggsave("../output/null_model_ktypeXtongueclass_preference.png", height = 6, width = 7)
-
-ggplot(null_tab1, aes(pbl.w, SES)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
-  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
-  facet_wrap(~ktype) +
-  labs(x = "Tongue length (mm)", y = "SES", 
-       color = "Test (p < 0.01)") +
-  theme_light()
-
-ggplot(null_tab1B, aes(pbl.w, preference)) +
+## 1.3 Standardized preference by morphotype ~ tongue length
+### 1.3.1 Preliminary visualization
+```{r}
+# Standardized preference ~ morphotype * tongue length
+ggplot(null_tab1, aes(pbl.w, preference.std)) +
   geom_point(aes(color = Test)) +
   geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
   scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
@@ -339,17 +183,16 @@ ggplot(null_tab1B, aes(pbl.w, preference)) +
   theme_light()
 ```
 
-## Model standardized preference ~ tongue length
+### 1.3.2 Model
 ```{r}
 gam1 <- gam(preference.std ~ 
-              #s(ktype, bs = "re") + 
               ktype + 
               s(pbl.w, by = ktype, k = 5), 
             data = null_tab1) %>% getViz()
 
 summary(gam1)
-#check.gamViz(gam1)
-#plot.gamViz(gam1, allTerms = TRUE)
+check.gamViz(gam1)
+plot.gamViz(gam1, allTerms = TRUE)
 
 # Extract predictions
 gam1_pred <- predict_gam(gam1) %>%
@@ -374,28 +217,139 @@ ggsave("../output/null_model_ktypeXtonguelength_preference.pdf", height = 6, wid
 ggsave("../output/null_model_ktypeXtonguelength_preference.png", height = 6, width = 7)
 ```
 
-## Model standardized preference by morphotype
+
+## 1.4 Aggregate similarity of preferences and visitation across species
+
+### 1.4.1 Calculate similarities
 ```{r}
-library(brms)
+# Standardized preference matrix
+null1_prefs <- null_tab1 %>%
+  select(bb.sp, ktype, preference.std) %>%
+  pivot_wider(names_from = ktype, values_from = preference.std) %>%
+  column_to_rownames("bb.sp")
 
-x <- seq(-2, 2, by = .1)
-z <- seq(-20, 20, by = .1)
+# Standardized total visitation matrix
+null1_visits <- null_tab1 %>%
+  select(bb.sp, ktype, observed.std) %>%
+  pivot_wider(names_from = ktype, values_from = observed.std) %>%
+  column_to_rownames("bb.sp")
 
-# This seems like a good place to start
-y <- (dnorm(x, mean = 0, sd = 0.5))
-plot(x, y, type = "l")
+# Preference similarity
+null1_prefs_diff <- vegdist(prefs, method = "euclidean") %>% # most metrics don't work when matrix includes negative numbers
+  broom::tidy() %>%
+  select(bb.sp1 = 1, bb.sp2 = 2, distance) %>%
+  left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>%
+  select(bb.sp1, bb.sp2, distance, pbl.w1 = pbl.w) %>%
+  left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
+  select(bb.sp1, bb.sp2, distance, pbl.w1, pbl.w2 = pbl.w) %>%
+  mutate(tongue.diff = abs(pbl.w1 - pbl.w2),
+         preference.similarity = 1 - distance) %>%
+  select(-distance)
 
-ktype_brm <- brm(preference.std ~ ktype,
-                 prior = c(prior(normal(0, 0.5), class = b)),
-                 iter = 2000,
-                 chains = 4,
-                 data = null_tab1)
+# Visitation similarity
+null1_visits_diff <- vegdist(null1_visits, method = "horn") %>%
+  broom::tidy() %>%
+  select(bb.sp1 = 1, bb.sp2 = 2, distance) %>%
+  left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>%
+  select(bb.sp1, bb.sp2, distance, pbl.w1 = pbl.w) %>%
+  left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
+  select(bb.sp1, bb.sp2, distance, pbl.w1, pbl.w2 = pbl.w) %>%
+  mutate(tongue.diff = abs(pbl.w1 - pbl.w2),
+         diet.similarity = 1 - distance) %>%
+  select(-distance)
 
-conditional_effects(ktype_brm)
-
+null1_visits_prefs <- full_join(null1_prefs_diff, null1_visits_diff)
 ```
 
-# Null model 2: bb.sp x ktype, by site
+### 1.4.2 How well does preference similarity predict (ktype-level) visitation similarity?
+Two interesting questions:
+1. Doe the relationship deviate from 1:1?
+2. How wide is the spread and is the relationship heteroskedastic? The wider the spread, the more visitation is affected by relative abundance. The tighter the spread, the more visitation is determined by selection bias independent of relative abundance.
+```{r}
+
+ggplot(null1_visits_prefs, aes(preference.similarity, diet.similarity)) +
+  geom_point() +
+  geom_smooth() +
+  geom_abline(slope = 1, color = "black", linetype = "dashed") +
+  theme_light()
+```
+
+### 1.4.3 How well does tongue length difference predict preference similarity?
+```{r}
+ggplot(null1_visits_prefs, aes(tongue.diff, preference.similarity)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4))
+```
+
+### 1.4.4 Ordinate preferences
+```{r}
+# Call PCA
+pca_pref <- rda(prefs)
+
+# Extract tongue length data
+tongues <- bb_traits %>%
+  semi_join(null_tab1) %>%
+  arrange(bb.sp)
+
+# Ordisurf on tongue length
+ordisurf_pref <- ordisurf(pca_pref, tongues$pbl.w) 
+summary(ordisurf_pref)
+
+# Get variance explained
+pcoa_pref_pc1 <- round(pca_pref$CA$eig[[1]] / sum(pca_pref$CA$eig)*100)
+pcoa_pref_pc2 <- round(pca_pref$CA$eig[[2]] / sum(pca_pref$CA$eig)*100)
+
+# Fortify whole model
+pca_pref.fort <- fortify(pca_pref, axes = 1:2) 
+
+# Fortify plants
+pca_pref.fort1 <- fortify(pca_pref, axes = 1:2) %>%
+  filter(Score == "species") %>%
+  rename(ktype = Label) 
+
+# Fortify bees
+pca_pref.fort2 <- fortify(pca_pref, axes = 1:2) %>%
+  filter(Score == "sites") %>%
+  rename(bb.sp = Label) %>%
+  left_join(bb_traits)
+
+
+# Plot ordisurf
+
+## Plotting function based on https://oliviarata.wordpress.com/2014/07/17/ordinations-in-ggplot2-v2-ordisurf/
+surfplot <- function(x, y, min_score = 0) {
+  
+  grid <- x$grid # extracts the ordisurf object
+  grid_exp <- expand.grid(x = grid$x, y = grid$y) # get x and ys
+  grid_exp$z <- as.vector(grid$z) # unravel the matrix for the z scores
+  
+  contours <- data.frame(na.omit(grid_exp)) %>% # gets rid of the nas
+    as_tibble() %>%
+    rename(PC1 = x, PC2 = y)
+  
+  scores <- y %>% 
+    filter((abs(PC1) > min_score | abs(PC2) > min_score) | Score == "BB.sp") %>%
+    mutate(max.score = max(PC1, PC2))
+  
+  ggplot(scores, aes(PC1, PC2, pch = Score)) +
+    geom_contour(data = contours, 
+                 aes(PC1, PC2, z = z, color = stat(level)),
+                 size = 2, alpha = 0.35, inherit.aes = FALSE) +
+    #geom_point(size = 2) +
+    geom_text_repel(aes(PC1, PC2, label = Label), key_glyph = "rect") +
+    theme_light() +
+    scale_color_viridis_c(name = "Tongue length") +
+    xlab(paste("PC1 ", "(", pcoa_pref_pc1, "%", ")", sep = "")) +
+    ylab(paste("PC2 ", "(", pcoa_pref_pc2, "%", ")", sep = "")) +
+    coord_fixed() # Gavin Simpson says this is **really** important
+}
+
+## Plot
+surfplot(ordisurf_pref, pca_pref.fort)
+```
+
+
+# 2. Null model 2: bb.sp x ktype, by site
 ```{r}
 # Nest and join consumer and resource data frames
 con_nest <- prop_visits_ktype %>%
@@ -417,9 +371,7 @@ res_nest <- prop_visits_ktype %>%
 
 conres <- full_join(con_nest, res_nest)
 
-# Create a big beautiful table of data and models
-
-## RUN ON HPC!
+# Create a big beautiful table of data and models (run on HPC!)
 null2 <- conres %>%
 
   # Generate null models
@@ -431,168 +383,114 @@ null2 <- conres %>%
                       c.samples = x[, 1],
                       r.samples = y[, 1])))
 
-#write_rds(null2, "../output/nullmodel_ktype_sitewise.rds")
-write_rds(null2, "./null2.rds") # hpc
+# write_rds(null2, "../output/nullmodel_ktype_sitewise.rds")
+# write_rds(null2, "./null2.rds") # hpc
+null2 <- readRDS("../output/null2.rds")
 
+# Tabulate results (with test)
+null_tab2 <- null2 %>%
+  mutate(null.model.tab = map(null.model, function(x)
+    test_interactions(x, signif.level = 0.99) %>%
+      as_tibble() %>%
+      mutate(preference = Observed - Null,
+             preference.upper99 = Observed - Upper.99.CL,
+             preference.lower99 = Observed - Lower.99.CL) %>%
+      select(bb.sp = Consumer, ktype = Resource, everything()))) %>%
 
-# 
-#   # Tabulate results (with test)
-#   mutate(null.model.tab = map(null.model, function(x)
-#     test_interactions(x, signif.level = 0.99) %>%
-#       as_tibble() %>%
-#       mutate(preference = Observed - Null,
-#              preference.upper99 = Observed - Upper.99.CL,
-#              preference.lower99 = Observed - Lower.99.CL) %>%
-#       select(bb.sp = Consumer, ktype = Resource, everything()))) %>%
-# 
-#   # Unnest and add site data and bumble bee trait data
-#   unnest(null.model.tab) %>%
-#   left_join(site_data) %>%
-#   left_join(bb_traits) %>%
-#   filter(total.abund > 0) %>% # for each species, drop sites where the species did not occur
-#   unite(bb.ktype, c(bb.sp, ktype), remove = FALSE)
-# 
-# 
-# 
-# sitewise_null_models <- readRDS("../output/nullmodel_ktype_sitewise.rds") %>%
-#   mutate(ktype = factor(ktype),
-#          bb.sp = factor(bb.sp),
-#          bb.ktype = factor(bb.ktype))
+  # Unnest and add site data and bumble bee trait data
+  unnest(null.model.tab) %>%
+  select(site, bb.sp, ktype, Observed, Null, Lower.99.CL, Upper.99.CL, Test, 
+         SES, preference, preference.upper99, preference.lower99) %>%
+  left_join(site_data) %>%
+  left_join(bb_traits) %>%
+  group_by(site, bb.sp) %>%
+  mutate(total.observed = sum(Observed)) %>%
+  filter(total.observed > 0) %>% # for each species, drop sites where the species did not occur
+  unite(bb.ktype, c(bb.sp, ktype), remove = FALSE) %>%
+  mutate(ktype = factor(ktype),
+         bb.sp = factor(bb.sp),
+         bb.ktype = factor(bb.ktype)) %>%
+  left_join(date_presences) %>%
+  mutate(preference.std = preference/presences, # standardize preference
+         observed.std = Observed/presences, # standardize visitation
+         lower99.std = Lower.99.CL/presences, # standardize confidence intervals
+         upper.99.std = Upper.99.CL/presences) %>% 
+  mutate(bb.sp = factor(bb.sp, levels = c("jone", "pyre", "soro", "psit", # order by ascending tongue length
+                                          "telu", "lapi", "prat", "mont",
+                                          "wurf", "muci", "pasc", "hypn",
+                                          "mend", "hort", "gers")))
 ```
 
-## Visualize site model
+## 2.1 Lability of preference: Do BB species preferences for morphotypes vary with elevation?
+### 2.1.1 Preliminary visualization
 ```{r}
-ggplot(sitewise_null_models, aes(pbl.w, preference.std)) +
+ggplot(null_tab2, aes(elev.mean, preference.std)) +
   geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), color = "black") +
   scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
-  facet_wrap(~ktype) +
-  labs(x = "Tongue length (mm)", y = "Standardized preference", 
-       color = "Test (p < 0.01)") +
+  facet_grid(bb.sp ~ ktype, scales = "free") +
   theme_light()
 
-ggplot(sitewise_null_models, aes(pbl.w, SES)) +
+ggplot(null_tab2, aes(elev.mean, preference.std)) +
   geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), color = "black") +
   scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
-  facet_wrap(~ktype) +
-  labs(x = "Tongue length (mm)", y = "Standardized preference", 
+  facet_grid(ktype ~ bb.sp) +
+  theme_light()
+```
+### 2.1.2 Model
+```{r}
+gam2 <- bam(preference.std ~
+              s(bb.ktype, bs = "re") +
+              s(elev.mean, by = bb.ktype, k = 4),
+            method = "fREML",
+            discrete = TRUE,
+            select = TRUE,
+            data = null_tab2) %>% getViz()
+
+print(plot.gamViz(gam2, allTerms = TRUE), pages = 6)
+check.gamViz(gam2)
+summary(gam2)
+
+# Extract significant smooths
+gam2_sig_smooths <- tidy(gam2) %>%
+  filter(p.value < 0.05 & term != "s(bb.ktype)") %>%
+  mutate(bb.ktype = str_extract(term, ".{6}$")) %>%
+  select(bb.ktype)
+  
+# Extract predictions
+gam2_pred <- predict_gam(gam_bb.ktype) %>%
+  mutate(fit.plus.se = fit + (2*se.fit),
+         fit.minus.se = fit - (2*se.fit)) %>%
+  semi_join(gam2_sig_smooths) %>%
+  separate(bb.ktype, c("bb.sp", "ktype"))
+
+# Grab relevant subset of original data
+null_tab2_sub <- null_tab2 %>%
+  semi_join(gam2_sig_smooths)
+
+# Plot
+ggplot(gam2_pred, aes(elev.mean, fit)) +
+  geom_line() + # fit line
+  geom_point(data = null_tab2_sub, # Original data
+             aes(elev.mean, preference.std, color = Test),
+             inherit.aes = FALSE) +
+  geom_ribbon(aes(ymin = fit.minus.se, ymax = fit.plus.se), # Uncertainty
+              fill = "black", alpha = 0.2) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  facet_grid(bb.sp ~ ktype, scales = "free") +
+  labs(x = "Elevation (m.s.l.)", y = "Standardized preference",
        color = "Test (p < 0.01)") +
   theme_light()
-
-# ktype preference x bb.sp ~ elevation
-ggplot(sitewise_null_models, aes(elev.mean, preference.std, color = ktype)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
-  facet_wrap(~bb.sp)
-
-ggplot(filter(sitewise_null_models, ktype == 1), aes(elev.mean, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
-  facet_wrap(~bb.sp)
-
-ggplot(filter(sitewise_null_models, ktype == 2), aes(elev.mean, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
-  facet_wrap(~bb.sp)
-
-ggplot(filter(sitewise_null_models, ktype == 3), aes(elev.mean, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~bb.sp)
-
-ggplot(filter(sitewise_null_models, ktype == 4), aes(elev.mean, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~bb.sp)
-
-ggplot(filter(sitewise_null_models, ktype == 5), aes(elev.mean, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~bb.sp)
-
-ggplot(filter(sitewise_null_models, ktype == 6), aes(elev.mean, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~bb.sp)
-
-ggplot(filter(sitewise_null_models, ktype == 7), aes(elev.mean, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~bb.sp)
-
-gam_k7 <- gamV(preference.std ~
-                 s(bb.sp, bs = "re") +
-                 s(elev.mean, by = bb.sp, k = 5),
-    data = filter(sitewise_null_models, ktype == 7))
-
-gam_bb.ktype <- bam(preference.std ~
-                      s(bb.ktype, bs = "re") +
-                      s(elev.mean, by = bb.ktype, k = 4),
-                    method = "fREML",
-                    discrete = TRUE,
-                    data = sitewise_null_models) %>% getViz()
-
-print(plot.gamViz(gam_bb.ktype, allTerms = TRUE), pages = 6)
-check.gamViz(gam_bb.ktype)
-summary(gam_bb.ktype)
-
-# ktype ~ elevation
-ggplot(sitewise_null_models, aes(elev.mean, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~ktype)
-
-ggplot(sitewise_null_models, aes(elev.mean, preference.std, color = pbl.w.class2)) +
-  geom_point() +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~ktype)
-
-# ktype ~ tongue length x site
-ggplot(filter(sitewise_null_models, ktype == 1), aes(pbl.w, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~site)
-
-ggplot(filter(sitewise_null_models, ktype == 2), aes(pbl.w, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~site)
-
-ggplot(filter(sitewise_null_models, ktype == 3), aes(pbl.w, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~site)
-
-ggplot(filter(sitewise_null_models, ktype == 4), aes(pbl.w, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~site)
-
-ggplot(filter(sitewise_null_models, ktype == 5), aes(pbl.w, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~site)
-
-ggplot(filter(sitewise_null_models, ktype == 6), aes(pbl.w, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~site)
-
-ggplot(filter(sitewise_null_models, ktype == 7), aes(pbl.w, preference.std)) +
-  geom_point(aes(color = Test)) +
-  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
-  facet_wrap(~site)
 ```
 
-# Diet similarity vs. preference similarity
+## 2.2 Diet similarity vs. preference similarity
 ```{r}
-diet_similarity <- read_csv("../output/niche_overlap.csv") %>%
+# Bring in niche overlap data generate in a different script
+diet_sim_sitewise <- read_csv("../output/niche_overlap.csv") %>%
   select(site, bb.sp1, bb.sp2, diet.similarity = niche.overlap, level) 
-# %>%
-#   pivot_wider(values_from = niche.overlap, names_from = level) %>%
-#   rename(genus.overlap = genus, family.overlap = family, morphotype.overlap = morphotype)
 
+# Function for generating a tidy preference-difference data frame
 pref_proc <- function(x) {
   x %>%
     pivot_wider(names_from = ktype, values_from = preference.std) %>%
@@ -601,37 +499,112 @@ pref_proc <- function(x) {
     broom::tidy() %>%
     select(bb.sp1 = 1, bb.sp2 = 2, distance)
 }
-  
-preference_similarity_sitewise <- sitewise_null_models %>%
+
+# Preference similarity  
+pref_sim_sitewise <- null_tab2 %>%
   select(site, bb.sp, ktype, preference.std) %>%
   group_by(site) %>%
   nest() %>%
   mutate(pdif = map(data, pref_proc)) %>%
   unnest(pdif) %>%
   left_join(bb_traits, by = c("bb.sp1" = "bb.sp")) %>%
-  select(bb.sp1, bb.sp2, distance, pbl.w1 = pbl.w) %>%
+  select(site, bb.sp1, bb.sp2, distance, pbl.w1 = pbl.w) %>%
   left_join(bb_traits, by = c("bb.sp2" = "bb.sp")) %>%
-  select(bb.sp1, bb.sp2, distance, pbl.w1, pbl.w2 = pbl.w) %>%
+  select(site, bb.sp1, bb.sp2, distance, pbl.w1, pbl.w2 = pbl.w) %>%
   mutate(tongue.diff = abs(pbl.w1 - pbl.w2)) %>%
   ungroup() %>%
-  mutate(distance.std = distance/max(distance),
-         pref.similarity = 1-distance.std)
+  mutate(distance.std = distance/max(distance), # standardize relative to most distant pair
+         pref.similarity = 1-distance.std, # make positive (0,1)
+         pref.similarity2 = distance*(-1)) # alternatively
 
-diet_preference <- full_join(preference_similarity_sitewise, diet_similarity) %>%
+# Join diet and preference similarity
+diet_pref_sitewise <- full_join(pref_sim_sitewise, diet_sim_sitewise) %>%
+  left_join(site_data) %>%
+  unite(sp.pair, c(bb.sp1, bb.sp2), remove = FALSE) %>%
+  mutate(sp.pair = factor(sp.pair)) %>%
   filter(!is.na(pref.similarity)) # the data set that was used to generate the niche overlap data includes slightly more data than the one used to generate the preference data due to a filtering step during the alignment of visitation data to floral. Only 10 rows are missing, so the difference is trivial. We can just drop the resulting NAs. 
 
-ggplot(diet_preference, aes(pref.similarity, diet.similarity, color = level)) +
+# How well does preference similarity predict diet similarity (and the levels of morphotype, family, and genus)? 
+ggplot(diet_pref_sitewise, aes(pref.similarity, diet.similarity, color = level)) +
   geom_point(alpha = 0.25) +
-  geom_smooth(method = "lm") +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"))
+
+ggplot(diet_pref_sitewise, aes(pref.similarity, diet.similarity, color = level)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial")) +
   facet_wrap(~site)
+
+
+# How well does tongue length difference predict preference similarity?
+ggplot(diet_preference, aes(tongue.diff, pref.similarity)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"))
 
 ggplot(diet_preference, aes(tongue.diff, pref.similarity)) +
   geom_point(alpha = 0.25) +
-  geom_smooth(method = "lm") +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial")) +
   facet_wrap(~site)
+
+# How well does tongue length difference predict diet similarity?
+ggplot(diet_preference, aes(tongue.diff, diet.similarity, color = level)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"))
 
 ggplot(diet_preference, aes(tongue.diff, diet.similarity, color = level)) +
   geom_point(alpha = 0.25) +
-  geom_smooth(method = "lm") +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial")) +
   facet_wrap(~site)
+
+# Preference similarity by elevation
+ggplot(diet_pref_sitewise, aes(elev.mean, pref.similarity)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"))
+
+ggplot(diet_pref_sitewise, aes(elev.mean, pref.similarity)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+# Diet similarity by elevation
+ggplot(diet_pref_sitewise, aes(elev.mean, diet.similarity, color = level)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"))
+
+ggplot(diet_pref_sitewise, aes(elev.mean, diet.similarity, color = level)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))
+
+# Model
+gam3 <- bam(pref.similarity ~ 
+              s(sp.pair, bs = "re") +
+              s(elev.mean, k = 8),
+            family = betar(eps = 0.01),
+            method = "fREML",
+            discrete = TRUE,
+            select = TRUE,
+            data = diet_pref_sitewise) %>% getViz()
+
+check.gamViz(gam3)
+summary(gam3)
+plot.gamViz(gam3)
+
+gam4 <- bam(pref.similarity ~ 
+              #s(sp.pair, bs = "re") +
+              s(elev.mean,sp.pair, k = 5, bs = "fs"),
+            family = betar(eps = 0.01),
+            method = "fREML",
+            discrete = TRUE,
+            select = TRUE,
+            data = diet_pref_sitewise) %>% getViz()
+
+check.gamViz(gam4)
+summary(gam4)
+plot.gamViz(gam4)
 ```
