@@ -93,6 +93,56 @@ output: pdf_document
  13. `elev.class2` = alternative elevation binning
  14. `tree_line` = whether a site was above or below the tree line; only for sites included in analysis (hence NAs)
 
+ 
+## 4. `bb_traits.csv`
+
+### Description: Bumble bee trait data
+
+Clade and subgenus classifications are based on Williams et al (2008).
+
+Tongue length data are from Arbetman et al. (2017), Obeso (1992), and Durieux (2000) 
+
+### Columns:
+ 1. `clade` = bumble bee clade: LF = long faced, SH = short faced, M = Mendacibombus
+ 2. `subgenus` = bumble bee subgenus
+ 3. `bb.sp.lat` = full bumble bee species name
+ 4. `bb.sp` = abbreviated bumble bee species name
+ 5. `pbl.w` = worker tongue length based primarily on Arbetman et al. (2017) and supplemented where necessary from Durieux (2000) and Obeso (1992)
+ 6. `pbl.w.class` = discretized worker tongue length
+ 7. `pbl.w.class2` = simplified discretized worker tongue length
+ 8. `pbl.w.ref` = reference from which pbl.w was gathered
+ 9. `Notes` = notes on pbl.w
+ 10. `pbl.w.durieux` = alternative set of tongue length based primarily on Durieux (2000) and supplemented where necessary from Arbetman et al. (2017) and Obeso (1992)
+ 11. `notes_durieux` = notes on pbl.w.durieux
+ 
+ 
+## 5. `fl_traits.csv`
+
+### Description: Kugler's (1970) floral morphotype classification for floral species
+
+For a description of Kugler's morphotype codes, see `kugler_key.tsv`.
+
+Data were accessed in April 2020 via the Bioflor plant trait database (Klotz et al. 2002). Missing data were manually supplemented as descrtibed in `fl_trait_proc.R`.
+
+### Columns:
+ 1. `plant.sp` = plant species
+ 2. `plant.genus` = plant genus
+ 3. `plant.family` = plant family
+ 4. `k.type` = Kugler morphotype
+ 5. `k.type.s` = Kugler morphotype simplified to 1 decimal place
+ 6. `k.type.ss` = Kugler morphotype simplified to 0 decimal places
+ 
+
+## 6. `kugler_key.tsv`
+
+### Description: A verbal description of Kugler's (1970) floral morphotype classification
+
+Data were accessed in April 2020 via the Bioflor plant trait database (Klotz et al. 2002).
+
+### Columns:
+ 1. `code` = Morphotype code
+ 2. `description` = Morphotype description
+ 
 
 # CODE FILES
 
@@ -104,5 +154,20 @@ output: pdf_document
 
 ### Description: R script for running beta-diversity analyses.
 
+## 2. `fl_trait_proc.R`
 
+### Description: R script for processing raw BIOFLOR trait data and adding traits for missing species.
 
+# References
+
+Williams PH, Cameron SA, Hines HM, Cederberg B, Rasmont P. 2018. A simplified subgeneric classification of the bumblebees (genus Bombus). Apidologie, 39, pp. 46-74
+
+Arbetman MP, Gleiser G,Morales CL, Williams P, Aizen MA. 2017 Global decline of bumblebees is phylogenetically structured and inversely related to species range size and pathogen incidence. Proc. R. Soc. B 284: 20170204.
+
+Obeso JR. 1992. Geographic distributions and community structure of Bumblebees in Northern Iberian Peninsula. Oecologia, 89, 244–252.
+
+Durieux E-A. 2000. Etude des choix floraux des bourdons (Hymenoptera, Apidae) de la commune d’eyne (france, Pyrénées-Orientales). PhD thesis, Université de Mons-Hainaut.
+
+Kugler, H. 1970. Blütenökologie. Gustav Fischer, Stuttgart.
+
+Klotz, S, Kühn I, Durka W. 2002. BIOLFLOR - eine datenbank zu biologisch-ökologischen merkmalen der gefäßpflanzen in deutschland. https://www.ufz.de/index.php?en=38567

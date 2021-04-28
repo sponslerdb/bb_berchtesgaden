@@ -608,3 +608,232 @@ check.gamViz(gam4)
 summary(gam4)
 plot.gamViz(gam4)
 ```
+
+# 3. Null model 3: bb.sp x ktype, by site-date
+```{r}
+# Nest and join consumer and resource data frames
+
+# For HPC
+library(tidyverse)
+library(econullnetr)
+prop+visits_ktype <- read_csv("./prop_visits_ktype.csv")
+
+con_nest2 <- prop_visits_ktype %>%
+  select(site, date, bb.sp, ktype, prop.visits) %>%
+  pivot_wider(values_from = prop.visits, names_from = ktype, values_fill = 0) %>%
+  select(-c("0", "10", "9")) %>%
+  group_by(site, date) %>%
+  nest() %>%
+  rename(bees = data)
+
+res_nest2 <- prop_visits_ktype %>%
+  select(site, date, ktype, perc.flower.cover) %>%
+  distinct() %>%
+  pivot_wider(values_from = perc.flower.cover, names_from = ktype, values_fill = 0) %>%
+  select(-c("0", "10", "9")) %>%
+  group_by(site, date) %>%
+  nest() %>%
+  rename(plants = data)
+
+conres2 <- full_join(con_nest2, res_nest2)
+
+# Create a big beautiful table of data and models (run on HPC!)
+# This will probably take 8 hours to run
+null3 <- conres2 %>%
+
+  # Generate null models
+  mutate(null.model = map2(bees, plants, function(x, y)
+    generate_null_net(consumers = x[, 1:8],
+                      resources = y[, 1:7],
+                      sims = 1000, # raised from default of 100
+                      data.type = "quantities",
+                      prog.count = TRUE)))
+write_rds(null3, "./null3.rds") # hpc
+null3 <- readRDS("../output/null3.rds")
+
+# Tabulate results (with test)
+null_tab3 <- null3 %>%
+  mutate(null.model.tab = map(null.model, function(x)
+    test_interactions(x, signif.level = 0.99) %>%
+      as_tibble() %>%
+      mutate(preference = Observed - Null,
+             preference.upper99 = Observed - Upper.99.CL,
+             preference.lower99 = Observed - Lower.99.CL) %>%
+      select(bb.sp = Consumer, ktype = Resource, everything()))) %>%
+
+  # Unnest and add site data and bumble bee trait data
+  unnest(null.model.tab) %>%
+  select(site, date, bb.sp, ktype, Observed, Null, Lower.99.CL, Upper.99.CL, Test, 
+         SES, preference, preference.upper99, preference.lower99) %>%
+  left_join(site_data) %>%
+  left_join(bb_traits) %>%
+  group_by(site, date, bb.sp) %>%
+  mutate(total.observed = sum(Observed)) %>%
+  filter(total.observed > 0) %>% # for each species, drop sites where the species did not occur
+  filter(Observed != 0 | Null != 0) %>% # when both equal zero, it's probably because the ktype had zero abundance; in any case, it's meaningless to retain these, and they just cause zero-inflation
+  ungroup() %>%
+  unite(bb.ktype, c(bb.sp, ktype), remove = FALSE) %>%
+  mutate(ktype = factor(ktype),
+         site = factor(site),
+         yday = yday(date),
+         year = factor(year(date)),
+         bb.ktype = factor(bb.ktype),
+         bb.sp = factor(bb.sp, levels = c("jone", "pyre", "soro", "psit", # order by ascending tongue length
+                                          "telu", "lapi", "prat", "mont",
+                                          "wurf", "muci", "pasc", "hypn",
+                                          "mend", "hort", "gers")))
+
+gam3 <- bam(preference ~
+              bb.ktype +
+              s(site, by = bb.ktype, bs = "re") +
+              s(year, by = bb.ktype, bs = "re") +
+              te(yday, elev.mean, by = bb.ktype),
+            family = "gaussian",
+            method = "fREML",
+            discrete = TRUE,
+            data = filter(null_tab3, 
+                          bb.sp %in% c("pasc", "prat", "telu", 
+                                       "wurf", "soro", "hort") &
+                            ktype %in% c("3", "5", "6", "7"))) %>% 
+              getViz()
+
+check.gamViz(gam3)
+gam3_sum <- summary(gam3)
+plot.gamViz(gam3, allTerms = TRUE)
+
+hort_3 <- plot(sm(gam3, 49)) + 
+  labs(y = NULL, x = NULL) + 
+  theme(legend.position = "top") + 
+  theme_void(20)
+  
+hort_5 <- plot(sm(gam3, 50)) + labs(y = NULL, x = NULL) + theme_void(20)
+hort_6 <- plot(sm(gam3, 51)) + labs(y = NULL, x = NULL) + theme_void(20)
+hort_7 <- plot(sm(gam3, 52)) + labs(y = NULL, x = NULL) + theme_void(20)
+
+pasc_3 <- plot(sm(gam3, 53)) + labs(y = NULL, x = NULL) + theme_void(20)
+pasc_5 <- plot(sm(gam3, 54)) + labs(y = NULL, x = NULL) + theme_void(20)
+pasc_6 <- plot(sm(gam3, 55)) + labs(y = NULL, x = NULL) + theme_void(20)
+pasc_7 <- plot(sm(gam3, 56)) + labs(y = NULL, x = NULL) + theme_void(20)
+
+prat_3 <- plot(sm(gam3, 57)) + labs(y = NULL, x = NULL) + theme_void(20)
+prat_5 <- plot(sm(gam3, 58)) + labs(y = NULL, x = NULL) + theme_void(20)
+prat_6 <- plot(sm(gam3, 59)) + labs(y = NULL, x = NULL) + theme_void(20)
+prat_7 <- plot(sm(gam3, 60)) + labs(y = NULL, x = NULL) + theme_void(20)
+
+soro_3 <- plot(sm(gam3, 61)) + labs(y = NULL, x = NULL) + theme_void(20)
+soro_5 <- plot(sm(gam3, 62)) + labs(y = NULL, x = NULL) + theme_void(20)
+soro_6 <- plot(sm(gam3, 63)) + labs(y = NULL, x = NULL) + theme_void(20)
+soro_7 <- plot(sm(gam3, 64)) + labs(y = NULL, x = NULL) + theme_void(20)
+
+telu_3 <- plot(sm(gam3, 65)) + labs(y = NULL, x = NULL) + theme_void(20)
+telu_5 <- plot(sm(gam3, 66)) + labs(y = NULL, x = NULL) + theme_void(20)
+telu_6 <- plot(sm(gam3, 67)) + labs(y = NULL, x = NULL) + theme_void(20)
+telu_7 <- plot(sm(gam3, 68)) + labs(y = NULL, x = NULL) + theme_void(20)
+
+wurf_3 <- plot(sm(gam3, 69)) + labs(y = NULL, x = NULL) + theme_void(20)
+wurf_5 <- plot(sm(gam3, 70)) + labs(y = NULL, x = NULL) + theme_void(20)
+wurf_6 <- plot(sm(gam3, 71)) + labs(y = NULL, x = NULL) + theme_void(20)
+wurf_7 <- plot(sm(gam3, 72)) + labs(y = NULL, x = NULL) + theme_void(20)
+
+
+pdf("../output/gam3_figures/hort_3.pdf") 
+hort_3 
+dev.off()
+
+pdf("../output/gam3_figures/hort_5.pdf") 
+hort_5 
+dev.off()
+
+pdf("../output/gam3_figures/hort_6.pdf") 
+hort_6 
+dev.off()
+
+pdf("../output/gam3_figures/hort_7.pdf") 
+hort_7 
+dev.off()
+
+
+pdf("../output/gam3_figures/pasc_3.pdf") 
+pasc_3 
+dev.off()
+
+pdf("../output/gam3_figures/pasc_5.pdf") 
+pasc_5 
+dev.off()
+
+pdf("../output/gam3_figures/pasc_6.pdf") 
+pasc_6 
+dev.off()
+
+pdf("../output/gam3_figures/pasc_7.pdf") 
+pasc_7 
+dev.off()
+
+
+pdf("../output/gam3_figures/prat_3.pdf") 
+prat_3 
+dev.off()
+
+pdf("../output/gam3_figures/prat_5.pdf") 
+prat_5 
+dev.off()
+
+pdf("../output/gam3_figures/prat_6.pdf") 
+prat_6 
+dev.off()
+
+pdf("../output/gam3_figures/prat_7.pdf") 
+prat_7 
+dev.off()
+
+
+pdf("../output/gam3_figures/soro_3.pdf") 
+soro_3 
+dev.off()
+
+pdf("../output/gam3_figures/soro_5.pdf") 
+soro_5 
+dev.off()
+
+pdf("../output/gam3_figures/soro_6.pdf") 
+soro_6 
+dev.off()
+
+pdf("../output/gam3_figures/soro_7.pdf") 
+soro_7 
+dev.off()
+
+
+pdf("../output/gam3_figures/telu_3.pdf") 
+telu_3 
+dev.off()
+
+pdf("../output/gam3_figures/telu_5.pdf") 
+telu_5 
+dev.off()
+
+pdf("../output/gam3_figures/telu_6.pdf") 
+telu_6 
+dev.off()
+
+pdf("../output/gam3_figures/telu_7.pdf") 
+telu_7 
+dev.off()
+
+
+pdf("../output/gam3_figures/wurf_3.pdf") 
+wurf_3 
+dev.off()
+
+pdf("../output/gam3_figures/wurf_5.pdf") 
+wurf_5 
+dev.off()
+
+pdf("../output/gam3_figures/wurf_6.pdf") 
+wurf_6 
+dev.off()
+
+pdf("../output/gam3_figures/wurf_7.pdf") 
+wurf_7 
+dev.off()
+```
