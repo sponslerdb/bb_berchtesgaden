@@ -37,9 +37,8 @@ fl_ktype_key <- read_delim("../data/processed_data/kugler_key.tsv", delim = "\t"
 fl_traits <- fl_tax %>%
   full_join(fl_ktype) %>%
   dplyr::select(plant.sp, plant.genus, plant.family, k.type, k.type.s, k.type.ss) 
-
-write_csv(fl_traits, "../data/processed_data/fl_traits.csv")
 ```
+
 
 ## Align survey and visitation data with pseudodates
 ```{r}
@@ -77,9 +76,6 @@ pseudodates <- full_join(visitation_only, survey_samples) %>%
 visitation <- read_csv("../data/processed_data/network.csv") %>%
   filter(caste != "male") %>% # we will ignore males 
   filter(!bb.sp %in% c("humi")) %>% # humi too rare
-  group_by(site, date, bb.sp, plant.sp) %>%
-  summarize(visits = n()) %>% # visits per BB-FL pair
-  ungroup() %>%
   left_join(pseudodates) %>% # Now we will replace unmatched dates with their pseudo dates
   replace_na(replace = list(mismatch = 0)) %>% # set mismatch to zero for perfectly aligned dates
   filter(mismatch <= 7) %>% # this gets rid of irreconcilable dates (like the t4 dates mentioned above)
@@ -87,127 +83,69 @@ visitation <- read_csv("../data/processed_data/network.csv") %>%
   select(-c(date, pseudo.date, mismatch)) %>%
   rename(date = date2) %>%
   group_by(site, date) %>%
-  complete(bb.sp, plant.sp, fill = list(visits = 0)) # generate all possible BB-FL combos for each site date and fill in zeros for visits
+  mutate(visited = rep(1, n())) %>% # binary visitation
+  select(site, date, bb.sp, plant.sp, visited) %>%
+  left_join(fl_traits) %>%
+  select(site, date, bb.sp, plant.sp, visited, plant.genus, plant.family, ktype = k.type.ss) %>%
+  unite(sample.id, site, date) %>%
+  mutate(sample.id = factor(sample.id),
+         bb.sp = factor(bb.sp), 
+         ktype = factor(ktype),
+         visited = as.integer(visited))
 
-write_csv(visitation, "../data/processed_data/visitation.csv")
+# abundance <- visitation %>%
+#   group_by(site, date, bb.sp) %>%
+#   summarize(abundance = sum(visited))
 
-# Floral cover data
-flower_cover <- read_csv("../data/processed_data/floral_survey.csv") %>%
+# Floral cover data by ktype
+flower_cover_ktype <- read_csv("../data/processed_data/floral_survey.csv") %>%
   filter(flower.cover > 0) %>% # ignore plants that were not blooming
-  group_by(site, date, plant.sp) %>%
-  summarize(flower.cover = sum(flower.cover))
+  left_join(fl_traits) %>% # add traits
+  group_by(site, date, k.type.ss) %>% # sum cover by ktype
+  summarize(cover = sum(flower.cover)) %>%
+  complete(site, date, k.type.ss, fill = list(cover = 0)) %>% # fill in zeros for absent ktypes
+  select(site, date, ktype = k.type.ss, cover) %>%
+  unite(sample.id, site, date) %>%
+  mutate(sample.id = factor(sample.id),
+         ktype = factor(ktype)) %>%
+  semi_join(visitation, by = "sample.id")
+# 
+# # Join cover data to visitation data
+# visit_cover_ktype <- visitation %>%
+#   left_join(flower_cover_ktype)  %>%
+#   replace_na(replace = list(cover = 0.01)) %>% # If a ktype was visited but not surveyed, we will assign it the minimum non-zero flower cover value of 0.01.
+#   mutate(individual.id = row_number()) %>%
+#   mutate(ktype = case_when(
+#     ktype == 0 ~ "null",
+#     ktype == 1 ~ "disc",
+#     ktype == 2 ~ "funnel",
+#     ktype == 3 ~ "bell",
+#     ktype == 4 ~ "stalkdisc",
+#     ktype == 5 ~ "lip",
+#     ktype == 6 ~ "flag",
+#     ktype == 7 ~ "head",
+#     ktype == 9 ~ "brush"
+#   )) %>%
+#   unite(sample.id, c(site, date)) %>%
+#   mutate(ktype = factor(ktype, levels = c("null", "disc", "funnel", 
+#                                           "bell", "stalkdisc", "lip", 
+#                                           "flag", "head", "brush")),
+#          sample.id = factor(sample.id),
+#          bb.sp = factor(bb.sp),
+#          visited = as.integer(visited)) 
 
-# Get shared dates after adding pseudodates. This will let us filter out survey dates that don't
-# have corresponding visitation sampling dates
-shared_dates_with_pseudo <- inner_join(visitation, flower_cover, by = c("site", "date")) %>%
-  select(site, date) %>%
-  distinct()
-
-# Join visitation and flower cover data
-
-## First we need a list of all BB spp. by site and date
-sp_by_site <- visitation %>% 
-  ungroup() %>%
-  select(site, date, bb.sp) %>%
-  distinct()
-
-## Then we need a list of unvisited plant.sp by site and date
-unvisited <- flower_cover %>% 
-  semi_join(shared_dates_with_pseudo) %>% # filter flower cover data to include only site-dates with visitation complement (real or pseudodates)
-  full_join(visitation) %>% # join to visitation data
-  filter(is.na(bb.sp)) %>% # select only the site-date-plants that were totally unvisited (and therefore have no BB spp to join to)
-  select(-bb.sp) %>% # drop bb.sp variable because I just want the plants
-  left_join(sp_by_site) %>% # join in the species list by site and date, thus populating the unvisited plants with all the BB spp recorded for each site-date
-  replace_na(replace = list(visits = 0)) # replace NAs (created in the line above) with zero
-
-## Now we can combine everything into a single data frame
-visit_cover <- flower_cover %>% 
-  semi_join(shared_dates_with_pseudo) %>% # filter flower cover data to include only site-dates with visitation complement (real or pseudodates)
-  full_join(visitation) %>% # join to visitation data
-  replace_na(replace = list(flower.cover = 0.01)) %>% # If a plant was visited but not surveyed, we will assign it the minimum non-zero flower cover value of 0.01.
-  filter(!is.na(bb.sp)) %>% # drop the univisited plants
-  bind_rows(unvisited) %>% # add them back, with BB spp and zeros
-  select(site, date, bb.sp, plant.sp, visits, flower.cover) %>%
-  group_by(site, date, bb.sp, plant.sp, flower.cover) %>% # In a few cases, the use of pseudodates causes two sampling period to converge on the same date, which creates apparent duplicate visitation data. We will handle this by averaging the visits.
-  summarize(visits = mean(visits)) %>%
-  left_join(fl_traits) %>% # add floral traits
-  ungroup() %>%
-  mutate(k.type.ss = factor(k.type.ss))
-
-write_csv(visit_cover, "../data/processed_data/visit_cover.csv")
-
-## Get total visits by BB sp and site-date; this will be a measure of BB abundance that we can use after we've calculated d'. I could, of course, work this into the biaseval function, but I'll put that off for now.
-bb_abundance <- visit_cover %>%
-  group_by(site, date, bb.sp) %>%
-  summarize(bb.sp.abund = sum(visits)) %>%
-  group_by(site, date) %>%
-  mutate(bb.sp.prop.abund = bb.sp.abund/sum(bb.sp.abund))
-
-fl_abundance <- visit_cover %>%
-  group_by(site, date) %>%
-  summarize(total.flower.cover = sum(flower.cover))
+# abundance2 <- visit_cover_ktype %>%
+#   group_by(site, date, bb.sp) %>%
+#   summarize(abundance = sum(visited))
 ```
 
-# 1. Overall bias 
 
-## 1.1 Calculate visitation probability per plant morphotype. Instead of keeping the plant species resolved, we will pool visitation by morphotype. The problem with not pooling by morphotype is that more species-rich morphotypes will be penalized simply because their visitation is diluted across more species.
 ```{r}
-prop_visits_ktype <- visit_cover %>%
-  group_by(site, date, bb.sp, k.type.ss) %>%
-  summarize(flower.cover = sum(flower.cover), # get raw flower cover and visits by site*date*bb.sp*plant.sp
-            visits = sum(visits)) %>%
-  group_by(site, date) %>%
-  mutate(prop.flower.cover = flower.cover/sum(flower.cover))%>% # binary visits
-  group_by(site, date, bb.sp) %>%
-  mutate(prop.visits = visits/sum(visits),
-         bb.sp.abund = sum(visits)) %>% # abundance of each BB sp. per site-date
-  ungroup() %>%
-  left_join(bb_traits) %>% # add BB traits
-  mutate(ktype = factor(k.type.ss), # recode variables
-         tongue = factor(pbl.w.class2),
-         visits = as.integer(visits)) %>% # so we can run a Poisson model
-  left_join(site_data) %>% # add site data
-  ungroup() %>%
-  mutate(yday = yday(date),
-         elev.mean0 = scale(elev.mean),
-         yday0 = scale(yday),
-         prop.flower.cover0 = scale(prop.flower.cover),
-         perc.flower.cover = prop.flower.cover*100,
-         bb.sp.abund0 = scale(bb.sp.abund)) %>%
-  select(site, elev.mean, date, yday, bb.sp, ktype, visits, 
-         prop.visits, flower.cover, perc.flower.cover, bb.sp.abund, tongue,
-         elev.mean0, yday0, prop.flower.cover0, bb.sp.abund0) %>%
-  mutate(visits.bin = if_else(visits > 0, 1, 0))
-
-write_csv(prop_visits_ktype, "../data/processed_data/prop_visits_ktype.csv")
-
-prop_visits_ktype_pooled <- visit_cover %>%
-  group_by(site, date, k.type.ss) %>%
-  summarize(flower.cover = sum(flower.cover), # get raw flower cover and visits by site*date*bb.sp*plant.sp
-            visits = sum(visits)) %>%
-  group_by(site, date) %>%
-  mutate(prop.flower.cover = flower.cover/sum(flower.cover),
-         prop.visits = visits/sum(visits),
-         bb.abund = sum(visits),
-         visits = as.integer(visits)) %>%
-  mutate(ktype = factor(k.type.ss)) %>%
-  left_join(site_data) %>% # add site data
-  ungroup() %>%
-  mutate(yday = yday(date),
-         elev.mean0 = scale(elev.mean),
-         yday0 = scale(yday),
-         perc.flower.cover = prop.flower.cover*100,
-         prop.flower.cover0 = scale(prop.flower.cover),
-         bb.abund0 = scale(bb.abund)) %>%
-  select(site, elev.mean, date, yday, ktype, visits, 
-         prop.visits, bb.abund, perc.flower.cover,
-         elev.mean0, yday0, prop.flower.cover0, bb.abund0) %>%
-  mutate(visits.bin = if_else(visits > 0, 1, 0),
-         year = factor(year(date)))
-
-write_csv(prop_visits_ktype_pooled, "../data/processed_data/prop_visits_ktype_pool.csv")
+saveRDS(fl_traits, "../data/processed_data/fl_traits.rds")
+saveRDS(visitation, "../data/processed_data/visitation.rds")
+saveRDS(flower_cover_ktype, "../data/processed_data/flower_cover_ktype.rds")
+#saveRDS(visit_cover_ktype, "../data/processed_data/visit_cover_ktype.rds")
 ```
-
 
 
 

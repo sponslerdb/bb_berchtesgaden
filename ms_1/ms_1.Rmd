@@ -59,10 +59,10 @@ opts_chunk$set(echo = FALSE, warning = TRUE, message = TRUE)
 opts_chunk$set(tidy = TRUE, comment = NA, highlight = TRUE)
 
 ## Cache
-# opts_chunk$set(cache = 2, cache.path = "output/cache/")
+# opts_chunk$set(cache = 2, cache.path = "ms_2/figures/cache/")
 
 ## Plots
-opts_chunk$set(fig.path = "../output/")
+opts_chunk$set(fig.path = "../ms_2/figures/")
 
 ```
 
@@ -193,7 +193,7 @@ We thank the National Park Berchtesgaden for their support and the permission to
 **Figure 1**
 
 ```{r fig1, echo = FALSE}
-knitr::include_graphics("../output/sites_GE.png")
+knitr::include_graphics("../ms_1/figures/sites_GE.png")
 ```
 
 \newpage
@@ -201,7 +201,7 @@ knitr::include_graphics("../output/sites_GE.png")
 **Figure 2**
 
 ```{r fig2, echo = FALSE}
-knitr::include_graphics("../output/gam_abund_grid_mod.png")
+knitr::include_graphics("../ms_1/figures/gam_abund_grid_mod.png")
 ```
 
 \newpage
@@ -209,7 +209,7 @@ knitr::include_graphics("../output/gam_abund_grid_mod.png")
 **Figure 3**
 
 ```{r fig3, echo = FALSE}
-knitr::include_graphics("../output/beta_stack.png")
+knitr::include_graphics("../ms_1/figures/beta_stack.png")
 ```
 
 \newpage
@@ -217,7 +217,7 @@ knitr::include_graphics("../output/beta_stack.png")
 **Figure4**
 
 ```{r fig4, echo = FALSE}
-knitr::include_graphics("../output/gdm_combo.png")
+knitr::include_graphics("../ms_1/figures/gdm_combo.png")
 ```
 
 \newpage

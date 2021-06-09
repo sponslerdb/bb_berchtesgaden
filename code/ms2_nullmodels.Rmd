@@ -1,0 +1,2154 @@
+---
+title: "visitation_bias"
+author: "Doug Sponsler"
+date: "12/14/2020"
+output: html_document
+---
+
+# Preparations
+
+## Packages 
+```{r, warning=FALSE, include=FALSE, echo = FALSE}
+library(econullnetr)
+library(patchwork)
+library(mgcv)
+library(mgcViz)
+library(tidymv)
+library(tidytext)
+library(tidyverse)
+library(lubridate)
+library(broom)
+library(vegan)
+library(ggvegan)
+library(ggrepel)
+
+Sys.setlocale(locale = "en_US.UTF-8")
+```
+
+## Load data
+```{r message=FALSE, warning=FALSE, include=FALSE, echo = FALSE}
+#visit_cover_ktype <- readRDS("../data/processed_data/visit_cover_ktype.rds")
+
+visitation <- readRDS("../data/processed_data/visitation.rds")
+
+survey <- read_csv("../data/processed_data/floral_survey.csv")
+
+flower_cover_ktype <- readRDS("../data/processed_data/flower_cover_ktype.rds") 
+
+bb_traits <- read_csv("../data/processed_data/bb_traits.csv") %>%
+  select(bb.sp, pbl.w, tongue = pbl.w.class2)
+
+site_data <- read_csv("../data/processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean, elev.class, elev.class2)) %>% 
+  mutate(site = factor(site),
+         tree_line = factor(tree_line))
+
+fl_traits <- readRDS("../data/processed_data/fl_traits.rds")
+
+# For setting up the HPC
+# 
+# bb_traits <- read_csv("./bb_traits.csv") %>%
+#   select(bb.sp, pbl.w, tongue = pbl.w.class2)
+# 
+# site_data <- read_csv("./site_data.csv") %>%
+#   dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean, elev.class, elev.class2)) %>%
+#   mutate(site = factor(site),
+#          tree_line = factor(tree_line))
+```
+
+
+# 1. Introducing Kugler's morphotypes
+
+## 1.1 Summarize visitation at genus level
+```{r}
+morphotypes <- visitation %>%
+  group_by(plant.genus, ktype) %>%
+  mutate(visits = sum(visited)) %>%
+  mutate(ktype = case_when(
+    ktype == 0 ~ "null (0)",
+    ktype == 1 ~ "disc (1)",
+    ktype == 2 ~ "funnel (2)",
+    ktype == 3 ~ "bell (3)",
+    ktype == 4 ~ "stalk-disc (4)",
+    ktype == 5 ~ "lip (5)",
+    ktype == 6 ~ "flag (6)",
+    ktype == 7 ~ "head (7)",
+    ktype == 9 ~ "brush (9)"
+  )) %>%
+  mutate(ktype = factor(ktype, levels = c("null (0)", "disc (1)", "funnel (2)", 
+                                          "bell (3)", "stalk-disc (4)", "lip (5)", 
+                                          "flag (6)", "head (7)", "brush (9)"))) %>%
+  ungroup() %>%
+  mutate(plant.genus = reorder_within(plant.genus, -visits, ktype))
+
+ggplot(morphotypes, aes(plant.genus)) +
+  geom_bar() +
+  facet_wrap(~ktype, scales = "free") +
+  labs(y = "Visits", x = "Genus") +
+  theme_light(14) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.25, size = 7),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  scale_x_reordered()
+
+ggsave("../ms_2/figures/morphotype_genera.pdf", height = 8, width = 9)
+```
+
+## 
+1.2 Summarize visitation at family level
+```{r}
+morphotypes_fam <- visitation %>%
+  group_by(plant.family, ktype) %>%
+  mutate(visits = sum(visited)) %>%
+  mutate(ktype = case_when(
+    ktype == 0 ~ "null (0)",
+    ktype == 1 ~ "disc (1)",
+    ktype == 2 ~ "funnel (2)",
+    ktype == 3 ~ "bell (3)",
+    ktype == 4 ~ "stalk-disc (4)",
+    ktype == 5 ~ "lip (5)",
+    ktype == 6 ~ "flag (6)",
+    ktype == 7 ~ "head (7)",
+    ktype == 9 ~ "brush (9)"
+  )) %>%
+  mutate(ktype = factor(ktype, levels = c("null (0)", "disc (1)", "funnel (2)", 
+                                          "bell (3)", "stalk-disc (4)", "lip (5)", 
+                                          "flag (6)", "head (7)", "brush (9)"))) %>%
+  ungroup() %>%
+  mutate(plant.family = reorder_within(plant.family, -visits, ktype))
+
+ggplot(morphotypes_fam, aes(plant.family)) +
+  geom_bar() +
+  facet_wrap(~ktype, scales = "free") +
+  labs(y = "Visits", x = "Plant family") +
+  theme_light(14) +
+  theme(axis.text.x = element_text(angle = 45, 
+                                   hjust = 1, 
+                                   vjust = 1, 
+                                   size = 10),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  scale_x_reordered()
+
+ggsave("../ms_2/figures/morphotype_families.pdf", height = 9, width = 9)
+
+```
+
+
+# 2. Null model 1: bb.sp x ktype, fully pooled
+```{r}
+# The "consumers" table input to generate_null_net()
+con <- visitation %>%
+  #filter(visited == 1) %>%
+  mutate(individual.id = row_number()) %>%
+  select(sample.id, individual.id, bb.sp, ktype, visited) %>%
+  group_by(sample.id) %>%
+  arrange(ktype) %>%
+  pivot_wider(values_from = visited, names_from = ktype, values_fill = 0) %>%
+  arrange(sample.id) %>%
+  ungroup() %>%
+  as.data.frame()
+
+# The "resources" table input to generate_null_net()
+res <- flower_cover_ktype %>%
+  select(sample.id, ktype, cover) %>%
+  group_by(sample.id) %>%
+  arrange(ktype) %>%
+  distinct() %>%
+  pivot_wider(values_from = cover, names_from = ktype, values_fill = 0) %>%
+  arrange(sample.id) %>%
+  ungroup() %>%
+  droplevels() %>%
+  as.data.frame()
+
+# Generate null model
+null1 <- generate_null_net(consumers = con[, 3:12],
+                           resources = res[, 2:10],
+                           sims = 500, # raised from default of 100 (takes a while to run)
+                           data.type = "names",
+                           # c.samples = con$sample.id, # parsed by sample
+                           # r.samples = res$sample.id,
+                           c.samples = con[,1], # parsed by sample
+                           r.samples = res[,1],
+                           summary.type = "mean") # summarizing with the mean instead of the default sum standardizes across our bumble bee species that vary in total abundance,
+
+saveRDS(null1, file = "../output/null1.rds")
+null1 <- readRDS("../output/null1.rds")
+
+# Tabulate output and generate tests
+null_tab1 <- test_interactions(null1, signif.level = 0.99) %>% # make it a bit more conservative to account for multiple comparisons
+  as_tibble() %>%
+  select(bb.sp = Consumer, ktype = Resource, everything()) %>%
+  group_by(bb.sp) %>%
+  mutate(preference = Observed - Null, # a working definition of preference
+         preference.upper99 = Observed - Upper.99.CL, 
+         preference.lower99 = Observed - Lower.99.CL) %>%
+  left_join(bb_traits) %>%
+  ungroup() %>%
+  mutate(bb.sp = fct_reorder(factor(bb.sp), pbl.w)) %>%
+  mutate(ktype = case_when(
+    ktype == 0 ~ "null",
+    ktype == 1 ~ "disc",
+    ktype == 2 ~ "funnel",
+    ktype == 3 ~ "bell",
+    ktype == 4 ~ "stalk-disc",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head",
+    ktype == 9 ~ "brush"
+  )) %>%
+  mutate(ktype = factor(ktype, levels = c("null", "disc", "funnel", 
+                                          "bell", "stalk-disc", "lip", 
+                                          "flag", "head", "brush"))) %>%
+  filter(!ktype %in% c("null", "brush")) %>% # type 0 were not reliably quantified (and rarely visited) and type 9 was vanishingly rare
+  droplevels()
+```
+
+## 2.1 Observed vs. null predictions
+```{r}
+# Species-wise
+ggplot(null_tab1, aes(Observed, ktype)) +
+  geom_segment(aes(y = ktype, yend = ktype, 
+                   x = Lower.99.CL, xend = Upper.99.CL), 
+               color = "gray40", inherit.aes = FALSE) +
+  geom_point(aes(color = Test)) +
+  facet_wrap(~fct_rev(bb.sp)) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  labs(x = "Mean proportional visitation", y = "Floral morphotype", color = "Test (p < 0.01)") +
+  theme_light()
+
+ggsave("../ms_2/figures/null_model_spwise_preference.pdf", height = 6, width = 7)
+ggsave("../ms_2/figures/null_model_spwise_preference.png", height = 6, width = 7)
+
+## Morphotype-wise
+ggplot(null_tab1, aes(Observed, bb.sp)) +
+  geom_segment(aes(y = bb.sp, yend = bb.sp, 
+                   x = Lower.99.CL, xend = Upper.99.CL), 
+               color = "gray40", inherit.aes = FALSE) +
+  geom_point(aes(color = Test)) +
+  facet_wrap(~ktype, ncol = 4) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  labs(x = "Mean proportional visitation", y = "Bumble bee species", color = "Test (p < 0.01)") +
+  theme_light()
+
+ggsave("../ms_2/figures/null_model_ktypewise_preference.pdf", height = 5, width = 7)
+ggsave("../ms_2/figures/null_model_ktypewise_preference.png", height = 5, width = 7)
+```
+
+## 2.2 Overall bias by morphotype
+```{r}
+ggplot(null_tab1, aes(ktype, preference)) +
+  #geom_violin(fill = "gray70", color = "white", draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
+  geom_jitter(aes(color = Test), width = 0.3, alpha = 0.6) +
+  theme_light(14) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  labs(x = "Floral morphotype",
+       y = "Bias")
+
+ggsave("../ms_2/figures/null_model_ktype_preference.pdf", height = 6, width = 7)
+ggsave("../ms_2/figures/null_model_ktype_preference.png", height = 6, width = 7)
+```
+
+## 2.3 Bias by morphotype ~ tongue length
+### 2.3.1 Preliminary visualization
+```{r}
+# Standardized preference ~ morphotype * tongue length
+ggplot(null_tab1, aes(pbl.w, preference)) +
+  geom_point(aes(color = Test)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4)) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  facet_wrap(~ktype) +
+  labs(x = "Tongue length (mm)", y = "Preference", 
+       color = "Test (p < 0.01)") +
+  theme_light()
+```
+
+### 2.3.2 Model
+```{r}
+gam1 <- gam(preference ~ 
+              ktype + 
+              s(pbl.w, by = ktype, k = 5), 
+            data = null_tab1) %>% getViz()
+
+summary(gam1)
+check.gamViz(gam1)
+#plot.gamViz(gam1, allTerms = TRUE)
+
+# Extract predictions
+gam1_pred <- predict_gam(gam1) %>%
+  mutate(fit.plus.se = fit + (2*se.fit),
+         fit.minus.se = fit - (2*se.fit)) 
+
+# Plot
+ggplot(gam1_pred, aes(pbl.w, fit)) +
+  geom_line() + # fit line
+  geom_ribbon(aes(ymin = fit.minus.se, ymax = fit.plus.se), # Uncertainty
+              fill = "black", alpha = 0.2) +
+  geom_point(data = null_tab1, # Original data
+             aes(pbl.w, preference, color = bb.sp), 
+             inherit.aes = FALSE, alpha = 0.5) +
+  #scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  facet_wrap(~ktype) +
+  labs(x = "Tongue length (mm)", y = "Bias", 
+       color = "Species") +
+  theme_light()
+
+ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference.pdf", height = 6, width = 7)
+ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference.png", height = 6, width = 7)
+```
+
+## 2.4 Ordinate preferences
+
+### 2.4.1 With all species
+```{r}
+# Bias matrix
+null1_prefs <- null_tab1 %>%
+  select(bb.sp, ktype, preference) %>%
+  pivot_wider(names_from = ktype, values_from = preference) %>%
+  column_to_rownames("bb.sp")
+
+# Call PCA
+pca_pref <- rda(null1_prefs)
+
+# Extract tongue length data
+tongues <- bb_traits %>%
+  semi_join(null_tab1) %>%
+  arrange(bb.sp)
+
+# Ordisurf on tongue length
+ordisurf_pref <- ordisurf(pca_pref, tongues$pbl.w) 
+summary(ordisurf_pref)
+
+# Get variance explained
+pcoa_pref_pc1 <- round(pca_pref$CA$eig[[1]] / sum(pca_pref$CA$eig)*100)
+pcoa_pref_pc2 <- round(pca_pref$CA$eig[[2]] / sum(pca_pref$CA$eig)*100)
+
+# Fortify whole model
+pca_pref.fort <- fortify(pca_pref, axes = 1:2) %>%
+  # for plotting, I prefer ktype to be numerically coded
+  mutate(Label = recode(Label,
+                        "disc" = "1",
+                        "funnel" = "2",
+                        "bell" = "3",
+                        "stalk-disc" = "4",
+                        "lip" = "5",
+                        "flag" = "6",
+                        "head" = "7")) 
+
+# Fortify plants
+pca_pref.fort1 <- fortify(pca_pref, axes = 1:2) %>%
+  filter(Score == "species") %>%
+  rename(ktype = Label) %>%
+  # for plotting, I prefer ktype to be numerically coded
+  mutate(ktype = recode(ktype,
+                        "disc" = "1",
+                        "funnel" = "2",
+                        "bell" = "3",
+                        "stalk-disc" = "4",
+                        "lip" = "5",
+                        "flag" = "6",
+                        "head" = "7"))
+
+# Fortify bees
+pca_pref.fort2 <- fortify(pca_pref, axes = 1:2) %>%
+  filter(Score == "sites") %>%
+  rename(bb.sp = Label) %>%
+  left_join(bb_traits)
+
+
+# Plot ordisurf
+
+## Plotting function based on https://oliviarata.wordpress.com/2014/07/17/ordinations-in-ggplot2-v2-ordisurf/
+surfplot <- function(x, y, min_score = 0, pca1, pca2) {
+  
+  grid <- x$grid # extracts the ordisurf object
+  grid_exp <- expand.grid(x = grid$x, y = grid$y) # get x and ys
+  grid_exp$z <- as.vector(grid$z) # unravel the matrix for the z scores
+  
+  contours <- data.frame(na.omit(grid_exp)) %>% # gets rid of the nas
+    as_tibble() %>%
+    rename(PC1 = x, PC2 = y)
+  
+  scores <- y %>% 
+    filter((abs(PC1) > min_score | abs(PC2) > min_score) | Score == "BB.sp") %>%
+    mutate(max.score = max(PC1, PC2))
+  
+  ggplot(scores, aes(PC1, PC2, pch = Score)) +
+    geom_contour(data = contours, 
+                 aes(PC1, PC2, z = z, color = stat(level)),
+                 size = 2, alpha = 0.4, inherit.aes = FALSE) +
+    #geom_point(size = 2) +
+    geom_text_repel(aes(PC1, PC2, label = Label), key_glyph = "rect") +
+    theme_light() +
+    scale_color_viridis_c(name = "Tongue length") +
+    xlab(paste("PC1 ", "(", pca1, "%", ")", sep = "")) +
+    ylab(paste("PC2 ", "(", pca2, "%", ")", sep = "")) +
+    coord_fixed() # Gavin Simpson says this is **really** important
+}
+
+## Plot
+bias_ord <- surfplot(ordisurf_pref, pca_pref.fort, 
+         pca1 = pcoa_pref_pc1, pca2 = pcoa_pref_pc2)
+
+ggsave("../ms_2/figures/preference_ordination.png", bias_ord, height = 5.5, width = 8)
+ggsave("../ms_2/figures/preference_ordination.pdf", bias_ord, height = 5.5, width = 8)
+```
+
+### 2.4.2 Without B. gers, since it's a true specialist
+```{r}
+# Call PCA
+pca_pref2 <- null1_prefs %>%
+  slice(-1) %>% # drop B. gers
+  rda()
+
+# Extract tongue length data
+tongues2 <- bb_traits %>%
+  semi_join(null_tab1) %>%
+  arrange(bb.sp) %>%
+  filter(bb.sp != "gers")
+
+# Ordisurf on tongue length
+ordisurf_pref2 <- ordisurf(pca_pref2, tongues2$pbl.w) 
+summary(ordisurf_pref2)
+
+# Get variance explained
+pcoa_pref2_pc1 <- round(pca_pref2$CA$eig[[1]] / sum(pca_pref2$CA$eig)*100)
+pcoa_pref2_pc2 <- round(pca_pref2$CA$eig[[2]] / sum(pca_pref2$CA$eig)*100)
+
+# Fortify whole model
+pca_pref.fort2 <- fortify(pca_pref2, axes = 1:2) %>%
+  # for plotting, I prefer ktype to be numerically coded
+  mutate(Label = recode(Label,
+                        "disc" = "1",
+                        "funnel" = "2",
+                        "bell" = "3",
+                        "stalk-disc" = "4",
+                        "lip" = "5",
+                        "flag" = "6",
+                        "head" = "7"))
+
+# Fortify plants
+pca_pref2.fort1 <- fortify(pca_pref2, axes = 1:2) %>%
+  filter(Score == "species") %>%
+  rename(ktype = Label) %>%
+  # for plotting, I prefer ktype to be numerically coded
+  mutate(ktype = recode(ktype,
+                        "disc" = "1",
+                        "funnel" = "2",
+                        "bell" = "3",
+                        "stalk-disc" = "4",
+                        "lip" = "5",
+                        "flag" = "6",
+                        "head" = "7"))
+
+# Fortify bees
+pca_pref2.fort2 <- fortify(pca_pref2, axes = 1:2) %>%
+  filter(Score == "sites") %>%
+  rename(bb.sp = Label) %>%
+  left_join(bb_traits)
+
+
+# Plot ordisurf
+surfplot(ordisurf_pref2, pca_pref.fort2, 
+         pca1 = pcoa_pref2_pc1, pca2 = pcoa_pref2_pc2)
+ggsave("../ms_2/figures/preference_ordination2.png")
+ggsave("../ms_2/figures/preference_ordination2.pdf", width = 7, height = 7)
+```
+
+### 2.4.5 Cluster preferences
+```{r}
+clust1 <- null1_prefs %>%
+  vegdist(method = "euclidean") %>%
+  hclust(method = "complete")
+
+pdf("../ms_2/figures/preference_clust.pdf", width = 5, height = 4)
+plot(clust1, main = NULL, xlab = NULL, ylab = NULL)
+dev.off()
+
+
+clust2 <- null1_prefs %>%
+  slice(-1) %>% # drop B. gers
+  vegdist(method = "euclidean") %>%
+  hclust(method = "complete")
+
+pdf("../ms_2/figures/preference_clust2.pdf")
+plot(clust2)
+dev.off()
+```
+
+
+# 3. Null model 2: bb.sp x ktype, by site
+```{r}
+# Nest and join consumer and resource data frames
+con2 <- visitation %>%
+  mutate(individual.id = row_number()) %>%
+  separate(sample.id, c("site", "date"), sep = "_") %>%
+  select(site, date, individual.id, bb.sp, ktype, visited) %>%
+  group_by(site, date) %>%
+  arrange(ktype) %>%
+  pivot_wider(values_from = visited, names_from = ktype, values_fill = 0) %>%
+  group_by(site) %>%
+  nest() %>%
+  rename(bees = data)
+
+res2 <- flower_cover_ktype %>%
+  select(sample.id, ktype, cover) %>%
+  separate(sample.id, c("site", "date"), sep = "_") %>%
+  group_by(site, date) %>%
+  arrange(ktype) %>%
+  distinct() %>%
+  pivot_wider(values_from = cover, names_from = ktype, values_fill = 0.01) %>%
+  group_by(site) %>%
+  nest() %>%
+  rename(plants = data)
+
+conres2 <- full_join(con2, res2)
+
+# Create a big beautiful table of data and models (run on HPC!)
+null2 <- conres2 %>%
+
+  # Generate null models
+  mutate(null.model = map2(bees, plants, function(x, y)
+    generate_null_net(consumers = x[, 3:12],
+                      resources = y[, 2:10],
+                      sims = 1000, # raised from default of 100
+                      data.type = "names",
+                      c.samples = x[, 1],
+                      r.samples = y[, 1],
+                      summary.type = "mean")))
+
+saveRDS(null2, "../output/null2.rds")
+null2 <- readRDS("../output/null2.rds")
+
+# Tabulate results (with test)
+null_tab2 <- null2 %>%
+  mutate(null.model.tab = map(null.model, function(x)
+    test_interactions(x, signif.level = 0.99) %>%
+      as_tibble() %>%
+      mutate(preference = Observed - Null,
+             preference.upper99 = Observed - Upper.99.CL,
+             preference.lower99 = Observed - Lower.99.CL) %>%
+      select(bb.sp = Consumer, ktype = Resource, everything()))) %>%
+
+  # Unnest and add site data and bumble bee trait data
+  unnest(null.model.tab) %>%
+  select(site, bb.sp, ktype, Observed, Null, Lower.99.CL, Upper.99.CL, Test, 
+         SES, preference, preference.upper99, preference.lower99) %>%
+  left_join(site_data) %>%
+  left_join(bb_traits) %>%
+  group_by(site, bb.sp) %>%
+  mutate(total.observed = sum(Observed)) %>%
+  filter(total.observed > 0) %>% # for each species, drop sites where the species did not occur
+  unite(bb.ktype, c(bb.sp, ktype), remove = FALSE) %>%
+  mutate(ktype = factor(ktype),
+         bb.sp = factor(bb.sp),
+         bb.ktype = factor(bb.ktype)) %>%
+  mutate(bb.sp = factor(bb.sp, levels = c("jone", "pyre", "soro", "psit", # order by ascending tongue length
+                                          "telu", "lapi", "prat", "mont",
+                                          "wurf", "muci", "pasc", "hypn",
+                                          "mend", "hort", "gers"))) %>%
+  mutate(ktype = case_when(
+    ktype == 0 ~ "null",
+    ktype == 1 ~ "disc",
+    ktype == 2 ~ "funnel",
+    ktype == 3 ~ "bell",
+    ktype == 4 ~ "stalk-disc",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head",
+    ktype == 9 ~ "brush"
+  )) %>%
+  mutate(ktype = factor(ktype, levels = c("null", "disc", "funnel", 
+                                          "bell", "stalk-disc", "lip", 
+                                          "flag", "head", "brush"))) %>%
+  filter(!ktype %in% c("null", "brush")) %>% # type 0 were not reliably quantified (and rarely visited) and type 9 was vanishingly rare
+  droplevels()
+```
+
+## 3.1 Lability of preference: Do BB species preferences for morphotypes vary with elevation?
+### 3.1.1 Preliminary visualization
+```{r}
+ggplot(null_tab2, aes(elev.mean, preference)) +
+  geom_point(aes(color = Test)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), color = "black") +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  facet_grid(bb.sp ~ ktype, scales = "free") +
+  theme_light()
+```
+
+### 3.1.2 Model
+```{r}
+gam2 <- bam(preference ~
+              s(bb.ktype, bs = "re") +
+              s(elev.mean, by = bb.ktype, k = 4),
+            method = "fREML",
+            discrete = TRUE,
+            select = TRUE,
+            data = null_tab2) %>% getViz()
+
+print(plot.gamViz(gam2, allTerms = TRUE), pages = 6)
+check.gamViz(gam2)
+summary(gam2, re.test = FALSE)
+
+# Extract significant smooths
+gam2_sig_smooths <- tidy(gam2) %>%
+  filter(p.value < 0.05 & term != "s(bb.ktype)") %>%
+  mutate(bb.ktype = str_extract(term, ".{6}$")) %>%
+  select(bb.ktype)
+  
+# Extract predictions
+gam2_pred <- predict_gam(gam2) %>%
+  mutate(fit.plus.se = fit + (2*se.fit),
+         fit.minus.se = fit - (2*se.fit)) %>%
+  semi_join(gam2_sig_smooths) %>%
+  separate(bb.ktype, c("bb.sp", "ktype"))
+
+# Grab relevant subset of original data
+null_tab2_sub <- null_tab2 %>%
+  semi_join(gam2_sig_smooths)
+
+# Plot
+ggplot(gam2_pred, aes(elev.mean, fit)) +
+  geom_line() + # fit line
+  geom_point(data = null_tab2_sub, # Original data
+             aes(elev.mean, preference, color = Test),
+             inherit.aes = FALSE) +
+  geom_ribbon(aes(ymin = fit.minus.se, ymax = fit.plus.se), # Uncertainty
+              fill = "black", alpha = 0.2) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  facet_grid(bb.sp ~ ktype, scales = "free") +
+  labs(x = "Elevation (m.s.l.)", y = "Standardized preference",
+       color = "Test (p < 0.01)") +
+  theme_light()
+```
+
+
+# 4. Null model 3: bb.sp x ktype, by site-date
+```{r}
+# Nest and join consumer and resource data frames
+
+# For HPC
+# library(tidyverse)
+# library(econullnetr)
+# flower_cover_ktype <- readRDS("./flower_cover_ktype.rds")
+# visitation <- readRDS("./visitation.rds")
+
+# The "consumers" table input to generate_null_net()
+con3 <- visitation %>%
+  mutate(individual.id = row_number()) %>%
+  select(sample.id, individual.id, bb.sp, ktype, visited) %>%
+  group_by(sample.id) %>%
+  arrange(ktype) %>%
+  pivot_wider(values_from = visited, names_from = ktype, values_fill = 0) %>%
+  group_by(sample.id) %>%
+  nest() %>%
+  rename(bees = data)
+
+# The "resources" table input to generate_null_net()
+res3 <- flower_cover_ktype %>%
+  select(sample.id, ktype, cover) %>%
+  group_by(sample.id) %>%
+  arrange(ktype) %>%
+  distinct() %>%
+  pivot_wider(values_from = cover, names_from = ktype, values_fill = 0) %>%
+  group_by(sample.id) %>%
+  nest() %>%
+  rename(plants = data)
+
+conres3 <- full_join(con3, res3) %>%
+  separate(sample.id, c("site", "date"), sep = "_")
+
+
+# Create a big beautiful table of data and models (run on HPC!)
+# This will probably take 8 hours to run
+null3 <- conres3 %>%
+
+  # Generate null models
+  mutate(null.model = map2(bees, plants, function(x, y)
+    generate_null_net(consumers = x[, 2:11],
+                      resources = y[, 1:9],
+                      sims = 500, # raised from default of 100
+                      data.type = "names",
+                      prog.count = TRUE,
+                      summary.type = "mean")))
+
+#saveRDS(null3, "../output/null3.rds") # hpc
+
+null3 <- readRDS("../output/null3.rds")
+
+# Tabulate results (with test)
+null_tab3 <- null3 %>%
+  mutate(null.model.tab = map(null.model, function(x)
+    test_interactions(x, signif.level = 0.95) %>%
+      as_tibble() %>%
+      mutate(preference = Observed - Null,
+             preference.upper95 = Observed - Upper.95.CL,
+             preference.lower95 = Observed - Lower.95.CL) %>%
+      select(bb.sp = Consumer, ktype = Resource, everything()))) %>%
+
+  # Unnest and add site data and bumble bee trait data
+  unnest(null.model.tab) %>%
+  select(site, date, bb.sp, ktype, Observed, Null, Lower.95.CL, Upper.95.CL, Test, 
+         SES, preference, preference.upper95, preference.lower95) %>%
+  left_join(site_data) %>%
+  left_join(bb_traits) %>%
+  group_by(site, date, bb.sp) %>%
+  mutate(total.observed = sum(Observed)) %>% #There are a few cases in which total.observed does not equal unity. This is because bees occasionally visited plants in ktypes 0, 9, or 10, which we dropped from the data prior to null model calculation but after calculating proportional visitation. This is as it should be.
+  ungroup() %>%
+  filter(total.observed > 0) %>% # for each species, drop sites where the species did not occur
+  filter(Observed != 0 | Null != 0) %>% # when both equal zero, it's probably because the ktype had zero abundance; in any case, it's meaningless to retain these, and they just cause zero-inflation; I checked, and every time Null = 0, Observed = 0 also. 
+  unite(bb.ktype, c(bb.sp, ktype), remove = FALSE) %>%
+  mutate(ktype = factor(ktype),
+         site = factor(site),
+         yday = yday(date),
+         year = factor(year(date)),
+         bb.ktype = factor(bb.ktype),
+         bb.sp = factor(bb.sp, levels = c("jone", "pyre", "soro", "psit", # order by ascending tongue length
+                                          "telu", "lapi", "prat", "mont",
+                                          "wurf", "muci", "pasc", "hypn",
+                                          "mend", "hort", "gers"))) %>%
+  mutate(ktype = case_when(
+    ktype == 0 ~ "null",
+    ktype == 1 ~ "disc",
+    ktype == 2 ~ "funnel",
+    ktype == 3 ~ "bell",
+    ktype == 4 ~ "stalk-disc",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head",
+    ktype == 9 ~ "brush"
+  )) %>%
+  mutate(ktype = factor(ktype, levels = c("null", "disc", "funnel", 
+                                          "bell", "stalk-disc", "lip", 
+                                          "flag", "head", "brush"))) %>%
+  filter(!ktype %in% c("null", "brush")) %>% # type 0 were not reliably quantified (and rarely visited) and type 9 was vanishingly rare
+  droplevels()
+
+ggplot(null_tab3, aes(ktype, preference)) +
+  #geom_violin(fill = "gray70", color = "white", draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
+  geom_jitter(aes(color = Test), width = 0.3, alpha = 0.6) +
+  theme_light(14) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  labs(x = "Floral morphotype",
+       y = "Bias")
+```
+
+## 4.1 Model preference lability
+
+### 4.1.1 Model 1 (without abundance covariate)
+#### 4.1.1.1 Call model
+```{r}
+gam3.1 <- bam(preference ~
+                bb.ktype +
+                s(site, by = bb.ktype, bs = "re") +
+                s(year, by = bb.ktype, bs = "re") +
+                te(yday, elev.mean, by = bb.ktype),
+              family = "gaussian",
+              method = "fREML",
+              discrete = TRUE,
+              data = filter(null_tab3, 
+                            bb.sp %in% c("hort", "prat", "telu", 
+                                         "wurf", "soro", "pasc") &
+                              ktype %in% c("bell", "lip", "flag", "head"))) %>% 
+                getViz()
+
+#check.gamViz(gam3.1)
+#gam3.1_sum <- summary(gam3.1, re.test = FALSE)
+#plot.gamViz(gam3.1, allTerms = TRUE)
+```
+
+#### 4.1.1.2 Plot model
+```{r}
+# Tabulate model summary
+gam3.1_s_table <- gam3.1_sum$s.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  filter(str_detect(term, "te\\(")) %>%
+  mutate(term = str_extract(term, ".{6}$")) %>%
+  separate(term, c("bb.sp", "ktype")) %>%
+  mutate(ktype = case_when(
+    ktype == 3 ~ "bell",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head"
+  )) %>%
+  mutate(pval = signif(`p-value`, digits = 3)) %>%
+  select(bb.sp, ktype, edf, pval) %>%
+  as_tibble() %>%
+  mutate(ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")))
+  
+# Extract plotting data.
+hort_3_gam3.1 <- plot(sm(gam3.1, 49))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("bell", n()))
+
+hort_5_gam3.1 <- plot(sm(gam3.1, 50))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("lip", n()))
+
+hort_6_gam3.1 <- plot(sm(gam3.1, 51))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("flag", n()))
+
+hort_7_gam3.1 <- plot(sm(gam3.1, 52))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("head", n()))
+
+
+pasc_3_gam3.1 <- plot(sm(gam3.1, 53))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("bell", n()))
+
+pasc_5_gam3.1 <- plot(sm(gam3.1, 54))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("lip", n()))
+
+pasc_6_gam3.1 <- plot(sm(gam3.1, 55))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("flag", n()))
+
+pasc_7_gam3.1 <- plot(sm(gam3.1, 56))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("head", n()))
+
+
+prat_3_gam3.1 <- plot(sm(gam3.1, 57))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("bell", n()))
+
+prat_5_gam3.1 <- plot(sm(gam3.1, 58))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("lip", n()))
+
+prat_6_gam3.1 <- plot(sm(gam3.1, 59))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("flag", n()))
+
+prat_7_gam3.1 <- plot(sm(gam3.1, 60))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("head", n()))
+
+
+soro_3_gam3.1 <- plot(sm(gam3.1, 61))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("bell", n()))
+
+soro_5_gam3.1 <- plot(sm(gam3.1, 62))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("lip", n()))
+
+soro_6_gam3.1 <- plot(sm(gam3.1, 63))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("flag", n()))
+
+soro_7_gam3.1 <- plot(sm(gam3.1, 64))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("head", n()))
+
+
+telu_3_gam3.1 <- plot(sm(gam3.1, 65))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("bell", n()))
+
+telu_5_gam3.1 <- plot(sm(gam3.1, 66))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("lip", n()))
+
+telu_6_gam3.1 <- plot(sm(gam3.1, 67))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("flag", n()))
+
+telu_7_gam3.1 <- plot(sm(gam3.1, 68))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("head", n()))
+
+
+wurf_3_gam3.1 <- plot(sm(gam3.1, 69))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("bell", n()))
+
+wurf_5_gam3.1 <- plot(sm(gam3.1, 70))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("lip", n()))
+
+wurf_6_gam3.1 <- plot(sm(gam3.1, 71))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("flag", n()))
+
+wurf_7_gam3.1 <- plot(sm(gam3.1, 72))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("head", n()))
+
+plotting_data__gam3.1 <- bind_rows(hort_3_gam3.1, hort_5_gam3.1, hort_6_gam3.1, hort_7_gam3.1,
+                           pasc_3_gam3.1, pasc_5_gam3.1, pasc_6_gam3.1, pasc_7_gam3.1,
+                           prat_3_gam3.1, prat_5_gam3.1, prat_6_gam3.1, prat_7_gam3.1,
+                           soro_3_gam3.1, soro_5_gam3.1, soro_6_gam3.1, soro_7_gam3.1,
+                           telu_3_gam3.1, telu_5_gam3.1, telu_6_gam3.1, telu_7_gam3.1,
+                           wurf_3_gam3.1, wurf_5_gam3.1, wurf_6_gam3.1, wurf_7_gam3.1) %>%
+  group_by(bb.sp, ktype) %>%
+  mutate(z.norm = scale(z, center = FALSE),
+         ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")),
+         date = as_date(x)) %>%
+  ungroup() %>%
+  left_join(bb_traits) %>%
+  left_join(gam3.1_s_table) %>%
+  select(z, z.norm, date, x, elevation = y, se, 
+         bb.sp, ktype, pbl.w, edf, pval) %>%
+  mutate(sig = if_else(pval < 0.05, TRUE, FALSE))
+
+ggplot(plotting_data__gam3.1, aes(date, elevation, z = z.norm, fill = z.norm)) +
+  geom_raster() +
+  geom_contour(color = "black",
+               size = 0.1,
+               bins = 40,
+               aes(linetype = sig)) + # by fixing bins, we scale contours to each plot while letting the color ramp represent differences in scale across plots; I think this is a good compromise
+  facet_grid(reorder(bb.sp, -pbl.w) ~ ktype) +
+  scale_linetype_manual(values = c("dotted", "solid"))+
+  scale_fill_viridis_c(na.value = "transparent") +
+  labs(x = NULL, y = "Elevation (m)", fill = "Normalized\neffect", linetype = "p < 0.05") +
+  theme_light(12) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+ggsave("../ms_2/figures/preference_lability_gam.pdf", height = 5, width = 6.5)
+ggsave("../ms_2/figures/preference_lability_gam.png", height = 5, width = 6.5)
+```
+
+### 4.2 Any residue of abundance?
+Not just a residue. There is a strict mathematical constraint relating proportional abundance to inferred bias. A rare plant ca be strongly preferred but never strong avoided, while an abundant plant can be strongly avoided but never strongly preferred. Or, put more specifically, as relative abundance approaches zero, minimum bias approachs 0 and maximum bias approach 1. As relative abundance approaches 1, minimum bias approach -1 and maximum bias approaches zero. 
+```{r}
+ggplot(filter(null_tab3_join,
+              bb.sp %in% c("hort", "prat", "telu", 
+                           "wurf", "soro", "pasc") &
+                ktype %in% c("bell", "lip", "flag", "head")), aes(prop.cover, preference)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm") +
+  facet_grid(bb.sp~ktype) +
+  ylim(c(-1, 1))
+
+ggplot(filter(null_tab3_join,
+              bb.sp %in% c("hort", "prat", "telu", 
+                           "wurf", "soro", "pasc") &
+                ktype %in% c("bell", "lip", "flag", "head")), aes(cover, preference)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm") +
+  facet_grid(bb.sp~ktype, scales = "free") +
+  ylim(c(-1, 1))
+
+#########################################################
+# Can we wiggle out of this problem via transformation? #
+#########################################################
+null_tab3.norm <- null_tab3_join %>%
+  mutate(preference.norm = case_when(
+    preference == 0 ~ 0,
+    preference > 0 ~ preference/(1 - prop.cover),
+    preference < 0 ~ (preference/(0 - prop.cover)) * -1
+  ))
+
+ggplot(filter(null_tab3.norm,
+              bb.sp %in% c("hort", "prat", "telu", 
+                           "wurf", "soro", "pasc") &
+                ktype %in% c("bell", "lip", "flag", "head")), 
+       aes(prop.cover, preference.norm)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(method = "lm") +
+  facet_grid(bb.sp~ktype) +
+  ylim(c(-1, 1))
+
+```
+
+### 4.3 A binomial model: significant preference 0/1
+One way to get around this problem is to model bias as a binary response, either significantly positive or not. 
+#### 4.3.1 Call model
+```{r}
+null_tab3_bin <- null_tab3 %>%
+  mutate(preference.bin = as.integer(if_else(Test == "Stronger", 1, 0)))
+
+gam3.2 <- bam(preference.bin ~
+                bb.ktype +
+                s(site, by = bb.ktype, bs = "re") +
+                s(year, by = bb.ktype, bs = "re") +
+                te(yday, elev.mean, by = bb.ktype),
+              family = "binomial",
+              method = "fREML",
+              discrete = TRUE,
+              data = filter(null_tab3_bin, 
+                            bb.sp %in% c("hort", "prat", "telu", 
+                                         "wurf", "soro", "pasc") &
+                              ktype %in% c("bell", "lip", "flag", "head"))) %>% 
+                getViz()
+
+check.gamViz(gam3.2)
+gam3.2_sum <- summary(gam3.2, re.test = FALSE)
+print(plot.gamViz(gam3.2, allTerms = TRUE), pages = 4)
+```
+
+#### 4.3.2 Plot model
+```{r}
+# Tabulate model summary
+gam3.2_s_table <- gam3.2_sum$s.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  filter(str_detect(term, "te\\(")) %>%
+  mutate(term = str_extract(term, ".{6}$")) %>%
+  separate(term, c("bb.sp", "ktype")) %>%
+  mutate(ktype = case_when(
+    ktype == 3 ~ "bell",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head"
+  )) %>%
+  mutate(pval = signif(`p-value`, digits = 3)) %>%
+  select(bb.sp, ktype, edf, pval) %>%
+  as_tibble() %>%
+  mutate(ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")))
+  
+# Extract plotting data.
+hort_3 <- plot(sm(gam3.2, 49))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("bell", n()))
+
+hort_5 <- plot(sm(gam3.2, 50))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("lip", n()))
+
+hort_6 <- plot(sm(gam3.2, 51))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("flag", n()))
+
+hort_7 <- plot(sm(gam3.2, 52))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("head", n()))
+
+
+pasc_3 <- plot(sm(gam3.2, 53))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("bell", n()))
+
+pasc_5 <- plot(sm(gam3.2, 54))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("lip", n()))
+
+pasc_6 <- plot(sm(gam3.2, 55))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("flag", n()))
+
+pasc_7 <- plot(sm(gam3.2, 56))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("head", n()))
+
+
+prat_3 <- plot(sm(gam3.2, 57))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("bell", n()))
+
+prat_5 <- plot(sm(gam3.2, 58))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("lip", n()))
+
+prat_6 <- plot(sm(gam3.2, 59))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("flag", n()))
+
+prat_7 <- plot(sm(gam3.2, 60))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("head", n()))
+
+
+soro_3 <- plot(sm(gam3.2, 61))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("bell", n()))
+
+soro_5 <- plot(sm(gam3.2, 62))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("lip", n()))
+
+soro_6 <- plot(sm(gam3.2, 63))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("flag", n()))
+
+soro_7 <- plot(sm(gam3.2, 64))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("head", n()))
+
+
+telu_3 <- plot(sm(gam3.2, 65))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("bell", n()))
+
+telu_5 <- plot(sm(gam3.2, 66))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("lip", n()))
+
+telu_6 <- plot(sm(gam3.2, 67))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("flag", n()))
+
+telu_7 <- plot(sm(gam3.2, 68))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("head", n()))
+
+
+wurf_3 <- plot(sm(gam3.2, 69))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("bell", n()))
+
+wurf_5 <- plot(sm(gam3.2, 70))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("lip", n()))
+
+wurf_6 <- plot(sm(gam3.2, 71))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("flag", n()))
+
+wurf_7 <- plot(sm(gam3.2, 72))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("head", n()))
+
+plotting_data <- bind_rows(hort_3, hort_5, hort_6, hort_7,
+                           pasc_3, pasc_5, pasc_6, pasc_7,
+                           prat_3, prat_5, prat_6, prat_7,
+                           soro_3, soro_5, soro_6, soro_7,
+                           telu_3, telu_5, telu_6, telu_7,
+                           wurf_3, wurf_5, wurf_6, wurf_7) %>%
+  group_by(bb.sp, ktype) %>%
+  mutate(z.norm = scale(z, center = FALSE),
+         ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")),
+         date = as_date(x)) %>%
+  ungroup() %>%
+  left_join(bb_traits) %>%
+  left_join(gam3.2_s_table) %>%
+  select(z, z.norm, date, x, elevation = y, se, 
+         bb.sp, ktype, pbl.w, edf, pval) %>%
+  mutate(sig = if_else(pval < 0.05, TRUE, FALSE))
+
+ggplot(plotting_data, aes(date, elevation, z = z.norm, fill = z.norm)) +
+  geom_raster() +
+  geom_contour(color = "black",
+               size = 0.1,
+               bins = 40,
+               aes(linetype = sig)) + # by fixing bins, we scale contours to each plot while letting the color ramp represent differences in scale across plots; I think this is a good compromise
+  facet_grid(reorder(bb.sp, -pbl.w) ~ ktype) +
+  scale_linetype_manual(values = c("dotted", "solid"))+
+  scale_fill_viridis_c(na.value = "transparent") +
+  labs(x = NULL, y = "Elevation (m)", fill = "Normalized\neffect", linetype = "p < 0.05") +
+  theme_light(12) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = 0.5))
+```
+
+### 4.4 A normalized model: proportion of maximum/minimum preference
+#### 4.4.1 Call model
+```{r}
+gam3.3 <- bam(preference.norm ~
+                bb.ktype +
+                s(site, by = bb.ktype, bs = "re") +
+                s(year, by = bb.ktype, bs = "re") +
+                te(yday, elev.mean, by = bb.ktype),
+              family = "gaussian",
+              method = "fREML",
+              discrete = TRUE,
+              data = filter(null_tab3.norm, 
+                            bb.sp %in% c("hort", "prat", "telu", 
+                                         "wurf", "soro", "pasc") &
+                              ktype %in% c("bell", "lip", "flag", "head"))) %>% 
+                getViz()
+
+check.gamViz(gam3.3)
+gam3.3_sum <- summary(gam3.3, re.test = FALSE)
+print(plot.gamViz(gam3.3, allTerms = TRUE), pages = 4)
+```
+
+#### 4.4.2 Plot model
+```{r}
+# Tabulate model summary
+gam3.3_s_table <- gam3.3_sum$s.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  filter(str_detect(term, "te\\(")) %>%
+  mutate(term = str_extract(term, ".{6}$")) %>%
+  separate(term, c("bb.sp", "ktype")) %>%
+  mutate(ktype = case_when(
+    ktype == 3 ~ "bell",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head"
+  )) %>%
+  mutate(pval = signif(`p-value`, digits = 3)) %>%
+  select(bb.sp, ktype, edf, pval) %>%
+  as_tibble() %>%
+  mutate(ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")))
+  
+# Extract plotting data.
+hort_3 <- plot(sm(gam3.3, 49))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("bell", n()))
+
+hort_5 <- plot(sm(gam3.3, 50))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("lip", n()))
+
+hort_6 <- plot(sm(gam3.3, 51))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("flag", n()))
+
+hort_7 <- plot(sm(gam3.3, 52))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("head", n()))
+
+
+pasc_3 <- plot(sm(gam3.3, 53))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("bell", n()))
+
+pasc_5 <- plot(sm(gam3.3, 54))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("lip", n()))
+
+pasc_6 <- plot(sm(gam3.3, 55))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("flag", n()))
+
+pasc_7 <- plot(sm(gam3.3, 56))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("head", n()))
+
+
+prat_3 <- plot(sm(gam3.3, 57))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("bell", n()))
+
+prat_5 <- plot(sm(gam3.3, 58))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("lip", n()))
+
+prat_6 <- plot(sm(gam3.3, 59))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("flag", n()))
+
+prat_7 <- plot(sm(gam3.3, 60))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("head", n()))
+
+
+soro_3 <- plot(sm(gam3.3, 61))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("bell", n()))
+
+soro_5 <- plot(sm(gam3.3, 62))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("lip", n()))
+
+soro_6 <- plot(sm(gam3.3, 63))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("flag", n()))
+
+soro_7 <- plot(sm(gam3.3, 64))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("head", n()))
+
+
+telu_3 <- plot(sm(gam3.3, 65))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("bell", n()))
+
+telu_5 <- plot(sm(gam3.3, 66))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("lip", n()))
+
+telu_6 <- plot(sm(gam3.3, 67))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("flag", n()))
+
+telu_7 <- plot(sm(gam3.3, 68))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("head", n()))
+
+
+wurf_3 <- plot(sm(gam3.3, 69))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("bell", n()))
+
+wurf_5 <- plot(sm(gam3.3, 70))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("lip", n()))
+
+wurf_6 <- plot(sm(gam3.3, 71))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("flag", n()))
+
+wurf_7 <- plot(sm(gam3.3, 72))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("head", n()))
+
+plotting_data <- bind_rows(hort_3, hort_5, hort_6, hort_7,
+                           pasc_3, pasc_5, pasc_6, pasc_7,
+                           prat_3, prat_5, prat_6, prat_7,
+                           soro_3, soro_5, soro_6, soro_7,
+                           telu_3, telu_5, telu_6, telu_7,
+                           wurf_3, wurf_5, wurf_6, wurf_7) %>%
+  group_by(bb.sp, ktype) %>%
+  mutate(z.norm = scale(z, center = FALSE),
+         ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")),
+         date = as_date(x)) %>%
+  ungroup() %>%
+  left_join(bb_traits) %>%
+  left_join(gam3.3_s_table) %>%
+  select(z, z.norm, date, x, elevation = y, se, 
+         bb.sp, ktype, pbl.w, edf, pval) %>%
+  mutate(sig = if_else(pval < 0.05, TRUE, FALSE))
+
+ggplot(plotting_data, aes(date, elevation, z = z.norm, fill = z.norm)) +
+  geom_raster() +
+  geom_contour(color = "black",
+               size = 0.1,
+               bins = 40,
+               aes(linetype = sig)) + # by fixing bins, we scale contours to each plot while letting the color ramp represent differences in scale across plots; I think this is a good compromise
+  facet_grid(reorder(bb.sp, -pbl.w) ~ ktype) +
+  scale_linetype_manual(values = c("dotted", "solid"))+
+  scale_fill_viridis_c(na.value = "transparent") +
+  labs(x = NULL, y = "Elevation (m)", fill = "Normalized\neffect", linetype = "p < 0.05") +
+  theme_light(12) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = 0.5))
+```
+
+
+
+
+### 4.1.2 Model 2 (with prop_abund as covariate)
+```{r}
+# With abundance covariate (interacting with bb-ktype pair)
+
+## Add abundance data
+abundance <- flower_cover_ktype %>%
+  separate(sample.id, c("site", "date"), sep = "_") %>%
+  group_by(site, date) %>%
+  mutate(prop.cover = cover/sum(cover)) %>%
+  mutate(ktype = case_when(
+    ktype == 0 ~ "null",
+    ktype == 1 ~ "disc",
+    ktype == 2 ~ "funnel",
+    ktype == 3 ~ "bell",
+    ktype == 4 ~ "stalk-disc",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head",
+    ktype == 9 ~ "brush"
+  )) %>%
+  mutate(ktype = factor(ktype))
+
+null_tab3_join <- null_tab3 %>%
+  left_join(abundance) %>%
+  mutate(site = factor(site),
+         year = factor(year(date))) 
+
+## Model with proportional cover data
+gam3.2 <- bam(preference ~
+                bb.ktype +
+                #prop.cover*bb.ktype +
+                cover:bb.ktype +
+                s(site, by = bb.ktype, bs = "re") +
+                s(year, by = bb.ktype, bs = "re") +
+                te(yday, elev.mean, by = bb.ktype),
+              family = "gaussian",
+              method = "fREML",
+              discrete = TRUE,
+              data = filter(null_tab3_join, 
+                            bb.sp %in% c("hort", "prat", "telu", 
+                                         "wurf", "soro", "pasc") &
+                              ktype %in% c("bell", "lip", "flag", "head"))) %>% 
+                getViz()
+
+#check.gamViz(gam3.2)
+#gam3.2_corr_sum <- summary(gam3.2, re.test = FALSE)
+#print(plot.gamViz(gam3.2, allTerms = TRUE), pages = 4)
+```
+
+
+Since we have a markedly negative effect of abundance on preference, due to the fact that an avoided resource will seem more avoided when it is abundant than when it is rare, even if the cognitive evaluation of the resource does not vary, perhaps it would be worth adding abundance as a covariate to the preference lability model. We do this in model 3.2.
+
+
+### 4.1.3 Year-specific models
+```{r}
+# Year-specific models
+gam3_2010 <- bam(preference ~
+              bb.ktype +
+              s(site, by = bb.ktype, bs = "re") +
+              te(yday, elev.mean, by = bb.ktype),
+            family = "gaussian",
+            method = "fREML",
+            discrete = TRUE,
+            data = filter(null_tab3, 
+                          year == 2010 &
+                            bb.sp %in% c("hort", "prat", "telu", 
+                                       "wurf", "soro", "pasc") &
+                            ktype %in% c("3", "5", "6", "7"))) %>% 
+              getViz()
+
+check.gamViz(gam3_2010)
+gam3_2010_sum <- summary(gam3_2010)
+plot.gamViz(gam3_2010, allTerms = TRUE)
+
+gam3_2011 <- bam(preference ~
+              bb.ktype +
+              s(site, by = bb.ktype, bs = "re") +
+              te(yday, elev.mean, by = bb.ktype),
+            family = "gaussian",
+            method = "fREML",
+            discrete = TRUE,
+            data = filter(null_tab3, 
+                          year == 2011 &
+                            bb.sp %in% c("hort", "prat", "telu", 
+                                       "wurf", "soro", "pasc") &
+                            ktype %in% c("3", "5", "6", "7"))) %>% 
+              getViz()
+
+check.gamViz(gam3_2011)
+gam3_2011_sum <- summary(gam3_2011)
+plot.gamViz(gam3_2011, allTerms = TRUE)
+
+gam3_2012 <- bam(preference ~
+              bb.ktype +
+              s(site, by = bb.ktype, bs = "re") +
+              te(yday, elev.mean, by = bb.ktype),
+            family = "gaussian",
+            method = "fREML",
+            discrete = TRUE,
+            data = filter(null_tab3, 
+                          year == 2012 &
+                            bb.sp %in% c("hort", "prat", "telu", 
+                                       "wurf", "soro", "pasc") &
+                            ktype %in% c("3", "5", "6", "7"))) %>% 
+              getViz()
+
+check.gamViz(gam3_2012)
+gam3_2012_sum <- summary(gam3_2012)
+plot.gamViz(gam3_2012, allTerms = TRUE)
+```
+
+
+
+
+
+```{r}
+
+
+gam3_corr_s_table <- gam3_corr_sum$s.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  filter(str_detect(term, "te\\(")) %>%
+  mutate(term = str_extract(term, ".{6}$")) %>%
+  separate(term, c("bb.sp", "ktype")) %>%
+  mutate(ktype = case_when(
+    ktype == 3 ~ "bell",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head"
+  )) %>%
+  mutate(pval = signif(`p-value`, digits = 3)) %>%
+  select(bb.sp, ktype, edf, pval) %>%
+  as_tibble() %>%
+  mutate(ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")))
+  
+
+# Extract plotting data.
+
+hort_3_corr <- plot(sm(gam3_corr, 49))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("bell", n()))
+
+hort_5_corr <- plot(sm(gam3_corr, 50))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("lip", n()))
+
+hort_6_corr <- plot(sm(gam3_corr, 51))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("flag", n()))
+
+hort_7_corr <- plot(sm(gam3_corr, 52))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("head", n()))
+
+
+pasc_3_corr <- plot(sm(gam3_corr, 53))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("bell", n()))
+
+pasc_5_corr <- plot(sm(gam3_corr, 54))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("lip", n()))
+
+pasc_6_corr <- plot(sm(gam3_corr, 55))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("flag", n()))
+
+pasc_7_corr <- plot(sm(gam3_corr, 56))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("head", n()))
+
+
+prat_3_corr <- plot(sm(gam3_corr, 57))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("bell", n()))
+
+prat_5_corr <- plot(sm(gam3_corr, 58))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("lip", n()))
+
+prat_6_corr <- plot(sm(gam3_corr, 59))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("flag", n()))
+
+prat_7_corr <- plot(sm(gam3_corr, 60))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("head", n()))
+
+
+soro_3_corr <- plot(sm(gam3_corr, 61))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("bell", n()))
+
+soro_5_corr <- plot(sm(gam3_corr, 62))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("lip", n()))
+
+soro_6_corr <- plot(sm(gam3_corr, 63))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("flag", n()))
+
+soro_7_corr <- plot(sm(gam3_corr, 64))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("head", n()))
+
+
+telu_3_corr <- plot(sm(gam3_corr, 65))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("bell", n()))
+
+telu_5_corr <- plot(sm(gam3_corr, 66))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("lip", n()))
+
+telu_6_corr <- plot(sm(gam3_corr, 67))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("flag", n()))
+
+telu_7_corr <- plot(sm(gam3_corr, 68))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("head", n()))
+
+
+wurf_3_corr <- plot(sm(gam3_corr, 69))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("bell", n()))
+
+wurf_5_corr <- plot(sm(gam3_corr, 70))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("lip", n()))
+
+wurf_6_corr <- plot(sm(gam3_corr, 71))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("flag", n()))
+
+wurf_7_corr <- plot(sm(gam3_corr, 72))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("head", n()))
+
+plotting_data_corr <- bind_rows(hort_3_corr, hort_5_corr, hort_6_corr, hort_7_corr,
+                           pasc_3_corr, pasc_5_corr, pasc_6_corr, pasc_7_corr,
+                           prat_3_corr, prat_5_corr, prat_6_corr, prat_7_corr,
+                           soro_3_corr, soro_5_corr, soro_6_corr, soro_7_corr,
+                           telu_3_corr, telu_5_corr, telu_6_corr, telu_7_corr,
+                           wurf_3_corr, wurf_5_corr, wurf_6_corr, wurf_7_corr) %>%
+  group_by(bb.sp, ktype) %>%
+  mutate(z.norm = scale(z, center = FALSE),
+         ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")),
+         date = as_date(x)) %>%
+  ungroup() %>%
+  left_join(bb_traits) %>%
+  left_join(gam3_corr_s_table) %>%
+  select(z, z.norm, date, x, elevation = y, se, 
+         bb.sp, ktype, pbl.w, edf, pval) %>%
+  filter(pval < 0.05)
+
+ggplot(plotting_data_corr, aes(date, elevation, z = z.norm, fill = z.norm)) +
+  geom_raster() +
+  geom_contour(color = "black",
+               size = 0.1,
+               bins = 40) + # by fixing bins, we scale contours to each plot while letting the color ramp represent differences in scale across plots; I think this is a good compromise
+  facet_grid(reorder(bb.sp, -pbl.w) ~ ktype) +
+  scale_fill_viridis_c(na.value = "transparent") +
+  labs(x = NULL, y = "Elevation (m)", fill = "Normalized\neffect") +
+  theme_light(12) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+ggsave("../output/preference_lability_gam_corr.pdf", height = 5, width = 6.5)
+```
+
+
+
+# 5 Raw visitation rates
+Null model analysis is potentially problematic. It is still wroth performing and presenting, but we should compare it to patterns in raw visitation to understand "preference" more completely. The problem is well-illustrated with an anecdote. Suppose I am shopping for Molly, and I need to find gluten-free flour. In a typical grocery store, gluten-free flour is hard to come by, so my selection of it would appear to be a strong preference --- after all, I passed up so many other options to get one of the few options I most preferred. If I went to a fancy healthfood store, though, gluten-free flours would probably make up a large proportion of available options, and my decision would seem consistent with a null model of random flour selection. In both cases, I was completely committed to choosing a gluten-free flour; I preferred it perfectly. But in one case, it looks like preference, and in the other it doesn't. This same problem applies to the use of null models to infer preference in bumble bees. If, for example, B. mucidus  is committed to foraging on flag flowers in all floristic contexts, the only patterns of preference we will find are artifacts of relative abundance, created precisely by the technique intended to correct for such artifacts. I think the best approach is to present both a null-model based analysis and a raw visitation analysis and try to say something about which is a more appropriate representation of bumble bee floral selection. Are they more like Balmford's students in a cafeteria deciding whether to opt for a vegetarian meal, or are they more like Molly shopping for g-free flour? Neither null model residuals --- which we will call "bias" --- nor raw visitation values can be interpreted unambiguously as "preference". "Preference" lies latent behind these observable patterns. 
+
+## 5.1 Overall visitation rates
+```{r}
+# Get mean proportional visitation by morphotype*bb.sp
+visitation_prop <- visitation %>% 
+  group_by(sample.id, bb.sp, ktype) %>%
+  summarize(visits = n()) %>%
+  group_by(sample.id, bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
+  select(sample.id, bb.sp, ktype, prop.visits) %>%
+  group_by(bb.sp) %>%
+  nest() %>%
+  mutate(fill = map(data, function(x) full_join(x, flower_cover_ktype) %>% replace_na(replace = list(prop.visits = 0)))) %>%
+  unnest(fill) %>%
+  select(-data) %>%
+  group_by(bb.sp, ktype) %>%
+  summarize(mean.prop.visits = mean(prop.visits)) %>%
+  filter(ktype != 10) %>%
+   mutate(ktype = case_when(
+    ktype == 0 ~ "null",
+    ktype == 1 ~ "disc",
+    ktype == 2 ~ "funnel",
+    ktype == 3 ~ "bell",
+    ktype == 4 ~ "stalk-disc",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head",
+    ktype == 9 ~ "brush"
+  )) %>%
+  mutate(ktype = factor(ktype, levels = c("null", "disc", "funnel", 
+                                          "bell", "stalk-disc", "lip", 
+                                          "flag", "head", "brush"))) %>%
+  filter(!ktype %in% c("null", "brush")) %>% # type 0 were not reliably quantified (and rarely visited) and type 9 was vanishingly rare
+  droplevels() %>%
+  left_join(bb_traits)
+
+null_model_overall <- ggplot(null_tab1, aes(ktype, preference)) +
+  #geom_violin(fill = "gray70", color = "white", draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
+  geom_jitter(aes(color = Test), width = 0.3, alpha = 0.6) +
+  theme_light(10) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  labs(x = "Floral morphotype",
+       y = "Bias")
+
+raw_visits_overall <- ggplot(visitation_prop, aes(ktype, mean.prop.visits)) +
+  geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
+  geom_jitter(width = 0.3, alpha = 0.5, color = "gray40") +
+  theme_light(10) +
+  labs(x = "Floral morphotype",
+       y = "Mean proportional visitation")
+
+ggsave("../ms_2/figures/raw_visitation_ktype.pdf", height = 6, width = 7)
+ggsave("../ms_2/figures/raw_visitation_ktype.png", height = 6, width = 7)
+
+overall_ktype <- (null_model_overall | raw_visits_overall)  +
+  plot_annotation(tag_levels = 'A')
+
+ggsave("../ms_2/figures/overall_ktype.pdf", overall_ktype, height = 4.5, width = 9.5)
+ggsave("../ms_2/figures/overall_ktype.png", overall_ktype, height = 4.5, width = 9.5)
+```
+
+## 5.2 Visitation ~ tongue length
+```{r}
+gam1b <- gam(mean.prop.visits ~ 
+              ktype + 
+              s(pbl.w, by = ktype, k = 5),
+             family = betar(eps = 0.001),
+            data = visitation_prop) %>% getViz()
+
+summary(gam1b)
+check.gamViz(gam1b)
+#plot.gamViz(gam1, allTerms = TRUE)
+
+# Extract predictions
+inv_logit <- function(x) {
+  exp(x)/(1+exp(x))
+}
+
+gam1b_pred <- predict_gam(gam1b) %>%
+  mutate(fit.plus.se = inv_logit(fit + (2*se.fit)),
+         fit.minus.se = inv_logit(fit - (2*se.fit)),
+         fit = inv_logit(fit))
+
+raw_visits_pbl_GAM <- ggplot(gam1b_pred, aes(pbl.w, fit)) +
+  geom_line() + # fit line
+  geom_ribbon(aes(ymin = fit.minus.se, ymax = fit.plus.se), # Uncertainty
+              fill = "black", alpha = 0.2) +
+  geom_point(data = visitation_prop, # Original data
+             aes(pbl.w, mean.prop.visits, color = reorder(bb.sp, pbl.w)), 
+             inherit.aes = FALSE, alpha = 0.5) +
+  facet_wrap(~ktype) +
+  labs(x = "Tongue length (mm)", y = "Mean proportional visitation", 
+       color = "Species") +
+  scale_x_continuous(labels = scales::number_format(accuracy = 1)) +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.01)) +
+  theme_light(10)
+
+null_model_pbl_GAM <- ggplot(gam1_pred, aes(pbl.w, fit)) +
+  geom_line() + # fit line
+  geom_ribbon(aes(ymin = fit.minus.se, ymax = fit.plus.se), # Uncertainty
+              fill = "black", alpha = 0.2) +
+  geom_point(data = null_tab1, # Original data
+             aes(pbl.w, preference, color = bb.sp), 
+             inherit.aes = FALSE, alpha = 0.5) +
+  #scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  facet_wrap(~ktype) +
+  labs(x = "Tongue length (mm)", y = "Bias", 
+       color = "Species") +
+  scale_x_continuous(labels = scales::number_format(accuracy = 1)) +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.01)) +
+  theme_light(10)
+
+pbl_GAM_plot <- (null_model_pbl_GAM | raw_visits_pbl_GAM) + 
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = 'A')
+
+ggsave("../ms_2/figures/ktypeXtonguelength_raw_visitation.pdf", pbl_GAM_plot, height = 5, width = 8.5)
+ggsave("../ms_2/figures/ktypeXtonguelength_raw_visitation.png", pbl_GAM_plot, height = 5, width =8.5)
+```
+
+## 5.3 Ordination of raw visitation
+```{r}
+# Visitation matrix
+uncorrected_visits <- visitation_prop %>%
+  select(bb.sp, ktype, mean.prop.visits) %>%
+  pivot_wider(names_from = ktype, values_from = mean.prop.visits) %>%
+  column_to_rownames("bb.sp")
+
+# Call PCA
+pcoa_visits <- capscale(uncorrected_visits ~ 1 , distance = "horn")
+
+# Extract tongue length data
+tongues2 <- bb_traits %>%
+  semi_join(visitation_prop) %>%
+  arrange(bb.sp)
+
+# Ordisurf on tongue length
+ordisurf_visits <- ordisurf(pca_visits, tongues2$pbl.w) 
+summary(ordisurf_visits)
+
+# Get variance explained
+pcoa_visits_mds1 <- round(pcoa_visits$CA$eig[[1]] / sum(pcoa_visits$CA$eig)*100)
+pcoa_visits_mds2 <- round(pcoa_visits$CA$eig[[2]] / sum(pcoa_visits$CA$eig)*100)
+
+# Fortify whole model
+pcoa_visits.fort <- fortify(pcoa_visits, axes = 1:2) %>%
+  # for plotting, I prefer ktype to be numerically coded
+  mutate(Label = recode(Label,
+                        "disc" = "1",
+                        "funnel" = "2",
+                        "bell" = "3",
+                        "stalk-disc" = "4",
+                        "lip" = "5",
+                        "flag" = "6",
+                        "head" = "7")) 
+
+# Fortify plants
+pcoa_visits.fort1 <- fortify(pcoa_visits, axes = 1:2) %>%
+  filter(Score == "species") %>%
+  rename(ktype = Label) %>%
+  # for plotting, I prefer ktype to be numerically coded
+  mutate(ktype = recode(ktype,
+                        "disc" = "1",
+                        "funnel" = "2",
+                        "bell" = "3",
+                        "stalk-disc" = "4",
+                        "lip" = "5",
+                        "flag" = "6",
+                        "head" = "7"))
+
+# Fortify bees
+pcoa_visits.fort2 <- fortify(pcoa_visits, axes = 1:2) %>%
+  filter(Score == "sites") %>%
+  rename(bb.sp = Label) %>%
+  left_join(bb_traits)
+
+
+# Plot ordisurf
+
+## Plotting function based on https://oliviarata.wordpress.com/2014/07/17/ordinations-in-ggplot2-v2-ordisurf/
+surfplot2 <- function(x, y, min_score = 0, pca1, pca2) {
+  
+  grid <- x$grid # extracts the ordisurf object
+  grid_exp <- expand.grid(x = grid$x, y = grid$y) # get x and ys
+  grid_exp$z <- as.vector(grid$z) # unravel the matrix for the z scores
+  
+  contours <- data.frame(na.omit(grid_exp)) %>% # gets rid of the nas
+    as_tibble() %>%
+    rename(MDS1 = x, MDS2 = y)
+  
+  scores <- y %>% 
+    filter((abs(MDS1) > min_score | abs(MDS2) > min_score) | Score == "BB.sp") %>%
+    mutate(max.score = max(MDS1, MDS2))
+  
+  ggplot(scores, aes(MDS1, MDS2, pch = Score)) +
+    geom_contour(data = contours, 
+                 aes(MDS1, MDS2, z = z, color = stat(level)),
+                 size = 2, alpha = 0.4, inherit.aes = FALSE) +
+    #geom_point(size = 2) +
+    geom_text_repel(aes(MDS1, MDS2, label = Label), key_glyph = "rect") +
+    theme_light() +
+    scale_color_viridis_c(name = "Tongue length") +
+    xlab(paste("MDS1 ", "(", pca1, "%", ")", sep = "")) +
+    ylab(paste("MDS2 ", "(", pca2, "%", ")", sep = "")) +
+    coord_fixed() # Gavin Simpson says this is **really** important
+}
+
+## Plot
+raw_visitation_ord <- surfplot2(ordisurf_visits, pcoa_visits.fort, 
+         pca1 = pcoa_visits_mds1, pca2 = pcoa_visits_mds2)
+
+ordination_plot <- (bias_ord | raw_visitation_ord) +
+  plot_layout(guides = "collect") +
+  plot_annotation(tag_levels = 'A')
+
+ggsave("../ms_2/figures/paired_ordination.png", ordination_plot, height = 6, width = 9.5)
+ggsave("../ms_2/figures/paired_ordination.pdf", ordination_plot,  height = 6, width = 9.5)
+```
+
+
+## 5.4 Raw visitation ~ ktype x elevation x time
+### 5.4.1 Call model
+Binomial model works better than beta because of all the ones an zeros.
+```{r}
+visit_cover_sitedate <- visitation %>% 
+  group_by(sample.id, bb.sp, ktype) %>%
+  summarize(visits = n()) %>%
+  group_by(sample.id, bb.sp) %>%
+  mutate(prop.visits = visits/sum(visits)) %>%
+  select(sample.id, bb.sp, ktype, prop.visits) %>%
+  group_by(bb.sp) %>%
+  nest() %>%
+  mutate(fill = map(data, function(x) full_join(x, flower_cover_ktype) %>% replace_na(replace = list(prop.visits = 0)))) %>%
+  unnest(fill) %>%
+  select(-data) %>%
+  filter(!ktype %in% c("0", "9")) %>% # type 0 were not reliably quantified (and rarely visited) and type 9 was vanishingly rare
+  droplevels() %>%
+  left_join(bb_traits) %>%
+  separate(sample.id, c("site", "date"), sep = "_") %>%
+  left_join(site_data) %>%
+  unite(bb.ktype, c(bb.sp, ktype), remove = FALSE) %>%
+  mutate(date = ymd(date),
+         yday = yday(date),
+         bb.ktype = factor(bb.ktype),
+         site = factor(site),
+         year = year(date)) 
+  
+# Binomial model
+gam5 <- bam(prop.visits ~
+              bb.ktype +
+              s(site, by = bb.ktype, bs = "re") +
+              s(year, by = bb.ktype, bs = "re") +
+              te(yday, elev.mean, by = bb.ktype),
+            #family = betar(eps = 0.001),
+            family = "binomial",
+            method = "fREML",
+            discrete = TRUE,
+            data = filter(visit_cover_sitedate, 
+                          bb.sp %in% c("pasc", "prat", "telu", "hort", "soro", "wurf") &
+                                         ktype %in% c("3", "5", "6", "7"))) %>% 
+  getViz()
+
+check.gamViz(gam5)
+gam5_sum <- summary(gam5, re.test = FALSE) 
+plot.gamViz(gam5)
+
+# 
+# # Beta model
+# gam5b <- bam(prop.visits ~
+#               bb.ktype +
+#               s(site, by = bb.ktype, bs = "re") +
+#               s(year, by = bb.ktype, bs = "re") +
+#               te(yday, elev.mean, by = bb.ktype),
+#             #family = betar(eps = 0.001),
+#             family = betar(),
+#             #family = "binomial",
+#             method = "fREML",
+#             discrete = TRUE,
+#             data = filter(visit_cover_sitedate, 
+#                           bb.sp %in% c("pasc", "prat", "telu", "hort", "soro", "wurf") &
+#                                          ktype %in% c("bell", "lip", "flag", "head"))) %>% 
+#   getViz()
+# 
+# check.gamViz(gam5b)
+# summary(gam5b, re.test = FALSE) 
+# plot.gamViz(gam5b)
+```
+
+### 5.4.2 Plot model
+```{r}
+# Tabulate model summary
+gam5_s_table <- gam5_sum$s.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  filter(str_detect(term, "te\\(")) %>%
+  mutate(term = str_extract(term, ".{6}$")) %>%
+  separate(term, c("bb.sp", "ktype")) %>%
+  mutate(pval = signif(`p-value`, digits = 3)) %>%
+  select(bb.sp, ktype, edf, pval) %>%
+  as_tibble() %>%
+  mutate(ktype = case_when(
+    ktype == 3 ~ "bell",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head"  )) %>%
+  mutate(ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")))
+  
+# Extract plotting data.
+hort_3_gam5 <- plot(sm(gam5, 49))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("bell", n()))
+
+hort_5_gam5 <- plot(sm(gam5, 50))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("lip", n()))
+
+hort_6_gam5 <- plot(sm(gam5, 51))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("flag", n()))
+
+hort_7_gam5 <- plot(sm(gam5, 52))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("head", n()))
+
+
+pasc_3_gam5 <- plot(sm(gam5, 53))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("bell", n()))
+
+pasc_5_gam5 <- plot(sm(gam5, 54))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("lip", n()))
+
+pasc_6_gam5 <- plot(sm(gam5, 55))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("flag", n()))
+
+pasc_7_gam5 <- plot(sm(gam5, 56))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("head", n()))
+
+
+prat_3_gam5 <- plot(sm(gam5, 57))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("bell", n()))
+
+prat_5_gam5 <- plot(sm(gam5, 58))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("lip", n()))
+
+prat_6_gam5 <- plot(sm(gam5, 59))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("flag", n()))
+
+prat_7_gam5 <- plot(sm(gam5, 60))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("head", n()))
+
+
+soro_3_gam5 <- plot(sm(gam5, 61))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("bell", n()))
+
+soro_5_gam5 <- plot(sm(gam5, 62))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("lip", n()))
+
+soro_6_gam5 <- plot(sm(gam5, 63))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("flag", n()))
+
+soro_7_gam5 <- plot(sm(gam5, 64))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("head", n()))
+
+
+telu_3_gam5 <- plot(sm(gam5, 65))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("bell", n()))
+
+telu_5_gam5 <- plot(sm(gam5, 66))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("lip", n()))
+
+telu_6_gam5 <- plot(sm(gam5, 67))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("flag", n()))
+
+telu_7_gam5 <- plot(sm(gam5, 68))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("head", n()))
+
+
+wurf_3_gam5 <- plot(sm(gam5, 69))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("bell", n()))
+
+wurf_5_gam5 <- plot(sm(gam5, 70))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("lip", n()))
+
+wurf_6_gam5 <- plot(sm(gam5, 71))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("flag", n()))
+
+wurf_7_gam5 <- plot(sm(gam5, 72))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("head", n()))
+
+plotting_data_gam5 <- bind_rows(hort_3_gam5, hort_5_gam5, hort_6_gam5, hort_7_gam5,
+                           pasc_3_gam5, pasc_5_gam5, pasc_6_gam5, pasc_7_gam5,
+                           prat_3_gam5, prat_5_gam5, prat_6_gam5, prat_7_gam5,
+                           soro_3_gam5, soro_5_gam5, soro_6_gam5, soro_7_gam5,
+                           telu_3_gam5, telu_5_gam5, telu_6_gam5, telu_7_gam5,
+                           wurf_3_gam5, wurf_5_gam5, wurf_6_gam5, wurf_7_gam5) %>%
+  group_by(bb.sp, ktype) %>%
+  mutate(z.norm = scale(z, center = FALSE),
+         ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")),
+         date = as_date(x)) %>%
+  ungroup() %>%
+  left_join(bb_traits) %>%
+  left_join(gam5_s_table) %>%
+  select(z, z.norm, date, x, elevation = y, se, 
+         bb.sp, ktype, pbl.w, edf, pval) %>%
+  mutate(sig = if_else(pval < 0.05, TRUE, FALSE))
+
+ggplot(plotting_data_gam5, aes(date, elevation, z = z.norm, fill = z.norm)) +
+  geom_raster() +
+  geom_contour(color = "black",
+               size = 0.1,
+               bins = 40,
+               aes(linetype = sig)) + # by fixing bins, we scale contours to each plot while letting the color ramp represent differences in scale across plots; I think this is a good compromise
+  facet_grid(reorder(bb.sp, -pbl.w) ~ ktype) +
+  scale_linetype_manual(values = c("dotted", "solid"))+
+  scale_fill_viridis_c(na.value = "transparent") +
+  labs(x = NULL, y = "Elevation (m)", fill = "Normalized\neffect", linetype = "p < 0.05") +
+  theme_light(12) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+ggsave("../ms_2/figures/raw_visitation_gam.pdf", height = 5, width = 6.5)
+ggsave("../ms_2/figures/raw_visitation_gam.png", height = 5, width = 6.5)
+```
+
+
+## 5.5 Raw flower cover
+Beta seems to work a bit better for the flower cover, probably because it does not contain many ones or any zeros.
+
+### 5.5.1 Call model
+```{r}
+flower_cover_ktype.prop <- flower_cover_ktype %>%
+  group_by(sample.id) %>%
+  mutate(prop.cover = cover/sum(cover)) %>%
+  separate(sample.id, c("site", "date"), sep = "_") %>%
+  mutate(date = ymd(date),
+         yday = yday(date),
+         ktype = factor(ktype),
+         site = factor(site),
+         year = year(date)) %>%
+  filter(!ktype %in% c("10", "0", "9")) %>% # type 0 were not reliably quantified (and rarely visited) and type 9 was vanishingly rare
+  droplevels() %>%
+  left_join(site_data)
+
+gam6 <- bam(prop.cover ~
+              ktype +
+              s(site, by = ktype, bs = "re") +
+              s(year, by = ktype, bs = "re") +
+              te(yday, elev.mean, by = ktype),
+            #family = betar(eps = 0.001),
+            family = "binomial",
+            method = "fREML",
+            discrete = TRUE,
+            data = filter(flower_cover_ktype.prop, 
+                            ktype %in% c("3", "5", "6", "7"))) %>% 
+  getViz()
+
+check.gamViz(gam6)
+gam6_sum <- summary(gam6, re.test = FALSE) 
+plot.gamViz(gam6)
+
+gam6b <- bam(prop.cover ~
+              ktype +
+              s(site, by = ktype, bs = "re") +
+              s(year, by = ktype, bs = "re") +
+              te(yday, elev.mean, by = ktype),
+            family = betar(),
+            #family = "binomial",
+            method = "fREML",
+            discrete = TRUE,
+            data = filter(flower_cover_ktype.prop, 
+                            ktype %in% c("3", "5", "6", "7"))) %>% 
+  getViz()
+
+check.gamViz(gam6b)
+gam6b_sum <- summary(gam6b, re.test = FALSE) 
+plot.gamViz(gam6b)
+```
+
+### 5.5.2 Plot model
+```{r}
+# Tabulate model summary
+gam6b_s_table <- gam6b_sum$s.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  filter(str_detect(term, "te\\(")) %>%
+  mutate(term = str_extract(term, ".{1}$")) %>%
+  rename(ktype = term) %>%
+  mutate(pval = signif(`p-value`, digits = 3)) %>%
+  select(ktype, edf, pval) %>%
+  as_tibble() %>%
+  mutate(ktype = case_when(
+    ktype == 3 ~ "bell",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head"  )) %>%
+  mutate(ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")))
+  
+# Extract plotting data.
+ktype_3_gam6b <- plot(sm(gam6b, 9))$ggObj[[1]] %>%
+  mutate(ktype = rep("bell", n()))
+
+ktype_5_gam6b <- plot(sm(gam6b, 10))$ggObj[[1]] %>%
+  mutate(ktype = rep("lip", n()))
+
+ktype_6_gam6b <- plot(sm(gam6b, 11))$ggObj[[1]] %>%
+  mutate(ktype = rep("flag", n()))
+
+ktype_7_gam6b <- plot(sm(gam6b, 12))$ggObj[[1]] %>%
+  mutate(ktype = rep("head", n()))
+
+plotting_data_gam6b <- bind_rows(ktype_3_gam6b, ktype_5_gam6b, ktype_6_gam6b, ktype_7_gam6b) %>%
+  group_by(ktype) %>%
+  mutate(z.norm = scale(z, center = FALSE),
+         ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")),
+         date = as_date(x)) %>%
+  ungroup() %>%
+  left_join(gam6b_s_table) %>%
+  select(z, z.norm, date, x, elevation = y, se, 
+         ktype, edf, pval) %>%
+  mutate(sig = if_else(pval < 0.05, TRUE, FALSE))
+
+ggplot(plotting_data_gam6b, aes(date, elevation, z = z.norm, fill = z.norm)) +
+  geom_raster() +
+  geom_contour(color = "black",
+               size = 0.1,
+               bins = 40) + # by fixing bins, we scale contours to each plot while letting the color ramp represent differences in scale across plots; I think this is a good compromise
+  facet_wrap(~ktype) +
+  scale_fill_viridis_c(na.value = "transparent") +
+  labs(x = NULL, y = "Elevation (m)", fill = "Normalized\neffect", linetype = "p < 0.05") +
+  theme_light(12) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+ggsave("../ms_2/figures/flower_cover_gam.pdf", height = 5, width = 6.5)
+ggsave("../ms_2/figures/flower_cover_gam.png", height = 5, width = 6.5)
+```
+
