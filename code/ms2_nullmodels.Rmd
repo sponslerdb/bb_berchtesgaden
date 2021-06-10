@@ -238,17 +238,17 @@ ggsave("../ms_2/figures/null_model_ktypewise_preference.png", height = 5, width 
 
 ## 2.2 Overall bias by morphotype
 ```{r}
-ggplot(null_tab1, aes(ktype, preference)) +
+null_model_overall<- ggplot(null_tab1, aes(ktype, preference)) +
   #geom_violin(fill = "gray70", color = "white", draw_quantiles = c(0.25, 0.5, 0.75)) +
   geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
   geom_jitter(aes(color = Test), width = 0.3, alpha = 0.6) +
-  theme_light(14) +
+  theme_light(10) +
   scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
   labs(x = "Floral morphotype",
-       y = "Bias")
+       y = "Selectivity")
 
-ggsave("../ms_2/figures/null_model_ktype_preference.pdf", height = 6, width = 7)
-ggsave("../ms_2/figures/null_model_ktype_preference.png", height = 6, width = 7)
+ggsave("../ms_2/figures/null_model_ktype_preference.pdf", null_model_overall, height = 6, width = 7)
+ggsave("../ms_2/figures/null_model_ktype_preference.png", null_model_overall, height = 6, width = 7)
 ```
 
 ## 2.3 Bias by morphotype ~ tongue length
@@ -265,38 +265,53 @@ ggplot(null_tab1, aes(pbl.w, preference)) +
   theme_light()
 ```
 
-### 2.3.2 Model
+### 2.3.2 Call model 
 ```{r}
 gam1 <- gam(preference ~ 
               ktype + 
               s(pbl.w, by = ktype, k = 5), 
             data = null_tab1) %>% getViz()
 
-summary(gam1)
+gam1_sum <- summary(gam1)
 check.gamViz(gam1)
 #plot.gamViz(gam1, allTerms = TRUE)
+```
+
+### 2.3.3 Plot
+```{r}
+# Tabulate model summary
+gam1_s_table <- gam1_sum$s.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  mutate(ktype = str_extract(term, "(?<=ktype).*$")) %>%
+  mutate(pval = signif(`p-value`, digits = 3)) %>%
+  select(ktype, edf, pval) %>%
+  as_tibble() %>%
+  mutate(ktype = factor(ktype))
 
 # Extract predictions
 gam1_pred <- predict_gam(gam1) %>%
   mutate(fit.plus.se = fit + (2*se.fit),
-         fit.minus.se = fit - (2*se.fit)) 
+         fit.minus.se = fit - (2*se.fit)) %>%
+  left_join(gam1_s_table) %>%
+  mutate(sig = if_else(pval < 0.05, TRUE, FALSE)) %>%
+  mutate(sig = factor(sig, levels = c(TRUE, FALSE)))
 
 # Plot
-ggplot(gam1_pred, aes(pbl.w, fit)) +
-  geom_line() + # fit line
+null_model_pbl_GAM <- ggplot(gam1_pred, aes(pbl.w, fit)) +
+  geom_line(aes(linetype = sig)) + # fit line, linetype for significance
   geom_ribbon(aes(ymin = fit.minus.se, ymax = fit.plus.se), # Uncertainty
               fill = "black", alpha = 0.2) +
   geom_point(data = null_tab1, # Original data
              aes(pbl.w, preference, color = bb.sp), 
              inherit.aes = FALSE, alpha = 0.5) +
-  #scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
   facet_wrap(~ktype) +
-  labs(x = "Tongue length (mm)", y = "Bias", 
-       color = "Species") +
-  theme_light()
+  labs(x = "Tongue length (mm)", y = "Selectivity", 
+       color = "Species", linetype = "p < 0.05") +
+  theme_light(10)
 
-ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference.pdf", height = 6, width = 7)
-ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference.png", height = 6, width = 7)
+ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference.pdf", null_model_pbl_GAM, height = 6, width = 7)
+ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference.png", null_model_pbl_GAM, height = 6, width = 7)
 ```
 
 ## 2.4 Ordinate preferences
@@ -755,9 +770,29 @@ gam3.1 <- bam(preference ~
                               ktype %in% c("bell", "lip", "flag", "head"))) %>% 
                 getViz()
 
-#check.gamViz(gam3.1)
-#gam3.1_sum <- summary(gam3.1, re.test = FALSE)
-#plot.gamViz(gam3.1, allTerms = TRUE)
+check.gamViz(gam3.1)
+gam3.1_sum <- summary(gam3.1, re.test = FALSE)
+plot.gamViz(gam3.1, allTerms = TRUE)
+
+gam3.1b <- bam(preference ~
+                bb.ktype +
+                s(site, by = bb.ktype, bs = "re") +
+                s(year, by = bb.ktype, bs = "re") +
+                te(yday, elev.mean, by = bb.ktype),
+              family = "gaussian",
+              method = "fREML",
+              discrete = TRUE,
+              data = filter(null_tab3_join, 
+                            bb.sp %in% c("hort", "prat", "telu", 
+                                         "wurf", "soro", "pasc") &
+                              ktype %in% c("bell", "lip", "flag", "head") &
+                              prop.cover < 0.5)) %>% 
+                getViz()
+
+
+check.gamViz(gam3.1b)
+gam3.1b_sum <- summary(gam3.1b, re.test = FALSE)
+plot.gamViz(gam3.1b, allTerms = TRUE)
 ```
 
 #### 4.1.1.2 Plot model
@@ -915,6 +950,160 @@ ggplot(plotting_data__gam3.1, aes(date, elevation, z = z.norm, fill = z.norm)) +
 
 ggsave("../ms_2/figures/preference_lability_gam.pdf", height = 5, width = 6.5)
 ggsave("../ms_2/figures/preference_lability_gam.png", height = 5, width = 6.5)
+
+# And now having dropped the high abundance outliers
+gam3.1b_s_table <- gam3.1b_sum$s.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  filter(str_detect(term, "te\\(")) %>%
+  mutate(term = str_extract(term, ".{6}$")) %>%
+  separate(term, c("bb.sp", "ktype")) %>%
+  mutate(ktype = case_when(
+    ktype == 3 ~ "bell",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head"
+  )) %>%
+  mutate(pval = signif(`p-value`, digits = 3)) %>%
+  select(bb.sp, ktype, edf, pval) %>%
+  as_tibble() %>%
+  mutate(ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")))
+  
+# Extract plotting data.
+hort_3_gam3.1b <- plot(sm(gam3.1b, 49))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("bell", n()))
+
+hort_5_gam3.1b <- plot(sm(gam3.1b, 50))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("lip", n()))
+
+hort_6_gam3.1b <- plot(sm(gam3.1b, 51))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("flag", n()))
+
+hort_7_gam3.1b <- plot(sm(gam3.1b, 52))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("hort", n()),
+         ktype = rep("head", n()))
+
+
+pasc_3_gam3.1b <- plot(sm(gam3.1b, 53))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("bell", n()))
+
+pasc_5_gam3.1b <- plot(sm(gam3.1b, 54))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("lip", n()))
+
+pasc_6_gam3.1b <- plot(sm(gam3.1b, 55))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("flag", n()))
+
+pasc_7_gam3.1b <- plot(sm(gam3.1b, 56))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("pasc", n()),
+         ktype = rep("head", n()))
+
+
+prat_3_gam3.1b <- plot(sm(gam3.1b, 57))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("bell", n()))
+
+prat_5_gam3.1b <- plot(sm(gam3.1b, 58))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("lip", n()))
+
+prat_6_gam3.1b <- plot(sm(gam3.1b, 59))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("flag", n()))
+
+prat_7_gam3.1b <- plot(sm(gam3.1b, 60))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("prat", n()),
+         ktype = rep("head", n()))
+
+
+soro_3_gam3.1b <- plot(sm(gam3.1b, 61))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("bell", n()))
+
+soro_5_gam3.1b <- plot(sm(gam3.1b, 62))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("lip", n()))
+
+soro_6_gam3.1b <- plot(sm(gam3.1b, 63))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("flag", n()))
+
+soro_7_gam3.1b <- plot(sm(gam3.1b, 64))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("soro", n()),
+         ktype = rep("head", n()))
+
+
+telu_3_gam3.1b <- plot(sm(gam3.1b, 65))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("bell", n()))
+
+telu_5_gam3.1b <- plot(sm(gam3.1b, 66))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("lip", n()))
+
+telu_6_gam3.1b <- plot(sm(gam3.1b, 67))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("flag", n()))
+
+telu_7_gam3.1b <- plot(sm(gam3.1b, 68))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("telu", n()),
+         ktype = rep("head", n()))
+
+
+wurf_3_gam3.1b <- plot(sm(gam3.1b, 69))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("bell", n()))
+
+wurf_5_gam3.1b <- plot(sm(gam3.1b, 70))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("lip", n()))
+
+wurf_6_gam3.1b <- plot(sm(gam3.1b, 71))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("flag", n()))
+
+wurf_7_gam3.1b <- plot(sm(gam3.1b, 72))$ggObj[[1]] %>%
+  mutate(bb.sp = rep("wurf", n()),
+         ktype = rep("head", n()))
+
+plotting_data__gam3.1b <- bind_rows(hort_3_gam3.1b, hort_5_gam3.1b, hort_6_gam3.1b, hort_7_gam3.1b,
+                           pasc_3_gam3.1b, pasc_5_gam3.1b, pasc_6_gam3.1b, pasc_7_gam3.1b,
+                           prat_3_gam3.1b, prat_5_gam3.1b, prat_6_gam3.1b, prat_7_gam3.1b,
+                           soro_3_gam3.1b, soro_5_gam3.1b, soro_6_gam3.1b, soro_7_gam3.1b,
+                           telu_3_gam3.1b, telu_5_gam3.1b, telu_6_gam3.1b, telu_7_gam3.1b,
+                           wurf_3_gam3.1b, wurf_5_gam3.1b, wurf_6_gam3.1b, wurf_7_gam3.1b) %>%
+  group_by(bb.sp, ktype) %>%
+  mutate(z.norm = scale(z, center = FALSE),
+         ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")),
+         date = as_date(x)) %>%
+  ungroup() %>%
+  left_join(bb_traits) %>%
+  left_join(gam3.1b_s_table) %>%
+  select(z, z.norm, date, x, elevation = y, se, 
+         bb.sp, ktype, pbl.w, edf, pval) %>%
+  mutate(sig = if_else(pval < 0.05, TRUE, FALSE))
+
+ggplot(plotting_data__gam3.1b, aes(date, elevation, z = z.norm, fill = z.norm)) +
+  geom_raster() +
+  geom_contour(color = "black",
+               size = 0.1,
+               bins = 40,
+               aes(linetype = sig)) + # by fixing bins, we scale contours to each plot while letting the color ramp represent differences in scale across plots; I think this is a good compromise
+  facet_grid(reorder(bb.sp, -pbl.w) ~ ktype) +
+  scale_linetype_manual(values = c("dotted", "solid"))+
+  scale_fill_viridis_c(na.value = "transparent") +
+  labs(x = NULL, y = "Elevation (m)", fill = "Normalized\neffect", linetype = "p < 0.05") +
+  theme_light(12) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+ggsave("../ms_2/figures/preference_lability_gam.pdf", height = 5, width = 6.5)
+ggsave("../ms_2/figures/preference_lability_gam.png", height = 5, width = 6.5)
 ```
 
 ### 4.2 Any residue of abundance?
@@ -932,11 +1121,21 @@ ggplot(filter(null_tab3_join,
 ggplot(filter(null_tab3_join,
               bb.sp %in% c("hort", "prat", "telu", 
                            "wurf", "soro", "pasc") &
-                ktype %in% c("bell", "lip", "flag", "head")), aes(cover, preference)) +
+                ktype %in% c("bell", "lip", "flag", "head") &
+                prop.cover < 0.5), aes(prop.cover, preference)) +
   geom_point(alpha = 0.2) +
   geom_smooth(method = "lm") +
-  facet_grid(bb.sp~ktype, scales = "free") +
+  facet_grid(bb.sp~ktype) +
   ylim(c(-1, 1))
+
+ggplot(filter(abundance, ktype %in% c("bell", "lip", "flag", "head")), 
+       aes(prop.cover)) +
+  geom_histogram() +
+  facet_wrap(~ktype)
+
+ggplot(abundance, aes(prop.cover)) +
+  geom_histogram() +
+  facet_wrap(~ktype)
 
 #########################################################
 # Can we wiggle out of this problem via transformation? #
@@ -1628,16 +1827,18 @@ visitation_prop <- visitation %>%
                                           "flag", "head", "brush"))) %>%
   filter(!ktype %in% c("null", "brush")) %>% # type 0 were not reliably quantified (and rarely visited) and type 9 was vanishingly rare
   droplevels() %>%
-  left_join(bb_traits)
+  left_join(bb_traits) %>%
+  ungroup() %>%
+  mutate(bb.sp = fct_reorder(factor(bb.sp), pbl.w))
 
-null_model_overall <- ggplot(null_tab1, aes(ktype, preference)) +
-  #geom_violin(fill = "gray70", color = "white", draw_quantiles = c(0.25, 0.5, 0.75)) +
-  geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
-  geom_jitter(aes(color = Test), width = 0.3, alpha = 0.6) +
-  theme_light(10) +
-  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
-  labs(x = "Floral morphotype",
-       y = "Bias")
+# null_model_overall <- ggplot(null_tab1, aes(ktype, preference)) +
+#   #geom_violin(fill = "gray70", color = "white", draw_quantiles = c(0.25, 0.5, 0.75)) +
+#   geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
+#   geom_jitter(aes(color = Test), width = 0.3, alpha = 0.6) +
+#   theme_light(10) +
+#   scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+#   labs(x = "Floral morphotype",
+#        y = "Bias")
 
 raw_visits_overall <- ggplot(visitation_prop, aes(ktype, mean.prop.visits)) +
   geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
@@ -1664,7 +1865,7 @@ gam1b <- gam(mean.prop.visits ~
              family = betar(eps = 0.001),
             data = visitation_prop) %>% getViz()
 
-summary(gam1b)
+gam1b_sum <- summary(gam1b)
 check.gamViz(gam1b)
 #plot.gamViz(gam1, allTerms = TRUE)
 
@@ -1673,46 +1874,44 @@ inv_logit <- function(x) {
   exp(x)/(1+exp(x))
 }
 
+# Tabulate model summary
+gam1b_s_table <- gam1b_sum$s.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  mutate(ktype = str_extract(term, "(?<=ktype).*$")) %>%
+  mutate(pval = signif(`p-value`, digits = 3)) %>%
+  select(ktype, edf, pval) %>%
+  as_tibble() %>%
+  mutate(ktype = factor(ktype))
+
+# Extract predictions
 gam1b_pred <- predict_gam(gam1b) %>%
   mutate(fit.plus.se = inv_logit(fit + (2*se.fit)),
          fit.minus.se = inv_logit(fit - (2*se.fit)),
-         fit = inv_logit(fit))
+         fit = inv_logit(fit)) %>%
+  left_join(gam1b_s_table) %>%
+  mutate(sig = if_else(pval < 0.05, TRUE, FALSE)) %>%
+  mutate(sig = factor(sig, levels = c(TRUE, FALSE)))
 
+# Plot
 raw_visits_pbl_GAM <- ggplot(gam1b_pred, aes(pbl.w, fit)) +
-  geom_line() + # fit line
+  geom_line(aes(linetype = sig)) + # fit line, linetype for significance
   geom_ribbon(aes(ymin = fit.minus.se, ymax = fit.plus.se), # Uncertainty
               fill = "black", alpha = 0.2) +
   geom_point(data = visitation_prop, # Original data
-             aes(pbl.w, mean.prop.visits, color = reorder(bb.sp, pbl.w)), 
+             aes(pbl.w, mean.prop.visits, color = bb.sp), 
              inherit.aes = FALSE, alpha = 0.5) +
   facet_wrap(~ktype) +
   labs(x = "Tongue length (mm)", y = "Mean proportional visitation", 
-       color = "Species") +
-  scale_x_continuous(labels = scales::number_format(accuracy = 1)) +
-  scale_y_continuous(labels = scales::number_format(accuracy = 0.01)) +
-  theme_light(10)
-
-null_model_pbl_GAM <- ggplot(gam1_pred, aes(pbl.w, fit)) +
-  geom_line() + # fit line
-  geom_ribbon(aes(ymin = fit.minus.se, ymax = fit.plus.se), # Uncertainty
-              fill = "black", alpha = 0.2) +
-  geom_point(data = null_tab1, # Original data
-             aes(pbl.w, preference, color = bb.sp), 
-             inherit.aes = FALSE, alpha = 0.5) +
-  #scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
-  facet_wrap(~ktype) +
-  labs(x = "Tongue length (mm)", y = "Bias", 
-       color = "Species") +
-  scale_x_continuous(labels = scales::number_format(accuracy = 1)) +
-  scale_y_continuous(labels = scales::number_format(accuracy = 0.01)) +
+       color = "Species", linetype = "p < 0.05") +
   theme_light(10)
 
 pbl_GAM_plot <- (null_model_pbl_GAM | raw_visits_pbl_GAM) + 
   plot_layout(guides = "collect") +
   plot_annotation(tag_levels = 'A')
 
-ggsave("../ms_2/figures/ktypeXtonguelength_raw_visitation.pdf", pbl_GAM_plot, height = 5, width = 8.5)
-ggsave("../ms_2/figures/ktypeXtonguelength_raw_visitation.png", pbl_GAM_plot, height = 5, width =8.5)
+ggsave("../ms_2/figures/ktypeXtonguelength_paired.pdf", pbl_GAM_plot, height = 5, width = 9.5)
+ggsave("../ms_2/figures/ktypeXtonguelength_paired.png", pbl_GAM_plot, height = 5, width = 9.5)
 ```
 
 ## 5.3 Ordination of raw visitation
@@ -1732,7 +1931,7 @@ tongues2 <- bb_traits %>%
   arrange(bb.sp)
 
 # Ordisurf on tongue length
-ordisurf_visits <- ordisurf(pca_visits, tongues2$pbl.w) 
+ordisurf_visits <- ordisurf(pcoa_visits, tongues2$pbl.w) 
 summary(ordisurf_visits)
 
 # Get variance explained
