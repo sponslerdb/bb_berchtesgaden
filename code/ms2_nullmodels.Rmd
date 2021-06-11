@@ -773,26 +773,6 @@ gam3.1 <- bam(preference ~
 check.gamViz(gam3.1)
 gam3.1_sum <- summary(gam3.1, re.test = FALSE)
 plot.gamViz(gam3.1, allTerms = TRUE)
-
-gam3.1b <- bam(preference ~
-                bb.ktype +
-                s(site, by = bb.ktype, bs = "re") +
-                s(year, by = bb.ktype, bs = "re") +
-                te(yday, elev.mean, by = bb.ktype),
-              family = "gaussian",
-              method = "fREML",
-              discrete = TRUE,
-              data = filter(null_tab3_join, 
-                            bb.sp %in% c("hort", "prat", "telu", 
-                                         "wurf", "soro", "pasc") &
-                              ktype %in% c("bell", "lip", "flag", "head") &
-                              prop.cover < 0.5)) %>% 
-                getViz()
-
-
-check.gamViz(gam3.1b)
-gam3.1b_sum <- summary(gam3.1b, re.test = FALSE)
-plot.gamViz(gam3.1b, allTerms = TRUE)
 ```
 
 #### 4.1.1.2 Plot model
@@ -950,160 +930,30 @@ ggplot(plotting_data__gam3.1, aes(date, elevation, z = z.norm, fill = z.norm)) +
 
 ggsave("../ms_2/figures/preference_lability_gam.pdf", height = 5, width = 6.5)
 ggsave("../ms_2/figures/preference_lability_gam.png", height = 5, width = 6.5)
+```
 
-# And now having dropped the high abundance outliers
-gam3.1b_s_table <- gam3.1b_sum$s.table %>%
-  as.data.frame() %>%
-  rownames_to_column("term") %>%
-  filter(str_detect(term, "te\\(")) %>%
-  mutate(term = str_extract(term, ".{6}$")) %>%
-  separate(term, c("bb.sp", "ktype")) %>%
-  mutate(ktype = case_when(
-    ktype == 3 ~ "bell",
-    ktype == 5 ~ "lip",
-    ktype == 6 ~ "flag",
-    ktype == 7 ~ "head"
-  )) %>%
-  mutate(pval = signif(`p-value`, digits = 3)) %>%
-  select(bb.sp, ktype, edf, pval) %>%
-  as_tibble() %>%
-  mutate(ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")))
-  
-# Extract plotting data.
-hort_3_gam3.1b <- plot(sm(gam3.1b, 49))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("hort", n()),
-         ktype = rep("bell", n()))
+#### 4.1.1.3 Explore relationship between overall selectivity and the complexity of the elevation-time GAM
+```{r}
+edf_selectivity <- gam3.1_s_table %>%
+  left_join(null_tab1)
 
-hort_5_gam3.1b <- plot(sm(gam3.1b, 50))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("hort", n()),
-         ktype = rep("lip", n()))
+ggplot(edf_selectivity, aes(preference, edf)) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(aes(color = bb.sp)) +
+  facet_wrap(~ktype) +
+  labs(color = "Species", x = "Selectivity", y = "Effective degree of freedom") +
+  theme_light(14)
 
-hort_6_gam3.1b <- plot(sm(gam3.1b, 51))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("hort", n()),
-         ktype = rep("flag", n()))
+ggsave("../ms_2/figures/edf_selectivity.png")
+ggsave("../ms_2/figures/edf_selectivity.pdf")
 
-hort_7_gam3.1b <- plot(sm(gam3.1b, 52))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("hort", n()),
-         ktype = rep("head", n()))
+ggplot(edf_selectivity, aes(preference, edf)) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(aes(color = ktype)) +
+  facet_wrap(~bb.sp) +
+  labs(color = "Morphotype") +
+  theme_light(14)
 
-
-pasc_3_gam3.1b <- plot(sm(gam3.1b, 53))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("pasc", n()),
-         ktype = rep("bell", n()))
-
-pasc_5_gam3.1b <- plot(sm(gam3.1b, 54))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("pasc", n()),
-         ktype = rep("lip", n()))
-
-pasc_6_gam3.1b <- plot(sm(gam3.1b, 55))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("pasc", n()),
-         ktype = rep("flag", n()))
-
-pasc_7_gam3.1b <- plot(sm(gam3.1b, 56))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("pasc", n()),
-         ktype = rep("head", n()))
-
-
-prat_3_gam3.1b <- plot(sm(gam3.1b, 57))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("prat", n()),
-         ktype = rep("bell", n()))
-
-prat_5_gam3.1b <- plot(sm(gam3.1b, 58))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("prat", n()),
-         ktype = rep("lip", n()))
-
-prat_6_gam3.1b <- plot(sm(gam3.1b, 59))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("prat", n()),
-         ktype = rep("flag", n()))
-
-prat_7_gam3.1b <- plot(sm(gam3.1b, 60))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("prat", n()),
-         ktype = rep("head", n()))
-
-
-soro_3_gam3.1b <- plot(sm(gam3.1b, 61))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("soro", n()),
-         ktype = rep("bell", n()))
-
-soro_5_gam3.1b <- plot(sm(gam3.1b, 62))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("soro", n()),
-         ktype = rep("lip", n()))
-
-soro_6_gam3.1b <- plot(sm(gam3.1b, 63))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("soro", n()),
-         ktype = rep("flag", n()))
-
-soro_7_gam3.1b <- plot(sm(gam3.1b, 64))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("soro", n()),
-         ktype = rep("head", n()))
-
-
-telu_3_gam3.1b <- plot(sm(gam3.1b, 65))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("telu", n()),
-         ktype = rep("bell", n()))
-
-telu_5_gam3.1b <- plot(sm(gam3.1b, 66))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("telu", n()),
-         ktype = rep("lip", n()))
-
-telu_6_gam3.1b <- plot(sm(gam3.1b, 67))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("telu", n()),
-         ktype = rep("flag", n()))
-
-telu_7_gam3.1b <- plot(sm(gam3.1b, 68))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("telu", n()),
-         ktype = rep("head", n()))
-
-
-wurf_3_gam3.1b <- plot(sm(gam3.1b, 69))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("wurf", n()),
-         ktype = rep("bell", n()))
-
-wurf_5_gam3.1b <- plot(sm(gam3.1b, 70))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("wurf", n()),
-         ktype = rep("lip", n()))
-
-wurf_6_gam3.1b <- plot(sm(gam3.1b, 71))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("wurf", n()),
-         ktype = rep("flag", n()))
-
-wurf_7_gam3.1b <- plot(sm(gam3.1b, 72))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("wurf", n()),
-         ktype = rep("head", n()))
-
-plotting_data__gam3.1b <- bind_rows(hort_3_gam3.1b, hort_5_gam3.1b, hort_6_gam3.1b, hort_7_gam3.1b,
-                           pasc_3_gam3.1b, pasc_5_gam3.1b, pasc_6_gam3.1b, pasc_7_gam3.1b,
-                           prat_3_gam3.1b, prat_5_gam3.1b, prat_6_gam3.1b, prat_7_gam3.1b,
-                           soro_3_gam3.1b, soro_5_gam3.1b, soro_6_gam3.1b, soro_7_gam3.1b,
-                           telu_3_gam3.1b, telu_5_gam3.1b, telu_6_gam3.1b, telu_7_gam3.1b,
-                           wurf_3_gam3.1b, wurf_5_gam3.1b, wurf_6_gam3.1b, wurf_7_gam3.1b) %>%
-  group_by(bb.sp, ktype) %>%
-  mutate(z.norm = scale(z, center = FALSE),
-         ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")),
-         date = as_date(x)) %>%
-  ungroup() %>%
-  left_join(bb_traits) %>%
-  left_join(gam3.1b_s_table) %>%
-  select(z, z.norm, date, x, elevation = y, se, 
-         bb.sp, ktype, pbl.w, edf, pval) %>%
-  mutate(sig = if_else(pval < 0.05, TRUE, FALSE))
-
-ggplot(plotting_data__gam3.1b, aes(date, elevation, z = z.norm, fill = z.norm)) +
-  geom_raster() +
-  geom_contour(color = "black",
-               size = 0.1,
-               bins = 40,
-               aes(linetype = sig)) + # by fixing bins, we scale contours to each plot while letting the color ramp represent differences in scale across plots; I think this is a good compromise
-  facet_grid(reorder(bb.sp, -pbl.w) ~ ktype) +
-  scale_linetype_manual(values = c("dotted", "solid"))+
-  scale_fill_viridis_c(na.value = "transparent") +
-  labs(x = NULL, y = "Elevation (m)", fill = "Normalized\neffect", linetype = "p < 0.05") +
-  theme_light(12) +
-  theme(panel.grid = element_blank(),
-        axis.text.x = element_text(angle = 90, vjust = 0.5))
-
-ggsave("../ms_2/figures/preference_lability_gam.pdf", height = 5, width = 6.5)
-ggsave("../ms_2/figures/preference_lability_gam.png", height = 5, width = 6.5)
 ```
 
 ### 4.2 Any residue of abundance?
@@ -1159,419 +1009,8 @@ ggplot(filter(null_tab3.norm,
 
 ```
 
-### 4.3 A binomial model: significant preference 0/1
-One way to get around this problem is to model bias as a binary response, either significantly positive or not. 
-#### 4.3.1 Call model
-```{r}
-null_tab3_bin <- null_tab3 %>%
-  mutate(preference.bin = as.integer(if_else(Test == "Stronger", 1, 0)))
 
-gam3.2 <- bam(preference.bin ~
-                bb.ktype +
-                s(site, by = bb.ktype, bs = "re") +
-                s(year, by = bb.ktype, bs = "re") +
-                te(yday, elev.mean, by = bb.ktype),
-              family = "binomial",
-              method = "fREML",
-              discrete = TRUE,
-              data = filter(null_tab3_bin, 
-                            bb.sp %in% c("hort", "prat", "telu", 
-                                         "wurf", "soro", "pasc") &
-                              ktype %in% c("bell", "lip", "flag", "head"))) %>% 
-                getViz()
-
-check.gamViz(gam3.2)
-gam3.2_sum <- summary(gam3.2, re.test = FALSE)
-print(plot.gamViz(gam3.2, allTerms = TRUE), pages = 4)
-```
-
-#### 4.3.2 Plot model
-```{r}
-# Tabulate model summary
-gam3.2_s_table <- gam3.2_sum$s.table %>%
-  as.data.frame() %>%
-  rownames_to_column("term") %>%
-  filter(str_detect(term, "te\\(")) %>%
-  mutate(term = str_extract(term, ".{6}$")) %>%
-  separate(term, c("bb.sp", "ktype")) %>%
-  mutate(ktype = case_when(
-    ktype == 3 ~ "bell",
-    ktype == 5 ~ "lip",
-    ktype == 6 ~ "flag",
-    ktype == 7 ~ "head"
-  )) %>%
-  mutate(pval = signif(`p-value`, digits = 3)) %>%
-  select(bb.sp, ktype, edf, pval) %>%
-  as_tibble() %>%
-  mutate(ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")))
-  
-# Extract plotting data.
-hort_3 <- plot(sm(gam3.2, 49))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("hort", n()),
-         ktype = rep("bell", n()))
-
-hort_5 <- plot(sm(gam3.2, 50))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("hort", n()),
-         ktype = rep("lip", n()))
-
-hort_6 <- plot(sm(gam3.2, 51))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("hort", n()),
-         ktype = rep("flag", n()))
-
-hort_7 <- plot(sm(gam3.2, 52))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("hort", n()),
-         ktype = rep("head", n()))
-
-
-pasc_3 <- plot(sm(gam3.2, 53))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("pasc", n()),
-         ktype = rep("bell", n()))
-
-pasc_5 <- plot(sm(gam3.2, 54))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("pasc", n()),
-         ktype = rep("lip", n()))
-
-pasc_6 <- plot(sm(gam3.2, 55))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("pasc", n()),
-         ktype = rep("flag", n()))
-
-pasc_7 <- plot(sm(gam3.2, 56))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("pasc", n()),
-         ktype = rep("head", n()))
-
-
-prat_3 <- plot(sm(gam3.2, 57))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("prat", n()),
-         ktype = rep("bell", n()))
-
-prat_5 <- plot(sm(gam3.2, 58))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("prat", n()),
-         ktype = rep("lip", n()))
-
-prat_6 <- plot(sm(gam3.2, 59))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("prat", n()),
-         ktype = rep("flag", n()))
-
-prat_7 <- plot(sm(gam3.2, 60))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("prat", n()),
-         ktype = rep("head", n()))
-
-
-soro_3 <- plot(sm(gam3.2, 61))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("soro", n()),
-         ktype = rep("bell", n()))
-
-soro_5 <- plot(sm(gam3.2, 62))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("soro", n()),
-         ktype = rep("lip", n()))
-
-soro_6 <- plot(sm(gam3.2, 63))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("soro", n()),
-         ktype = rep("flag", n()))
-
-soro_7 <- plot(sm(gam3.2, 64))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("soro", n()),
-         ktype = rep("head", n()))
-
-
-telu_3 <- plot(sm(gam3.2, 65))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("telu", n()),
-         ktype = rep("bell", n()))
-
-telu_5 <- plot(sm(gam3.2, 66))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("telu", n()),
-         ktype = rep("lip", n()))
-
-telu_6 <- plot(sm(gam3.2, 67))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("telu", n()),
-         ktype = rep("flag", n()))
-
-telu_7 <- plot(sm(gam3.2, 68))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("telu", n()),
-         ktype = rep("head", n()))
-
-
-wurf_3 <- plot(sm(gam3.2, 69))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("wurf", n()),
-         ktype = rep("bell", n()))
-
-wurf_5 <- plot(sm(gam3.2, 70))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("wurf", n()),
-         ktype = rep("lip", n()))
-
-wurf_6 <- plot(sm(gam3.2, 71))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("wurf", n()),
-         ktype = rep("flag", n()))
-
-wurf_7 <- plot(sm(gam3.2, 72))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("wurf", n()),
-         ktype = rep("head", n()))
-
-plotting_data <- bind_rows(hort_3, hort_5, hort_6, hort_7,
-                           pasc_3, pasc_5, pasc_6, pasc_7,
-                           prat_3, prat_5, prat_6, prat_7,
-                           soro_3, soro_5, soro_6, soro_7,
-                           telu_3, telu_5, telu_6, telu_7,
-                           wurf_3, wurf_5, wurf_6, wurf_7) %>%
-  group_by(bb.sp, ktype) %>%
-  mutate(z.norm = scale(z, center = FALSE),
-         ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")),
-         date = as_date(x)) %>%
-  ungroup() %>%
-  left_join(bb_traits) %>%
-  left_join(gam3.2_s_table) %>%
-  select(z, z.norm, date, x, elevation = y, se, 
-         bb.sp, ktype, pbl.w, edf, pval) %>%
-  mutate(sig = if_else(pval < 0.05, TRUE, FALSE))
-
-ggplot(plotting_data, aes(date, elevation, z = z.norm, fill = z.norm)) +
-  geom_raster() +
-  geom_contour(color = "black",
-               size = 0.1,
-               bins = 40,
-               aes(linetype = sig)) + # by fixing bins, we scale contours to each plot while letting the color ramp represent differences in scale across plots; I think this is a good compromise
-  facet_grid(reorder(bb.sp, -pbl.w) ~ ktype) +
-  scale_linetype_manual(values = c("dotted", "solid"))+
-  scale_fill_viridis_c(na.value = "transparent") +
-  labs(x = NULL, y = "Elevation (m)", fill = "Normalized\neffect", linetype = "p < 0.05") +
-  theme_light(12) +
-  theme(panel.grid = element_blank(),
-        axis.text.x = element_text(angle = 90, vjust = 0.5))
-```
-
-### 4.4 A normalized model: proportion of maximum/minimum preference
-#### 4.4.1 Call model
-```{r}
-gam3.3 <- bam(preference.norm ~
-                bb.ktype +
-                s(site, by = bb.ktype, bs = "re") +
-                s(year, by = bb.ktype, bs = "re") +
-                te(yday, elev.mean, by = bb.ktype),
-              family = "gaussian",
-              method = "fREML",
-              discrete = TRUE,
-              data = filter(null_tab3.norm, 
-                            bb.sp %in% c("hort", "prat", "telu", 
-                                         "wurf", "soro", "pasc") &
-                              ktype %in% c("bell", "lip", "flag", "head"))) %>% 
-                getViz()
-
-check.gamViz(gam3.3)
-gam3.3_sum <- summary(gam3.3, re.test = FALSE)
-print(plot.gamViz(gam3.3, allTerms = TRUE), pages = 4)
-```
-
-#### 4.4.2 Plot model
-```{r}
-# Tabulate model summary
-gam3.3_s_table <- gam3.3_sum$s.table %>%
-  as.data.frame() %>%
-  rownames_to_column("term") %>%
-  filter(str_detect(term, "te\\(")) %>%
-  mutate(term = str_extract(term, ".{6}$")) %>%
-  separate(term, c("bb.sp", "ktype")) %>%
-  mutate(ktype = case_when(
-    ktype == 3 ~ "bell",
-    ktype == 5 ~ "lip",
-    ktype == 6 ~ "flag",
-    ktype == 7 ~ "head"
-  )) %>%
-  mutate(pval = signif(`p-value`, digits = 3)) %>%
-  select(bb.sp, ktype, edf, pval) %>%
-  as_tibble() %>%
-  mutate(ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")))
-  
-# Extract plotting data.
-hort_3 <- plot(sm(gam3.3, 49))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("hort", n()),
-         ktype = rep("bell", n()))
-
-hort_5 <- plot(sm(gam3.3, 50))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("hort", n()),
-         ktype = rep("lip", n()))
-
-hort_6 <- plot(sm(gam3.3, 51))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("hort", n()),
-         ktype = rep("flag", n()))
-
-hort_7 <- plot(sm(gam3.3, 52))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("hort", n()),
-         ktype = rep("head", n()))
-
-
-pasc_3 <- plot(sm(gam3.3, 53))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("pasc", n()),
-         ktype = rep("bell", n()))
-
-pasc_5 <- plot(sm(gam3.3, 54))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("pasc", n()),
-         ktype = rep("lip", n()))
-
-pasc_6 <- plot(sm(gam3.3, 55))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("pasc", n()),
-         ktype = rep("flag", n()))
-
-pasc_7 <- plot(sm(gam3.3, 56))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("pasc", n()),
-         ktype = rep("head", n()))
-
-
-prat_3 <- plot(sm(gam3.3, 57))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("prat", n()),
-         ktype = rep("bell", n()))
-
-prat_5 <- plot(sm(gam3.3, 58))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("prat", n()),
-         ktype = rep("lip", n()))
-
-prat_6 <- plot(sm(gam3.3, 59))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("prat", n()),
-         ktype = rep("flag", n()))
-
-prat_7 <- plot(sm(gam3.3, 60))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("prat", n()),
-         ktype = rep("head", n()))
-
-
-soro_3 <- plot(sm(gam3.3, 61))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("soro", n()),
-         ktype = rep("bell", n()))
-
-soro_5 <- plot(sm(gam3.3, 62))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("soro", n()),
-         ktype = rep("lip", n()))
-
-soro_6 <- plot(sm(gam3.3, 63))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("soro", n()),
-         ktype = rep("flag", n()))
-
-soro_7 <- plot(sm(gam3.3, 64))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("soro", n()),
-         ktype = rep("head", n()))
-
-
-telu_3 <- plot(sm(gam3.3, 65))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("telu", n()),
-         ktype = rep("bell", n()))
-
-telu_5 <- plot(sm(gam3.3, 66))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("telu", n()),
-         ktype = rep("lip", n()))
-
-telu_6 <- plot(sm(gam3.3, 67))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("telu", n()),
-         ktype = rep("flag", n()))
-
-telu_7 <- plot(sm(gam3.3, 68))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("telu", n()),
-         ktype = rep("head", n()))
-
-
-wurf_3 <- plot(sm(gam3.3, 69))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("wurf", n()),
-         ktype = rep("bell", n()))
-
-wurf_5 <- plot(sm(gam3.3, 70))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("wurf", n()),
-         ktype = rep("lip", n()))
-
-wurf_6 <- plot(sm(gam3.3, 71))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("wurf", n()),
-         ktype = rep("flag", n()))
-
-wurf_7 <- plot(sm(gam3.3, 72))$ggObj[[1]] %>%
-  mutate(bb.sp = rep("wurf", n()),
-         ktype = rep("head", n()))
-
-plotting_data <- bind_rows(hort_3, hort_5, hort_6, hort_7,
-                           pasc_3, pasc_5, pasc_6, pasc_7,
-                           prat_3, prat_5, prat_6, prat_7,
-                           soro_3, soro_5, soro_6, soro_7,
-                           telu_3, telu_5, telu_6, telu_7,
-                           wurf_3, wurf_5, wurf_6, wurf_7) %>%
-  group_by(bb.sp, ktype) %>%
-  mutate(z.norm = scale(z, center = FALSE),
-         ktype = factor(ktype, levels = c("bell", "lip", "flag", "head")),
-         date = as_date(x)) %>%
-  ungroup() %>%
-  left_join(bb_traits) %>%
-  left_join(gam3.3_s_table) %>%
-  select(z, z.norm, date, x, elevation = y, se, 
-         bb.sp, ktype, pbl.w, edf, pval) %>%
-  mutate(sig = if_else(pval < 0.05, TRUE, FALSE))
-
-ggplot(plotting_data, aes(date, elevation, z = z.norm, fill = z.norm)) +
-  geom_raster() +
-  geom_contour(color = "black",
-               size = 0.1,
-               bins = 40,
-               aes(linetype = sig)) + # by fixing bins, we scale contours to each plot while letting the color ramp represent differences in scale across plots; I think this is a good compromise
-  facet_grid(reorder(bb.sp, -pbl.w) ~ ktype) +
-  scale_linetype_manual(values = c("dotted", "solid"))+
-  scale_fill_viridis_c(na.value = "transparent") +
-  labs(x = NULL, y = "Elevation (m)", fill = "Normalized\neffect", linetype = "p < 0.05") +
-  theme_light(12) +
-  theme(panel.grid = element_blank(),
-        axis.text.x = element_text(angle = 90, vjust = 0.5))
-```
-
-
-
-
-### 4.1.2 Model 2 (with prop_abund as covariate)
-```{r}
-# With abundance covariate (interacting with bb-ktype pair)
-
-## Add abundance data
-abundance <- flower_cover_ktype %>%
-  separate(sample.id, c("site", "date"), sep = "_") %>%
-  group_by(site, date) %>%
-  mutate(prop.cover = cover/sum(cover)) %>%
-  mutate(ktype = case_when(
-    ktype == 0 ~ "null",
-    ktype == 1 ~ "disc",
-    ktype == 2 ~ "funnel",
-    ktype == 3 ~ "bell",
-    ktype == 4 ~ "stalk-disc",
-    ktype == 5 ~ "lip",
-    ktype == 6 ~ "flag",
-    ktype == 7 ~ "head",
-    ktype == 9 ~ "brush"
-  )) %>%
-  mutate(ktype = factor(ktype))
-
-null_tab3_join <- null_tab3 %>%
-  left_join(abundance) %>%
-  mutate(site = factor(site),
-         year = factor(year(date))) 
-
-## Model with proportional cover data
-gam3.2 <- bam(preference ~
-                bb.ktype +
-                #prop.cover*bb.ktype +
-                cover:bb.ktype +
-                s(site, by = bb.ktype, bs = "re") +
-                s(year, by = bb.ktype, bs = "re") +
-                te(yday, elev.mean, by = bb.ktype),
-              family = "gaussian",
-              method = "fREML",
-              discrete = TRUE,
-              data = filter(null_tab3_join, 
-                            bb.sp %in% c("hort", "prat", "telu", 
-                                         "wurf", "soro", "pasc") &
-                              ktype %in% c("bell", "lip", "flag", "head"))) %>% 
-                getViz()
-
-#check.gamViz(gam3.2)
-#gam3.2_corr_sum <- summary(gam3.2, re.test = FALSE)
-#print(plot.gamViz(gam3.2, allTerms = TRUE), pages = 4)
-```
-
-
-Since we have a markedly negative effect of abundance on preference, due to the fact that an avoided resource will seem more avoided when it is abundant than when it is rare, even if the cognitive evaluation of the resource does not vary, perhaps it would be worth adding abundance as a covariate to the preference lability model. We do this in model 3.2.
-
-
-### 4.1.3 Year-specific models
+### 4.3 Year-specific models
 ```{r}
 # Year-specific models
 gam3_2010 <- bam(preference ~
@@ -2041,7 +1480,7 @@ visit_cover_sitedate <- visitation %>%
          site = factor(site),
          year = year(date)) 
   
-# Binomial model
+# Binomial model (works better than beta, probably because of all the ones and zeros)
 gam5 <- bam(prop.visits ~
               bb.ktype +
               s(site, by = bb.ktype, bs = "re") +
@@ -2257,6 +1696,7 @@ flower_cover_ktype.prop <- flower_cover_ktype %>%
   droplevels() %>%
   left_join(site_data)
 
+# Binomial model
 gam6 <- bam(prop.cover ~
               ktype +
               s(site, by = ktype, bs = "re") +
@@ -2274,6 +1714,7 @@ check.gamViz(gam6)
 gam6_sum <- summary(gam6, re.test = FALSE) 
 plot.gamViz(gam6)
 
+# Beta model (seems to fit a bit better than the binomial model)
 gam6b <- bam(prop.cover ~
               ktype +
               s(site, by = ktype, bs = "re") +
