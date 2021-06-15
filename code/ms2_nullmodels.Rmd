@@ -31,6 +31,9 @@ Sys.setlocale(locale = "en_US.UTF-8")
 
 visitation <- readRDS("../data/processed_data/visitation.rds")
 
+visitation_workers <- visitation %>%
+  filter(caste == "worker")
+
 survey <- read_csv("../data/processed_data/floral_survey.csv")
 
 flower_cover_ktype <- readRDS("../data/processed_data/flower_cover_ktype.rds") 
@@ -44,6 +47,17 @@ site_data <- read_csv("../data/processed_data/site_data.csv") %>%
          tree_line = factor(tree_line))
 
 fl_traits <- readRDS("../data/processed_data/fl_traits.rds")
+
+vis_spp <- visitation %>%
+  left_join(fl_traits) %>%
+  group_by(sample.id, bb.sp, plant.genus, ktype) %>%
+  summarize(visits = n()) %>%
+  group_by(bb.sp, sample.id) %>%
+  mutate(prop.visits = visits/sum(visits))
+
+view(filter(vis_spp, ktype == "1"))
+
+ggplot(filter(vis_spp, ))
 
 # For setting up the HPC
 # 
@@ -202,6 +216,77 @@ null_tab1 <- test_interactions(null1, signif.level = 0.99) %>% # make it a bit m
                                           "flag", "head", "brush"))) %>%
   filter(!ktype %in% c("null", "brush")) %>% # type 0 were not reliably quantified (and rarely visited) and type 9 was vanishingly rare
   droplevels()
+
+################################
+### Repeat, excluding queens ###
+################################
+
+# The "consumers" table input to generate_null_net()
+con_workers <- visitation_workers %>%
+  #filter(visited == 1) %>%
+  mutate(individual.id = row_number()) %>%
+  select(sample.id, individual.id, bb.sp, ktype, visited) %>%
+  group_by(sample.id) %>%
+  arrange(ktype) %>%
+  pivot_wider(values_from = visited, names_from = ktype, values_fill = 0) %>%
+  arrange(sample.id) %>%
+  ungroup() %>%
+  as.data.frame()
+
+# The "resources" table input to generate_null_net()
+res_workers <- flower_cover_ktype %>%
+  select(sample.id, ktype, cover) %>%
+  group_by(sample.id) %>%
+  arrange(ktype) %>%
+  distinct() %>%
+  pivot_wider(values_from = cover, names_from = ktype, values_fill = 0) %>%
+  ungroup() %>%
+  droplevels() %>%
+  as.data.frame() %>%
+  semi_join(con_workers, by = "sample.id") %>%
+  arrange(sample.id)
+
+# Generate null model
+null1_workers <- generate_null_net(consumers = con_workers[, 3:12],
+                           resources = res_workers[, 2:10],
+                           sims = 500, # raised from default of 100 (takes a while to run)
+                           data.type = "names",
+                           # c.samples = con$sample.id, # parsed by sample
+                           # r.samples = res$sample.id,
+                           c.samples = con_workers[,1], # parsed by sample
+                           r.samples = res_workers[,1],
+                           summary.type = "mean") # summarizing with the mean instead of the default sum standardizes across our bumble bee species that vary in total abundance,
+
+saveRDS(null1_workers, file = "../output/null1_workers.rds")
+null1_workers <- readRDS("../output/null1_workers.rds")
+
+# Tabulate output and generate tests
+null_tab1_workers <- test_interactions(null1_workers, signif.level = 0.99) %>% # make it a bit more conservative to account for multiple comparisons
+  as_tibble() %>%
+  select(bb.sp = Consumer, ktype = Resource, everything()) %>%
+  group_by(bb.sp) %>%
+  mutate(preference = Observed - Null, # a working definition of preference
+         preference.upper99 = Observed - Upper.99.CL, 
+         preference.lower99 = Observed - Lower.99.CL) %>%
+  left_join(bb_traits) %>%
+  ungroup() %>%
+  mutate(bb.sp = fct_reorder(factor(bb.sp), pbl.w)) %>%
+  mutate(ktype = case_when(
+    ktype == 0 ~ "null",
+    ktype == 1 ~ "disc",
+    ktype == 2 ~ "funnel",
+    ktype == 3 ~ "bell",
+    ktype == 4 ~ "stalk-disc",
+    ktype == 5 ~ "lip",
+    ktype == 6 ~ "flag",
+    ktype == 7 ~ "head",
+    ktype == 9 ~ "brush"
+  )) %>%
+  mutate(ktype = factor(ktype, levels = c("null", "disc", "funnel", 
+                                          "bell", "stalk-disc", "lip", 
+                                          "flag", "head", "brush"))) %>%
+  filter(!ktype %in% c("null", "brush")) %>% # type 0 were not reliably quantified (and rarely visited) and type 9 was vanishingly rare
+  droplevels()
 ```
 
 ## 2.1 Observed vs. null predictions
@@ -234,6 +319,25 @@ ggplot(null_tab1, aes(Observed, bb.sp)) +
 
 ggsave("../ms_2/figures/null_model_ktypewise_preference.pdf", height = 5, width = 7)
 ggsave("../ms_2/figures/null_model_ktypewise_preference.png", height = 5, width = 7)
+
+
+####################
+### Workers only ###
+####################
+
+ggplot(null_tab1_workers, aes(Observed, ktype)) +
+  geom_segment(aes(y = ktype, yend = ktype, 
+                   x = Lower.99.CL, xend = Upper.99.CL), 
+               color = "gray40", inherit.aes = FALSE) +
+  geom_point(aes(color = Test)) +
+  facet_wrap(~fct_rev(bb.sp)) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  labs(x = "Mean proportional visitation", y = "Floral morphotype", color = "Test (p < 0.01)") +
+  theme_light()
+
+ggsave("../ms_2/figures/null_model_spwise_preference_workers.pdf", height = 6, width = 7)
+ggsave("../ms_2/figures/null_model_spwise_preference_workers.png", height = 6, width = 7)
 ```
 
 ## 2.2 Overall bias by morphotype
@@ -249,6 +353,22 @@ null_model_overall<- ggplot(null_tab1, aes(ktype, preference)) +
 
 ggsave("../ms_2/figures/null_model_ktype_preference.pdf", null_model_overall, height = 6, width = 7)
 ggsave("../ms_2/figures/null_model_ktype_preference.png", null_model_overall, height = 6, width = 7)
+
+####################
+### Workers only ###
+####################
+
+null_model_overall_workers <- ggplot(null_tab1_workers, aes(ktype, preference)) +
+  #geom_violin(fill = "gray70", color = "white", draw_quantiles = c(0.25, 0.5, 0.75)) +
+  geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
+  geom_jitter(aes(color = Test), width = 0.3, alpha = 0.6) +
+  theme_light(10) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  labs(x = "Floral morphotype",
+       y = "Selectivity")
+
+ggsave("../ms_2/figures/null_model_ktype_preference_workers.pdf", null_model_overall, height = 6, width = 7)
+ggsave("../ms_2/figures/null_model_ktype_preference_workers.png", null_model_overall, height = 6, width = 7)
 ```
 
 ## 2.3 Bias by morphotype ~ tongue length
@@ -275,6 +395,19 @@ gam1 <- gam(preference ~
 gam1_sum <- summary(gam1)
 check.gamViz(gam1)
 #plot.gamViz(gam1, allTerms = TRUE)
+
+####################
+### Workers only ###
+####################
+
+gam1_workers <- gam(preference ~ 
+              ktype + 
+              s(pbl.w, by = ktype, k = 5), 
+            data = null_tab1_workers) %>% getViz()
+
+gam1_sum_workers <- summary(gam1_workers)
+check.gamViz(gam1_workers)
+#plot.gamViz(gam1_workers, allTerms = TRUE)
 ```
 
 ### 2.3.3 Plot
@@ -312,6 +445,45 @@ null_model_pbl_GAM <- ggplot(gam1_pred, aes(pbl.w, fit)) +
 
 ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference.pdf", null_model_pbl_GAM, height = 6, width = 7)
 ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference.png", null_model_pbl_GAM, height = 6, width = 7)
+
+
+####################
+### Workers only ###
+####################
+
+# Tabulate model summary
+gam1_s_table_workers <- gam1_sum_workers$s.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  mutate(ktype = str_extract(term, "(?<=ktype).*$")) %>%
+  mutate(pval = signif(`p-value`, digits = 3)) %>%
+  select(ktype, edf, pval) %>%
+  as_tibble() %>%
+  mutate(ktype = factor(ktype))
+
+# Extract predictions
+gam1_pred_workers <- predict_gam(gam1_workers) %>%
+  mutate(fit.plus.se = fit + (2*se.fit),
+         fit.minus.se = fit - (2*se.fit)) %>%
+  left_join(gam1_s_table_workers) %>%
+  mutate(sig = if_else(pval < 0.05, TRUE, FALSE)) %>%
+  mutate(sig = factor(sig, levels = c(TRUE, FALSE)))
+
+# Plot
+null_model_pbl_GAM_workers <- ggplot(gam1_pred_workers, aes(pbl.w, fit)) +
+  geom_line(aes(linetype = sig)) + # fit line, linetype for significance
+  geom_ribbon(aes(ymin = fit.minus.se, ymax = fit.plus.se), # Uncertainty
+              fill = "black", alpha = 0.2) +
+  geom_point(data = null_tab1_workers, # Original data
+             aes(pbl.w, preference, color = bb.sp), 
+             inherit.aes = FALSE, alpha = 0.5) +
+  facet_wrap(~ktype) +
+  labs(x = "Tongue length (mm)", y = "Selectivity", 
+       color = "Species", linetype = "p < 0.05") +
+  theme_light(10)
+
+ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference_workers.pdf", null_model_pbl_GAM, height = 6, width = 7)
+ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference_workers.png", null_model_pbl_GAM, height = 6, width = 7)
 ```
 
 ## 2.4 Ordinate preferences

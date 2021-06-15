@@ -84,9 +84,9 @@ visitation <- read_csv("../data/processed_data/network.csv") %>%
   rename(date = date2) %>%
   group_by(site, date) %>%
   mutate(visited = rep(1, n())) %>% # binary visitation
-  select(site, date, bb.sp, plant.sp, visited) %>%
+  select(site, date, bb.sp, caste, plant.sp, visited) %>%
   left_join(fl_traits) %>%
-  select(site, date, bb.sp, plant.sp, visited, plant.genus, plant.family, ktype = k.type.ss) %>%
+  select(site, date, bb.sp, caste, plant.sp, visited, plant.genus, plant.family, ktype = k.type.ss) %>%
   unite(sample.id, site, date) %>%
   mutate(sample.id = factor(sample.id),
          bb.sp = factor(bb.sp), 
