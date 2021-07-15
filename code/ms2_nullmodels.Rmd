@@ -300,11 +300,25 @@ ggplot(null_tab1, aes(Observed, ktype)) +
   facet_wrap(~fct_rev(bb.sp)) +
   scale_y_discrete(limits = rev) +
   scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
-  labs(x = "Mean proportional visitation", y = "Floral morphotype", color = "Test (p < 0.01)") +
+  labs(x = "Mean visitation rate", y = "Floral morphotype", color = "Test (p < 0.01)") +
   theme_light()
 
 ggsave("../ms_2/figures/null_model_spwise_preference.pdf", height = 6, width = 7)
 ggsave("../ms_2/figures/null_model_spwise_preference.png", height = 6, width = 7)
+
+# Species-wise (3-col)
+ggplot(null_tab1, aes(Observed, ktype)) +
+  geom_segment(aes(y = ktype, yend = ktype, 
+                   x = Lower.99.CL, xend = Upper.99.CL), 
+               color = "gray40", inherit.aes = FALSE) +
+  geom_point(aes(color = Test)) +
+  facet_wrap(~fct_rev(bb.sp), ncol = 3) +
+  scale_y_discrete(limits = rev) +
+  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+  labs(x = "Mean visitation rate", y = "Floral morphotype", color = "Test (p < 0.01)") +
+  theme_light()
+
+ggsave("../ms_2/figures/null_model_spwise_preference_3col.pdf", height = 6, width = 5)
 
 ## Morphotype-wise
 ggplot(null_tab1, aes(Observed, bb.sp)) +
@@ -344,7 +358,7 @@ ggsave("../ms_2/figures/null_model_spwise_preference_workers.png", height = 6, w
 ```{r}
 null_model_overall<- ggplot(null_tab1, aes(ktype, preference)) +
   #geom_violin(fill = "gray70", color = "white", draw_quantiles = c(0.25, 0.5, 0.75)) +
-  geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
+  geom_boxplot(fill = NA, color = "black", outlier.shape = NA, size = 0.35) +
   geom_jitter(aes(color = Test), width = 0.3, alpha = 0.6) +
   theme_light(10) +
   scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
@@ -1452,7 +1466,7 @@ visitation_prop <- visitation %>%
 #        y = "Bias")
 
 raw_visits_overall <- ggplot(visitation_prop, aes(ktype, mean.prop.visits)) +
-  geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
+  geom_boxplot(fill = NA, color = "black", outlier.shape = NA, size = 0.35) +
   geom_jitter(width = 0.3, alpha = 0.5, color = "gray40") +
   theme_light(10) +
   labs(x = "Floral morphotype",
