@@ -55,19 +55,7 @@ vis_spp <- visitation %>%
   group_by(bb.sp, sample.id) %>%
   mutate(prop.visits = visits/sum(visits))
 
-view(filter(vis_spp, ktype == "1"))
-
-ggplot(filter(vis_spp, ))
-
-# For setting up the HPC
-# 
-# bb_traits <- read_csv("./bb_traits.csv") %>%
-#   select(bb.sp, pbl.w, tongue = pbl.w.class2)
-# 
-# site_data <- read_csv("./site_data.csv") %>%
-#   dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, temp.mean, elev.class, elev.class2)) %>%
-#   mutate(site = factor(site),
-#          tree_line = factor(tree_line))
+fl_tax <- read_csv("../data/processed_data/floral_tax.csv")
 ```
 
 
@@ -305,34 +293,34 @@ ggplot(null_tab1, aes(Observed, ktype)) +
 
 ggsave("../ms_2/figures/null_model_spwise_preference.pdf", height = 6, width = 7)
 ggsave("../ms_2/figures/null_model_spwise_preference.png", height = 6, width = 7)
-
-# Species-wise (3-col)
-ggplot(null_tab1, aes(Observed, ktype)) +
-  geom_segment(aes(y = ktype, yend = ktype, 
-                   x = Lower.99.CL, xend = Upper.99.CL), 
-               color = "gray40", inherit.aes = FALSE) +
-  geom_point(aes(color = Test)) +
-  facet_wrap(~fct_rev(bb.sp), ncol = 3) +
-  scale_y_discrete(limits = rev) +
-  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
-  labs(x = "Mean visitation rate", y = "Floral morphotype", color = "Test (p < 0.01)") +
-  theme_light()
-
-ggsave("../ms_2/figures/null_model_spwise_preference_3col.pdf", height = 6, width = 5)
-
-## Morphotype-wise
-ggplot(null_tab1, aes(Observed, bb.sp)) +
-  geom_segment(aes(y = bb.sp, yend = bb.sp, 
-                   x = Lower.99.CL, xend = Upper.99.CL), 
-               color = "gray40", inherit.aes = FALSE) +
-  geom_point(aes(color = Test)) +
-  facet_wrap(~ktype, ncol = 4) +
-  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
-  labs(x = "Mean proportional visitation", y = "Bumble bee species", color = "Test (p < 0.01)") +
-  theme_light()
-
-ggsave("../ms_2/figures/null_model_ktypewise_preference.pdf", height = 5, width = 7)
-ggsave("../ms_2/figures/null_model_ktypewise_preference.png", height = 5, width = 7)
+# 
+# # Species-wise (3-col)
+# ggplot(null_tab1, aes(Observed, ktype)) +
+#   geom_segment(aes(y = ktype, yend = ktype, 
+#                    x = Lower.99.CL, xend = Upper.99.CL), 
+#                color = "gray40", inherit.aes = FALSE) +
+#   geom_point(aes(color = Test)) +
+#   facet_wrap(~fct_rev(bb.sp), ncol = 3) +
+#   scale_y_discrete(limits = rev) +
+#   scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+#   labs(x = "Mean visitation rate", y = "Floral morphotype", color = "Test (p < 0.01)") +
+#   theme_light()
+# 
+# ggsave("../ms_2/figures/null_model_spwise_preference_3col.pdf", height = 6, width = 5)
+# 
+# ## Morphotype-wise
+# ggplot(null_tab1, aes(Observed, bb.sp)) +
+#   geom_segment(aes(y = bb.sp, yend = bb.sp, 
+#                    x = Lower.99.CL, xend = Upper.99.CL), 
+#                color = "gray40", inherit.aes = FALSE) +
+#   geom_point(aes(color = Test)) +
+#   facet_wrap(~ktype, ncol = 4) +
+#   scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
+#   labs(x = "Mean proportional visitation", y = "Bumble bee species", color = "Test (p < 0.01)") +
+#   theme_light()
+# 
+# ggsave("../ms_2/figures/null_model_ktypewise_preference.pdf", height = 5, width = 7)
+# ggsave("../ms_2/figures/null_model_ktypewise_preference.png", height = 5, width = 7)
 
 
 ####################
@@ -356,14 +344,14 @@ ggsave("../ms_2/figures/null_model_spwise_preference_workers.png", height = 6, w
 
 ## 2.2 Overall bias by morphotype
 ```{r}
-null_model_overall<- ggplot(null_tab1, aes(ktype, preference)) +
+null_model_overall <- ggplot(null_tab1, aes(ktype, preference)) +
   #geom_violin(fill = "gray70", color = "white", draw_quantiles = c(0.25, 0.5, 0.75)) +
   geom_boxplot(fill = NA, color = "black", outlier.shape = NA, size = 0.35) +
   geom_jitter(aes(color = Test), width = 0.3, alpha = 0.6) +
-  theme_light(10) +
+  theme_light(12) +
   scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
   labs(x = "Floral morphotype",
-       y = "Selectivity")
+       y = "Preference")
 
 ggsave("../ms_2/figures/null_model_ktype_preference.pdf", null_model_overall, height = 6, width = 7)
 ggsave("../ms_2/figures/null_model_ktype_preference.png", null_model_overall, height = 6, width = 7)
@@ -453,11 +441,12 @@ null_model_pbl_GAM <- ggplot(gam1_pred, aes(pbl.w, fit)) +
              aes(pbl.w, preference, color = bb.sp), 
              inherit.aes = FALSE, alpha = 0.5) +
   facet_wrap(~ktype) +
-  labs(x = "Tongue length (mm)", y = "Selectivity", 
+  labs(x = "Tongue length (mm)", y = "Preference", 
        color = "Species", linetype = "p < 0.05") +
-  theme_light(10)
+  scale_x_continuous(breaks = c(7, 10, 13, 16)) +
+  theme_light(12)
 
-ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference.pdf", null_model_pbl_GAM, height = 6, width = 7)
+ggsave("../ms_2/figures/fig3.pdf", null_model_pbl_GAM, height = 6, width = 7)
 ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference.png", null_model_pbl_GAM, height = 6, width = 7)
 
 
@@ -926,15 +915,6 @@ null_tab3 <- null3 %>%
                                           "flag", "head", "brush"))) %>%
   filter(!ktype %in% c("null", "brush")) %>% # type 0 were not reliably quantified (and rarely visited) and type 9 was vanishingly rare
   droplevels()
-
-ggplot(null_tab3, aes(ktype, preference)) +
-  #geom_violin(fill = "gray70", color = "white", draw_quantiles = c(0.25, 0.5, 0.75)) +
-  geom_boxplot(fill = NA, color = "black", outlier.shape = 4, size = 0.35) +
-  geom_jitter(aes(color = Test), width = 0.3, alpha = 0.6) +
-  theme_light(14) +
-  scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
-  labs(x = "Floral morphotype",
-       y = "Bias")
 ```
 
 ## 4.1 Model preference lability
@@ -1114,7 +1094,7 @@ ggplot(plotting_data__gam3.1, aes(date, elevation, z = z.norm, fill = z.norm)) +
   theme(panel.grid = element_blank(),
         axis.text.x = element_text(angle = 90, vjust = 0.5))
 
-ggsave("../ms_2/figures/preference_lability_gam.pdf", height = 5, width = 6.5)
+ggsave("../ms_2/figures/fig5.pdf", height = 5, width = 6.5)
 ggsave("../ms_2/figures/preference_lability_gam.png", height = 5, width = 6.5)
 ```
 
@@ -1468,7 +1448,7 @@ visitation_prop <- visitation %>%
 raw_visits_overall <- ggplot(visitation_prop, aes(ktype, mean.prop.visits)) +
   geom_boxplot(fill = NA, color = "black", outlier.shape = NA, size = 0.35) +
   geom_jitter(width = 0.3, alpha = 0.5, color = "gray40") +
-  theme_light(10) +
+  theme_light(12) +
   labs(x = "Floral morphotype",
        y = "Mean proportional visitation")
 
@@ -1478,7 +1458,7 @@ ggsave("../ms_2/figures/raw_visitation_ktype.png", height = 6, width = 7)
 overall_ktype <- (null_model_overall | raw_visits_overall)  +
   plot_annotation(tag_levels = 'A')
 
-ggsave("../ms_2/figures/overall_ktype.pdf", overall_ktype, height = 4.5, width = 9.5)
+ggsave("../ms_2/figures/fig2.pdf", overall_ktype, height = 4.5, width = 9.5)
 ggsave("../ms_2/figures/overall_ktype.png", overall_ktype, height = 4.5, width = 9.5)
 ```
 
@@ -1529,7 +1509,8 @@ raw_visits_pbl_GAM <- ggplot(gam1b_pred, aes(pbl.w, fit)) +
   facet_wrap(~ktype) +
   labs(x = "Tongue length (mm)", y = "Mean proportional visitation", 
        color = "Species", linetype = "p < 0.05") +
-  theme_light(10)
+  scale_x_continuous(breaks = c(7, 10, 13, 16)) +
+  theme_light(12)
 
 pbl_GAM_plot <- (null_model_pbl_GAM | raw_visits_pbl_GAM) + 
   plot_layout(guides = "collect") +
@@ -1883,22 +1864,22 @@ flower_cover_ktype.prop <- flower_cover_ktype %>%
   left_join(site_data)
 
 # Binomial model
-gam6 <- bam(prop.cover ~
-              ktype +
-              s(site, by = ktype, bs = "re") +
-              s(year, by = ktype, bs = "re") +
-              te(yday, elev.mean, by = ktype),
-            #family = betar(eps = 0.001),
-            family = "binomial",
-            method = "fREML",
-            discrete = TRUE,
-            data = filter(flower_cover_ktype.prop, 
-                            ktype %in% c("3", "5", "6", "7"))) %>% 
-  getViz()
-
-check.gamViz(gam6)
-gam6_sum <- summary(gam6, re.test = FALSE) 
-plot.gamViz(gam6)
+# gam6 <- bam(prop.cover ~
+#               ktype +
+#               s(site, by = ktype, bs = "re") +
+#               s(year, by = ktype, bs = "re") +
+#               te(yday, elev.mean, by = ktype),
+#             #family = betar(eps = 0.001),
+#             family = "binomial",
+#             method = "fREML",
+#             discrete = TRUE,
+#             data = filter(flower_cover_ktype.prop, 
+#                             ktype %in% c("3", "5", "6", "7"))) %>% 
+#   getViz()
+# 
+# check.gamViz(gam6)
+# gam6_sum <- summary(gam6, re.test = FALSE) 
+# plot.gamViz(gam6)
 
 # Beta model (seems to fit a bit better than the binomial model)
 gam6b <- bam(prop.cover ~
@@ -1974,7 +1955,7 @@ ggplot(plotting_data_gam6b, aes(date, elevation, z = z.norm, fill = z.norm)) +
   theme(panel.grid = element_blank(),
         axis.text.x = element_text(angle = 90, vjust = 0.5))
 
-ggsave("../ms_2/figures/flower_cover_gam.pdf", height = 5, width = 6.5)
+ggsave("../ms_2/figures/fig6.pdf", height = 5, width = 6.5)
 ggsave("../ms_2/figures/flower_cover_gam.png", height = 5, width = 6.5)
 ```
 

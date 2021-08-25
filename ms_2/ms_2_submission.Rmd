@@ -1,0 +1,345 @@
+---
+title: "Floral preferences of mountain bumble bees are constrained by trait matching but flexible through elevation and season"
+header-includes:
+   - \usepackage{lineno}\linenumbers
+   - \usepackage{setspace}\doublespacing
+output: pdf_document
+bibliography: 
+  - references.bib
+csl: ecologyletters.csl
+---
+
+**Douglas Sponsler** (corresponding author)  
+University of Würzburg  
+Department of Animal Ecology and Tropical Biology  
+Biozentrum der Universität Würzburg C-018  
+Am Hubland  
+97074 Würzburg, Germany  
+Email: douglas.sponsler@uni-wuerzburg.de  
+Telephone: +49 0176 363 20273    
+
+**Katharina Kallnik**  
+University of Würzburg  
+Department of Animal Ecology and Tropical Biology  
+97074 Würzburg, Germany  
+Email: katharina.kallnik@uni-wuerzburg.de   
+
+**Fabrice Requier**  
+Université Paris-Saclay  
+Évolution, Génomes, Comportement et Écologie  
+91198 Gif-sur-Yvette, France  
+Email: fabrice.requier@egce.cnrs-gif.fr  
+
+**Alice Classen**  
+University of Würzburg  
+Department of Animal Ecology and Tropical Biology  
+97074 Würzburg, Germany  
+Email: alice.classen@uni-wuerzburg.de
+
+**A. Fabienne Maihoff**  
+University of Würzburg  
+Department of Animal Ecology and Tropical Biology  
+97074 Würzburg, Germany  
+Email: anne_fabienne.maihoff@uni-wuerzburg.de
+
+**Johanna Sieger**  
+Naturpark Frankenhöhe  
+91522 Ansbach, Germany   
+Email: sieger@lpv-mfr.de
+
+**Ingolf Steffan-Dewenter**  
+University of Würzburg  
+Department of Animal Ecology and Tropical Biology  
+97074 Würzburg, Germany  
+Email: ingolf.steffan@uni-wuerzburg.de 
+
+\     
+
+**AUTHORSHIP STATEMENT:** KK and ISD conceived the study. KK, JS, and ISD designed and carried out field work. DS analyzed the data and wrote the paper with substantial contributions from FR, AC, AFM, KK, and ISD.  
+
+
+**DATA ACCESSIBILITY:** All data used in this study have been archived on DRYAD (https://datadryad.org/stash/dataset/doi:10.5061/dryad.s1rn8pk7f) and will be available upon article publication.  
+
+
+**ARTICLE TYPE:** Letter  
+
+  
+**RUNNING TITLE:** Bumble bee floral preferences  
+
+
+**KEYWORDS:** foraging, trait matching, pollinator, *Bombus*, alpine, niche, resource selection  
+
+
+**SECTION LENGTHS:**  
+Abstract:  
+Main text:  
+References:  
+Figures:
+
+\newpage
+
+# ABSTRACT
+
+Patterns of resource use by animals can clarify how ecological communities have assembled in the past, how they currently function, and how they are likely to respond to future perturbations. Using ~13,000 records of bumble- bee-wildflower interactions along a 1400 m elevation gradient, we find that the selection of floral morphotypes by bumble bees is driven both by the directed process of trait-matching and the neutral effect of floral abundance. Patterns of floral preference also vary by elevation and season, which may be an adaptation to the strong spatiotemporal turnover of mountain floral communities. The flexibility of bumble bee foraging will be tested in coming years as climate and land use change drive rapid changes in floral resource distribution in time and space, particularly in the mountain ecosystems that host the world's richest communities of bumble bees and their floral mutualists.
+
+\newpage
+
+```{r setup, include=FALSE, cache=FALSE, message = FALSE}
+
+library("knitr")
+
+### Chunk options: see http://yihui.name/knitr/options/ ###
+## Text results
+opts_chunk$set(echo = FALSE, warning = TRUE, message = TRUE)
+
+## Code decoration
+opts_chunk$set(tidy = TRUE, comment = NA, highlight = TRUE)
+
+## Cache
+# opts_chunk$set(cache = 2, cache.path = "ms_2/figures/cache/")
+
+## Plots
+opts_chunk$set(fig.path = "../ms_2/figures/")
+
+```
+
+
+```{r knitcitations, cache = FALSE}
+library(knitcitations)
+cleanbib()   
+cite_options(citation_format = "pandoc")
+```
+
+
+# 1. INTRODUCTION
+
+Resource selection and partitioning by animals are instrumental in community assembly, species coexistence, and ecosystem function [@Chesson2000-aw; @Bascompte2007-ls]. Resource selection is fundamentally constrained by phenotypic compatibility (i.e. trait-matching) between resources and consumers, but it can also be influenced by the relative availability of resources [@Johnson1980-co] and modulated by exogenous drivers such as competition [@Pianka1974-qk]. Understanding these interacting processes is key to anticipating the response of ecological communities to anthropogenic climate and land use change, which threaten to disrupt existing patterns of species interactions and niche relationships [@Tylianakis2008-fi].
+
+\  
+
+<!-- Plant-pollinator networks are a special case of resource selection in which consumer fitness and resources fitness are positively correlated, causing the traits of plants and pollinators to converge toward compatibility with one another [e.g. @Newman2014-ke]. The coexistence of multiple plant and pollinator species, however, requires niche differentiation [@Palmer2003-ih; @Johnson2019-su], which can be achieved by trait-based partitioning of interactions among pollinators and their floral hosts [@Willmer2011-ak]. -->
+
+Bumble bees (Hymentoptera: *Bombus* spp.) and their floral hosts provide a diverse yet tractable system in which to explore resource selection in the context of plant-pollinator networks. Due to their adaptation to cold temperatures, bumble bees are sensitive to climate change [@Goulson2008-oe; @Soroye2020-zb], especially in the mountain ecosystems that host the world's richest bumble bee communities. Warming climates have already caused measurable upslope shifts in mountain bumble bees and their floral hosts [@Ploquin2013-da; @Kerr2015-dg; @Pyke2016-ll; @Fourcade2019-ct; @Soroye2020-zb; @Marshall2020-pc], which could introduce novel competitive interactions between bumble bee species that experience increased co-occurrence. At the same time, socioeconomic factors have led to widespread abandonment and reforestation of mountain meadows, particularly in the European Alps, which reduces floral resource availability and suppresses bumble bee diversity and abundance [@Tappeiner2006-jp; @Tasser2007-qo; @Walcher2017-kw]. The ability of bumble bee species to coexist under these conditions of reshuffled distributions and declining floral resources will depend in part on how they select and partition floral resources, which will in turn affect the viability of their floral mutualists, many of which depend principally on bumble bee visitation for pollination [@Goulson2010-lo].
+
+\  
+
+Addressing the question of how bumble bees will select floral resources under novel conditions requires discernment of the generalizable mechanisms that underpin patterns of floral selection observed under current conditions. It is ordinarily assumed that the choice of resources by foraging animals is a joint function of trait-based preferences and the neutral effects of the relative abundances of available resources: the so-called "use-availability" model of resource selection [e.g. @Beyer2010-vr]. The most well-studied mechanism of the preference component of bumble bees floral selection is trait-matching between bumble bee tongue length and floral corolla depth. Bumble bee species can differ markedly in tongue length, and floral handling time increases when tongue length and corolla depth are poorly matched [@Inouye1980-mv; @Harder1983-bk], leading to an association between tongue length and floral preferences in bumble bee communities [e.g. @Brian1954-cy; @Heinrich1976-wc; @Teras1976-pi; @Inouye1978-qi; @Pyke1982-gn]. Under the use-availability model, tongue-length-based floral preferences should be modulated by the relative abundance of available resources to generate observed patterns of floral selection. It has recently been proposed, however --- in what has been termed the *target use hypothesis* --- that floral selection by bumble bees is a process of *pure preference*, irrespective of resource abundance [@De_Valpine2013-be; @Harmon-Threatt2017-bz]. If and when the *target use hypothesis* holds, observed visitation rates are a better index of preference than metrics designed to control for resource abundance (e.g. null model residuals), since the subtraction of presumed neutral effects of abundance when those effects do not really exist actually creates new abundance-dependent artifacts [@Harmon-Threatt2017-bz]. On the other hand, failing to account for neutral effects of abundance when they do exist similarly obscures the general mechanisms behind observed foraging patterns [@Vazquez2003-qa; @Bluthgen2008-rp] that will determine bumble bee resource selection under novel conditions induced by climate and land use change.
+
+\  
+
+In this study, we use ~13,000 records of bumble bee visits to wildflowers, collected over three years along a 1400 m elevation gradient, to explore three unanswered questions regarding resource selection by bumble bees and its response to climate and land use change. First, we ask how bumble bee floral preferences map onto a generalized floral morphotypology [@Kugler1970-gb]. Then, using the established relationship between tongue length and floral preference as a point of reference, we test the *target use hypothesis* by comparing the explanatory power of bumble bee tongue length with respect to observed visitation rates vs. the residuals of a null model that assumes a linear dependency of selection on resource abundance. Under the *target use hypothesis*, tongue length should explain observed visitation rates better than null model residuals, while the opposite finding would indicate that, contrary to the *target use hypothesis*, bumble bee floral selection is influenced by relative abundance. Finally, we model the variation of bumble bee floral preference through time and elevation as a first step toward understanding how climate and land use change might distort the temporal and elevational structure of bumble- bee-wildflower mutualisms in mountain ecosystems.
+
+
+
+# 2. METHODS
+
+## 2.1 Field sampling 
+
+Field sampling was conducted 2010-2012 in Berchtesgaden National Park (47.55°N, 12.92°E), located in the Northern Limestone Alps of southeast Germany. The landscape is composed of a coniferous forest matrix embedded with pastures either currently or historically maintained by extensive (i.e. low intensity) agricultural management. We selected a total of 25 study sites (60 x 60 m) located on pastures along a ~1400 m elevation gradient ranging from 641-2032 m above sea level (m.s.l.). Fourteen of these pastures are grazed by cattle or sheep, three are mowed for hay production, and eight have been abandoned throughout the last century and are no longer subject to human management.  
+
+\  
+
+Bumble- bee-wildflower interactions were observed during repeated visits (hereafter, “visitation samples”) to each study site at approximately weekly intervals. Sampling was only conducted during periods without rain and with an air temperature of at least 6°C. Bumble bees were recorded during one 50-minute transect walk per visit, and bumblebees observed on a given flower were counted as floral visitors. Queens were identified to species level in the field to avoid destructively sampling of colony foundresses, but workers and males were collected and identified in the lab following @Amiet1996-jz. For analysis, pooled the cryptic *Bombus lucorum/terrestris* species complex and the parasitic *Bombus* (*Psithyrus*) species, respectively, into species-groups. Males were recorded, we analyzed only the pooled visitation of queens and workers. In conjunction with each bumble bee visitation sample, we estimated the flower cover of herbaceous and shrubby plant species within each 60 x 60 m study plot to the nearest 0.01 m^2^ (hereafter "floral survey samples") and identified the plant species according to @Lauber2007-ha and @Oberndorfer2001-ro. See Sponsler et al. (submitted) for details of sampling design. 
+
+\  
+ 
+## 2.2 Floral morphology and bumble bee tongue length
+
+To summarize floral morphology, we relied on the synthesis of @Kugler1970-gb, who developed a typology consisting of ten primary morphotypes and nested subdivision of each. Kugler’s typology was informed by laboratory studies of bumble bee flower choice [@Kugler1943-uy], and there is a precedent for analyzing bumble bee visitation in terms of Kugler’s morphotypes [@Farnberger1996-xo; @Neumayer1999-il; @Schneller2014-ry]. Kugler morphotype classifications of the plants in our study system were accessed via the BIOFLOR database [@Klotz2002-uc]. Morphotypes were simplified to the primary classes numbered 0-10: 0 = null (includes wind-pollinated flora such as grasses), 1 = disc- and bowl-shaped flowers, 2 = funnel flowers, 3 = bell-shaped flowers, 4 = stalk-disc flowers, 5 = lip flowers, 6 = flag flowers, 7 = flower heads, 8 = spike flowers, 9 = brush flowers, 10 = trap flowers **(Figure 1)**. In a few cases, a plant species in our data set was not found in the BIOFLOR database. In most cases, morphotypes are constant at the genus level, and missing morphotypes were added based on the morphotypes found for congeners. In the case of the genus *Phyteuma*, we followed @Neumayer1999-il and classified it as a group 7 flower head. Morphotypes 9 and 10 were extremely rare in our study system and morphotype 8 was completely absent, so these morphotypes were omitted from all analyses. Plants belonging to morphotype 0 were typically not recorded during floral surveys due to their lack of conspicuous floral displays, and they were rarely visited by bumble bees, so this morphotype was also omitted from all analyses. 
+
+\  
+
+Bumble bee tongue-length data (for the worker caste) were obtained from the literature values compiled and summarized by @Arbetman2017-xj. Values for *B. gerstaeckeri* and *B. mendax*, which were not included in @Arbetman2017-xj, were obtained from @Obeso1992-yp and @Durieux2000-uk, respectively. 
+
+
+## 2.3 Data analysis
+
+For the purposes of our study, we define "preference" as the difference between the observed visitation rate to a given resource and visitation rate predicted by the relative abundance of that resource (preference can thus take negative values for under-visited resources). For more nuanced definitions of preference, we refer the reader to @Beyer2010-vr and references therein. 
+
+\  
+
+To quantify preference, we compared the proportional visitation of each morphotype (by each bumble bee species) with the rates of visitation expected under a null model constructed following @Vaughan2018-gj. In this modeling approach, resource selection is simulated for individual consumers --- in our case, individual bumble bees --- according to a resource selection process in which the probability of a resource being chosen is proportional to its relative abundance [@Agusti2003-tt]. By simulating the visitation of individual consumers rather than species in aggregate, the abundance of each resource, and therefore its probability of visitation, can vary across site-dates, thus preserving the within-sample correspondence between visitation and abundance. Simulated interactions are then summarized for each consumer species by taking the mean number of interactions with each resource across all individuals of the consumer species and all samples of the dataset. As this process is iterated, the result is a distribution of visitation rates of each consumer species to each resource under the null assumption that resource selection is determined only by resource abundance. The visitation distributions of the null model can then be compared to observed visitation rates to infer positive or negative preference of each consumer toward each resource. Since the mean of the null distribution can be interpreted as the expected value under null assumptions, the difference between the mean null value and the observed value can be interpreted as a magnitude of preference [@Vaughan2018-gj], and statistical significance can be estimated as the proportion of simulated null values more extreme than the observed value. 
+
+\  
+
+We followed the procedure described above, simulating our entire dataset in one modeling process to infer aggregate preference between bumble bee species and floral morphotypes. Using the results of this analysis, we modeled preference toward each floral morphotype as a function of bumble bee tongue length using hierarchical generalized additive modeling (HGAM) [@Pedersen2019-kf]. As a test of the *target use hypothesis*, we repeated the HGAM analyses described above using observed visitation rates rather than preference. To verify that our inference of preference was not sensitive to our decision to pool queen and worker visitation, we recalculated the null model and tongue length HGAM using only data from workers. Finally, we compared morphotype preference across bumble bee species by performing a principal components analysis on the bumble bee species x floral morphotype preference matrix, and we mapped bumble bee tongue length onto the ordination space by fitting a 2-dimensional GAM surface to the first two principal components. 
+
+\  
+
+To explore temporal and elevational variation in floral preference, we repeated the null model analysis described above but this time for each site-date individually, so that the preference of each bumble bee species toward each floral morphotype could be modeled as a variable through elevation and time. For this analysis, we included only the six most abundant and widespread bumble bee species in our study system (*B. hortorum*, *B. pascuorum*, *B. pratorum*, *B. soroeensis*, *B. terrestris-lucorum*, and *B. wurflenii*) to ensure sufficient data points through elevation and time, and we modeled their preference only toward the 4 most visited floral morphotypes (bell, lip, flag, and head flowers). Preference for each bumble- bee-morphotype pair (hereafter "bb-fl pair") was modeled together in a single HGAM with an interaction smooth between elevation and time. 
+
+\  
+
+An inherent problem with modeling sample-wise variation in preference is that the bounds of preference are strictly dependent on floral abundance [@Beyer2010-vr]. A morphotype present at very low relative abundance would, under the null model, be expected to receive very low visitation, which sets the lower bound of preference near zero (i.e. neutrality) but allows the upper bound to approach 1. Conversely, a morphotype present at very high relative abundance would receive very high visitation under the null model, and its upper bound of preference would fall near zero and its lower bound near -1. This clearly creates a degree of unavoidable confoundedness between preference and floral abundance. With this limitation in mind, we fit HGAMs of the same form to the relative abundance of each floral morphotype, and we present the results together to be interpreted jointly.
+
+\  
+
+All data processing and analyses were conducted in `R` [@RCoreTeam-2021aa]. Data handling and visualization were performed with the `tidyverse` suite [@Wickham2019-aa]. Null models were constructed using `econullnetr` [@Vaughan2018-gj]. GAM analyses were performed with `mgcv` [@Wood_2017] and visualized with `mgcViz` [@Fasiolo2018aa] and `tidymv` [@Coretta2021-aa]. PCA was performed with the `vegan` [@Oksanen_2019] and visualized using `ggplot2` [@Wickham2016-aa] and `ggvegan` [@Simpson2019aa]. Annotated R code is available in the Appendix X.
+
+
+# 3. RESULTS
+
+## 3.1 Bumble bee and floral communities
+
+A total of 13,293 bumble- bee-flower interactions were included in our final data set, comprising 15 bumble bee species, 163 plant species (110 genera, 37 families), and 730 unique bumble- bee-plant interaction pairs. *B. pascuorum* ("pasc"), *B. pratorum* ("prat"), *B. soroeensis* ("soro"), *B. terrestris-lucorum* ("telu"), and *B. wurflenii* ("wurf") were the most abundant species, and they occurred at all sites. *B. hortorum* ("hort"), *B. jonellus* ("jone"),  *B. monticola* ("mont"), and *B. psithyrus* ("psit") occurred at moderate abundance. The remaining species --- *B. gerstaeckeri* ("gers"), *B. hypnorum* ("hypn"), *B. lapidarius* ("lapi"), *B. mendax* ("mend"), *B. mucidus* ("muci"), and *B. pyrenaeus* ("pyre") --- were relatively rare. *B. humilis* ("humi") was recorded only three times and only in one year, so we omitted it from all analyses. Floral surveying yielded a total of 354 plant species (194 genera, 53 families). Visited floral species included all morphotypes except spike (8) and trap (10) flowers. Null (0) and brush (9) morphotypes were, however, excluded from analysis for the reasons given above. 
+
+
+## 3.2 Bumble bee preferences toward floral morphotypes
+
+Preference was generally strong, with the visitation rates of most bumblebee species to most floral morphotypes falling significantly above or below the 99% interval of the null model **(Figure 1)**. Nonsignificant preference was observed mainly among the rarer bumblebee species, likely because their small samples sizes lead to wide null model confidence intervals. Interestingly, bumble bees showed strong species-specific variation in their relative preferences of different floral morphotypes **(Figure 1)**. The omission of queens from the calculation of overall preference did not yield qualitatively different results (Appendix X).
+
+\  
+
+When floral morphotypes are compared to one another in terms of preference across all bumble bee species, clear patterns emerge **(Figure 2A)**. All species exhibited negative preference toward disc flowers, while most species exhibited positive preference toward bell, lip, and flag flowers. preference toward funnel and stalk-disc flowers tended to be neutral (with one strong positive outlier --- *B. gerstaeckeri* --- for funnel flowers), reflecting the fact that these morphotypes tended both to be rarely visited and to occur at low abundance. Preference toward head flowers varied widely across bumble bee species, ranging from strongly positive to strongly negative.
+
+\  
+
+Differences between floral morphotypes in terms of observed visitation rates, reflecting the target use hypothesis, were less pronounced **(Figure 2B)**. Bell, lip, flag, and head flowers were visited at high rates by one or more bumble bee species, but observed visitation rates did not differ strongly across morphotypes. 
+
+
+<!-- I could do some sort of linear mixed effects model on this I suppose, but I think it would violate assumptions due to the non-independence of preference (preference for one thing implies preference against others). I've already sort of done stats on this with the null model. -->
+
+## 3.3 Tongue length as a predictor of floral choice
+
+Tongue length was a strong predictor of preference but not of observed visitation rates **(Figure 3)**. Preference toward funnel, bell, lip, flag, and head flowers exhibited significant GAM curves in response to bumble bee tongue length, and the model explained 77% of total deviance (adj. R^2^ = 0.728). For funnel and lip flowers, preference increased linearly with tongue length. Preference toward bell flowers and head flowers exhibited approximately quadratic responses with preference peaking among short-tongued species and declining sharply with increasing tongue length before leveling off. Preference toward flag flowers exhibited a unimodal peak among medium-tongued species. In contrast, observed visitation rates were predicted by tongue length only for head flowers, which exhibited a weak decline in preference from a peak among short-tongued species. The visitation rate model explained only 25% of total deviance (adj. R^2^ = 0.053). Again, these results did not differ when preference was based on the worker-only null model (Appendix X).
+
+\  
+
+PCA of bumble bee floral preferences captured more than 80% of total variance in the first two axes **(Figure 4)**, and the GAM surface fit to the firs two axes explained most of the variance in tongue length (deviance explained = 94.7%, adj. R^2^ = 0.893, p < 0.001), reflecting the importance of trait matching between tongue length and floral morphotype as a mechanistic basis of preference. Longer tongue length was associated with deeper and more closed flower morphotypes (lip, funnel, flag), while shorter tongue length was associated with more shallow and open flower morphologies (disc, stalk-disc, bell, head). The strong affinity of *B. soroeensis* and *B. psithyrus* for head flowers is especially salient.      
+
+
+## 3.4 Variation of morphotype abundance and preference through elevation and season
+
+The proportional abundance of the most visited floral morphotypes --- bell, lip, flag, and head flowers --- was strongly patterned by elevation and season **(Figure 5)**. Bell flowers peaked in proportional abundance early in the season and at mid-elevation, and lip flowers peaked late in the season and at low elevation. Flag flowers peaked in mid-season and exhibited two distinct elevational peaks, the lower at around 1000 m.s.l and the higher at around 1800 m.s.l. Head flowers exhibited a mid-season peak at low elevation and a broad late season peak at around 1600 m.s.l. All smooths were significant (p << 0.0001), and the model explained 64.3% of total deviance (adj. R^2^ = 0.554).
+
+\  
+
+The morphotype preferences of bumble bee species were also strongly patterned through elevation and season. In some cases, though, patterns of preference mirrored patterns of floral availability, suggesting that bumble bees may exhibit functional responses [@Mysterud1998-rs] to floral abundance not entirely accounted for by null models that assume a linear proportionality between abundance and visitation. Preference for flag flowers was strongly associated with high elevation, except among the species that tended to avoid flag flowers (*B. pratorum* and *B. soroeensis*) **(Figure 1)**. It is also apparent that, as a rule, preference is more dynamic where it is also higher overall. Bell flowers, which were positively selected overall by the short-tongued bumble bee species *B. pratorum*, "*B. terrestris-lucorum*, and *B. soroeensis* **(Figure 1)**, also exhibited the most complex patterns of preference in elevation and time for these bumble bee species **(Figure 6)**. In contrast, the long and medium-tongued species *B. hortorum*, *B. pascuorum*, and *B. wurflenii*, which exhibited neutral or weakly positive overall selection toward bell flowers **(Figure 1)**, also show weak patterns of variation in preference toward bell flowers **(Figure 6)**. Nearly the reverse pattern is evident for flag flowers, reflecting their association with longer-tongued bumble bee species.
+
+\  
+
+Smooths were significant (p < 0.05) for all bee-morphotype pairs except hort-head, prat-flag, telu-head, and soro-flag. The model explained 36.4% of total deviance (adj. R^2^ = 0.33).
+
+
+# 4. DISCUSSION
+
+Using ~13,000 bumble- bee-wildflower interactions, we characterized bumble bee floral selection in terms of generalized floral morphotypes and found evidence that bumble bee floral selection depends both on the directed process of morphotype preference and the neutral effect of floral abundance. Bumble bee species differed in their floral morphotype preferences, and these differences could be explained by trait-matching between floral morphotype and bumble bee tongue length. These preferences, however, varied by elevation and season, likely representing adaptive responses of bumble bee foraging behavior to elevational and seasonal shifts in floral resource composition, possibly modulated by competitive interactions among bumble bees species with overlapping resource preferences.
+
+## 4.1 Floral abundance, floral selection, and the *target use hypothesis*
+
+Our finding that bumble bee tongue length explained preference (i.e. null model residuals) much better than it explained observed visitation rates indicates that, in our study system, abundance and preference function jointly in bumble bee floral selection. This casts doubt on the *target use hypothesis* as a general rule of bumble bee foraging, though it is possible that it still obtains under certain circumstances [e.g. @Harmon-Threatt2017-bz]. In general, though, our findings support the hypothesis that bumble bee resource selection involves both the neutral effects of floral abundance and the directed effect of preference, meaning that analytical techniques designed to disentangle these effects, such as the null model method we employ, should be favored in studies of bumble bee foraging. 
+
+## 4.2 Community-level patterns of morphotype preferences 
+
+We found that the most preferred morphotypes were bell, lip, and flag flowers, which is broadly consistent with visitation patterns reported by previous studies in central Europe [@Schneller2014-ry; @Neumayer1999-il; Farnberger1996-xo], indicating that our findings are regionally generalizeable. These previous studies tended to find a stronger role of head flowers than indicated by our preference analysis, but this is probably because they characterized foraging in terms of simple visitation rates rather than null-model-inferred preference. We saw similarly high visitation rates toward head flowers, but our null-model analysis reveals that while head flowers were highly visited, they tended to be under-visited relative to their abundance.   
+
+\  
+
+While bell, lip, and flag flowers were the most preferred morphotypes on average, preference toward these morphotypes varied broadly across bumble bee species. Moreover, while average preference toward funnel and head flowers was low, each was strongly preferred by one or two bumble bee species. The majority of variation in preference toward floral morphotypes was explainable by bumble bee tongue length, with the more open bell and head morphotypes selected more positively by short-tongued bumble bee species and the deeper funnel, lip, and flag morphotypes selected more positively by medium- and long-tongued bumble bee species. The failure of tongue length to explain preference toward disc and stalk-disc flowers reflects the fact that these flowers were almost unanimously ignored by all bumble bee species. We cannot say from our data why disc and stalk-disc flowers received such consistently low visitation, but the pattern may be driven in part by the fact that some disc flowers offer pollen but little or no nectar; indeed, Kugler's (1970) typology recognizes this distinction with subdivisions of the disc morphotype into those with (class 1.2) and without (class 1.1) nectar rewards. A limitation of our study is that we could not reliably distinguish pollen- and nectar-foraging bumble bees, and it is likely that this distinction would shed further light on the mechanisms underlying the selection patterns we observed. 
+
+\  
+
+The strong explanatory power of tongue length with respect to preference in our study corroborates the established link between tongue length and floral choice [e.g. @Brian1954-cy; @Heinrich1976-wc; @Teras1976-pi; @Inouye1978-qi; @Pyke1982-gn]. It is important, though, to consider the species that appear as outliers with respect to the smooth dependency of preference on tongue length. *B. terrestris/lucorum* showed comparatively high (though still negative) preference toward disc flowers. *B. mucidus* exhibited unusually low preference toward lip flowers, complemented by unusually high preference toward flag flowers. *B. soroeensis* and the *B. psythyrus* species-group were anomalous in their strongly positive selection toward head flowers. Such unexplained variation in preference may indicate that traits not captured by Kugler's (1970) morphotypology are also important in governing floral selection by bumble bees. FLoral color, in particular, is known to be instrumental in the process of flower detection by foraging bumble bees [@Spaethe2001-bq], and some bumble bee species exhibit innate color preferences [@Raine2007-nq]. This effect can also be seen in field studies, where bumble bees have been shown to over- or under-represent certain floral colors [e.g. @Teras1976-pi; @Neumayer1999-il]. Moreover, since floral color can be correlated with floral morphology [@Teras1976-pi], it is possible that some of the preference attributed to morphology in our models could represent a latent effect of floral color. 
+
+\  
+
+Species of similar tongue length will, on average, be more likely to compete for resources than species of dissimilar tongue length. Our ordination analysis, though, suggests that there may be significant patterns of similarity and divergence even among species of similar tongue length. Among short-tongued species, *B. jonellus* and *B. pyrenaeus* cluster tightly around bell flowers, while *B. psithryus* and *B. soroeensis* cluster tightly around head flowers. Medium- and long-tongued species differ in their allocation of preference across funnel, lip, and flag flowers. *B. gerstaeckeri*, for example, is associated with lip and funnel flowers but eschews flag flowers, while *B. mucidus* does this opposite. With respect to the question of climate-induced competition, the case of *B. gerstaeckeri* deserves special consideration. A red-listed vulnerable species, *B. gerstaeckeri* is a pollen specialist on the lip flowers of the genus *Aconitum* [@Ponchau2006-af; @Schneller2014-ry], and there is evidence that joint elevational shifts of bumble bees and floral resources over the past century have generated more intense exploitation of *Aconitum*, which may indicate nascent competitive conditions for *B. gerstaeckeri* [@Marshall2020-pc]. 
+
+\  
+
+When considering community-level patterns of preference and visitation from the perspective of pollination services to mountain flora, it is important to note that while bumble bees are the dominant Hymenopteran pollinators in our study system, flies (Diptera) are also abundant flower visitors in mountain ecosystems, and their visitation is mainly restricted to the open flower morphotypes (e.g. disc flowers) that receive less attention from bumble bees [@Neumayer1999-il]. In the context of our research question, we have emphasized the differences in tongue length between bumble bee species, but all bumble bees have relatively long tongues compared to the overall pollinator community, and it is not surprising that their foraging tends to be focused on the deeper and more closed flower morphotypes. The process of floral resource partitioning *among* bumble bee species is nested within the process of floral partitioning *between* bumble bees and other flower visitors.
+
+
+## 4.3 Variability of floral abundance, visitation, and preference through elevation and time
+
+Intraspecific variation of bumble bee foraging preferences has been demonstrated under laboratory conditions [@Ings2009-vc; @Maharaj2019-wm]; our study reveals the *in situ* variation of preference for multiple bumble bee species through elevational and temporal gradients of floristic turnover.  
+
+\  
+
+At least three mechanisms could underlie the variation of preferences we observed. First, variation in preference toward a given morphotype could be driven by changes in the *intrinsic* reward of that focal morphotype, which could be caused by (1) shifts in species composition of the focal morphotype (e.g. the occurrence of a particularly rewarding flag flower at high-elevation sites), (2) shifts in the reward levels of individual species (e.g. increased nectar production in the flag flower *Lotus corniculatus* under high elevation conditions), or (3) changes in nutritional requirements of bumble bees (e.g. an increased need for concentrated nectar to support thermoregulation at colder ambient temperatures). Alternatively, preference toward a given morphotype could vary due to changes in the *relative* reward of the focal morphotype with respect to changing background resource conditions. For example, it could be that flag flowers are selected more positively at high elevation because they must compete for visitation with highly attractive lip flowers at lower elevation. Finally, it is possible that patterns of resource selection could vary due to competitive interactions within or between bumble bee species. For example, the increased selection of flag flowers at high elevation could be driven by competition release from *B. pascuorum*, which tends to be the most abundance bumble bee species at lower elevations but becomes relatively scarce above 1500 m (Sponsler et al, submitted). Under this hypothesis, an organism's resource selection is the product of exogenous constraint rather than endogenous preference.
+
+## 4.4 Conclusions
+
+Clarifying the patterns and processes of bumble floral selection sheds light on how bumble bee communities have evolved with respect to their mountain habitats and how they might respond to the incipient forcings of climate and land use change. The dynamics of preference in our study suggest adaptive tuning of floral choice consistent with the ecological hurdles that have shaped the evolution of bumble bees in the mountain habitats in which they arose and diversified [@Williams1985-ql; @Hines2008-er]. Where steep temperature gradients and short growing seasons generate extreme spatiotemporal turnover of floral resources, adaptive flexibility of morphological preferences should be favored over fixed biases. As climate and land use change drive the redistribution of bumble bees and their floral mutualists, and likely an overall reduction in floral availability in mountain habitats, competition within bumble bee communities is likely to intensify. Whether this leads to competitive exclusion will depend on whether interspecific competition exceeds the stabilizing effects of interspecific competition. In this regard, the partial dependency of bumble bee floral selection on the neutral effects of floral abundance (in contrast to the *target use hypothesis*) can be expected to favor the coexistence of both bumble bee species and their floral host by increasing the likelihood that species will be self-limited by intraspecific competition [@Valdovinos2021-ya].
+
+
+# ACKNOWLEDGMENTS
+
+We thank the National Park Berchtesgaden for their support and the permission to work in the national park, and we thank the owners of the study sites outside the national park for access to their land. The field work of this study was performed within the framework of the joint research center FORKAST as part of the ‘Bavarian Climate Programme 2020'. D.J. McNeil provided for helpful conversations during data analysis. O. Mitesser kindly provided a high-performance computing environment to expedite null modeling.  
+
+
+# REFERENCES
+
+<!-- ```{r write_citations, cache=FALSE, include=FALSE} -->
+<!-- write.bibtex(file = "knitcitations.bib") -->
+<!-- ``` -->
+
+<div id ="refs"></div>
+
+
+# FIGURES
+**Figure 1**  
+```{r fig1, echo = FALSE}
+knitr::include_graphics("../ms_2/figures/fig1.pdf")
+```
+
+\newpage
+
+**Figure 2**  
+```{r fig2, echo = FALSE, out.width="100%"}
+knitr::include_graphics("../ms_2/figures/fig2.pdf")
+```
+
+\newpage
+
+**Figure 3**  
+```{r fig3, echo = FALSE, out.width="100%"}
+knitr::include_graphics("../ms_2/figures/fig3.pdf")
+```
+
+\newpage
+
+**Figure 4**  
+```{r fig4, echo = FALSE}
+knitr::include_graphics("../ms_2/figures/fig4.pdf")
+```
+
+\newpage
+
+**Figure 5**  
+```{r fig5, echo = FALSE}
+knitr::include_graphics("../ms_2/figures/fig5.pdf")
+```
+
+\newpage
+
+**Figure 6**  
+```{r fig6, echo = FALSE}
+knitr::include_graphics("../ms_2/figures/fig6.pdf")
+```
+
+\newpage
+
+# FIGURE CAPTIONS
+
+**Figure 1:** Observed visitation rates compared to null model simulations for each bumble bee species and floral morphotype (A). Gray bars depict 99% intervals of null model simulations and points depict observed visitation rates. Points are color-coded according to where they fall with respect to the 99% interval of the null model: red = above (positive preference), blue = below (negative preference), gray = within (nonsignificant preference). The difference between the observed value and the center of the null model interval can be interpreted as magnitude of preference. Each floral morphotype is illustrated (B) with a representative species common in our study system: 1 = *Potentilla erecta*, 2 = *Gentiana asclepiadea*, 3 = *Campanula glomerata*, 4 = *Silene nutans*, 5 = *Ajuga reptans*, 6 = *Lotus corniculatus*, 7 = *Centaurea jacea*. Illustrations are modifications of public domain works obtained from www.plantillustrations.org. For details of original sources, see Appendix X.
+
+\  
+
+**Figure 2:** Preference (A) and observed visitation rate (B) of the bumble bee species toward each floral morphotype. Each point represents the preference/visitation of one bumble bee species toward the corresponding floral morphotype. The color of each point in panel A, retained from Figure 2, indicates whether a given observed bias is significantly (p < 0.01) positive or negative with respect to null model simulations.
+
+\  
+
+**Figure 3:** Preference (A) and observed visitation rates (B) for each morphotype regressed against bumble bee tongue length. Each point represents the preference/visitation of one bumble bee species toward the corresponding floral morphotype. Curves depict fitted GAM smooths with 95\\% confidence bands. Solid lines indicate curves differing significantly (p < 0.05) from a flat line while dashed lines indicated nonsigificant curves. Points are color-coded by species, and species are presented in the legend in order of increasing tongue length.
+
+\  
+
+**Figure 4:** Principal components biplot of bumble bee species according to their preference toward each floral morphotype. Floral morphotypes are abbreviated with their numerical codes and illustrated as in Figure 1. Colored bands depict a 2-dimensional GAM smooth representing the relationship between the first two principal components and bumble bee tongue length. Morphotype illustrations are as described in Figure 1.
+
+\  
+
+**Figure 5:** Variation in proportional flower cover through elevation and season modeled as HGAM surfaces. Color ramps depict z-normalized effects to allow the range of effect size to be compared across panels, but contour lines are set at the same fixed density across all panels to emphasize the within-panel patterns. All smooths are significant (p < 0.05).
+
+\  
+
+**Figure 6:** Variation in preference through elevation and time modeled as HGAM surfaces. Color ramps depict z-normalized effects to allow the range of effect size to be compared across panels, but contour lines are set at the same fixed density across all panels to emphasize the within-panel patterns. Significant (p < 0.05) smooths are depicted with solid contour lines and nonsignificant smooths with dashed contour lines.
