@@ -1,6 +1,20 @@
 ---
-title: "Appendix S1"
-output: pdf_document
+title: "The tree line ecotone punctuates the abundance and β-diversity of plants, pollinators, and their interactions"
+subtitle: "Appendix S1: Analytical workflow"
+author: 
+  - Douglas B. Sponsler^[douglas.sponsler@uni-wuerzburg.de]
+  - Katharina Kallnik 
+  - Fabrice Requier 
+  - Alice Classen 
+  - A. Fabienne Maihoff
+  - Johanna Sieger
+  - Ingolf Steffan-Dewenter
+output: 
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    latex_engine: xelatex
+#mainfont: Arial
 ---
 
 # Packages
@@ -79,7 +93,7 @@ ggplot(bb_obs_per_sample, aes(x = "x")) +
   theme(axis.title.x = element_blank(),
         axis.text.x = element_blank(),
         axis.ticks.x = element_blank()) +
-  ggtitle("Sampling events (site/day) per year")
+  ggtitle("Samplings (site*day) per year")
 
 ggplot(bb_obs_per_sample, aes(x = "x", y = obs)) +
   geom_violin(draw_quantiles = 0.5, fill = "gray60", color = NA) +
@@ -92,7 +106,7 @@ ggplot(bb_obs_per_sample, aes(x = "x", y = obs)) +
   theme(axis.title.x = element_blank(),
         axis.text.x = element_blank(),
         axis.ticks.x = element_blank()) +
-  ggtitle("Bumble bee observations per sampling event")
+  ggtitle("Bumble bee observations per sample")
 
 ggplot(bb_obs_per_sample, aes(as_date(yday(date)), elev.mean/10)) +
   geom_point(size = 1, aes(alpha = obs)) +
@@ -174,7 +188,7 @@ ggplot(bb_abund_sum, aes(reorder(bb.sp, -mean.prop.abund), prop.abund)) +
 ```{r message=FALSE, warning=FALSE}
 bb_abund_gam <- readRDS("../output/gam_max_bb_abund_01.rds")
 summary(bb_abund_gam)
-check.gamViz
+check.gamViz(bb_abund_gam)
 ```
 
 ## Floral abundance GAM

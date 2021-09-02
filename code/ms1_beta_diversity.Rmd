@@ -54,7 +54,6 @@ betalinkr_set1 <- function(x) {
   as_tibble() # for convenience
 }
 
-
 # Function for converting visitation data into site-pair table for GDM analysis 
 
 interaction_gdm_prep <- function(x) {
@@ -189,9 +188,6 @@ site_data <- read_csv("../data/processed_data/site_data.csv") %>%
   sfc_as_cols() %>%
   as_tibble() %>%
   dplyr::select(-geometry)
-
-# Write to csv for archiving
-write_csv(site_data, "../Dryad_ms1/site_data.csv")
 ```
 
 ### Load network and survey data
@@ -205,10 +201,6 @@ survey <- read_csv("../data/processed_data/floral_survey.csv") %>%
   filter(flower.cover > 0) %>%
   semi_join(net, by = "plant.sp") %>% # Consider only visited plant spp. (anytime, anywhere, not specifically for a given site*date)
   dplyr::select(site, date, plant.sp, flower.cover) 
-
-# Write to csv for archiving
-write_csv(net, "../Dryad_ms1//visitation_data.csv")
-write_csv(survey, "../Dryad_ms1//floral_survey_data.csv")
 ```
 
 ### Get beta-diversity for BBs and plants (not their interactions)
@@ -253,6 +245,7 @@ species_beta <- full_join(bb_beta, fl_beta) %>%
          mean.elev = (elev1 + elev2)/2, mgmt.diff = if_else(mgmt1 == mgmt2, 0, 1)) %>%
   pivot_longer(cols = c(BB, FL), names_to = "group", values_to = "beta") %>%
   filter(elev.diff >= 0) # For each site pair, one will be higher and the other lower; thus, when their order is reversed only the sign of the difference changes. Since no two sites have exactly the same elevation, this deduplicates the data by dropping the ordering of a given pair of sites (one of the two orderings) that yields a negative elevation difference while retaining the alternative ordering that yields a positive elevation difference. By >= 0, I retain comparisons of a site to itself. I drop (in the ggplot call) within-site comparisons when I plot against elevation difference, and I isolate within-site comparison when I plot against time. In the latter case, it is also necessary to deduplicate, since each pair of site dates occurs in A-B and B-A. For that, I filter (again, in the ggplot call) so that yday.diff > 0, similarly dropping the orderings that yield negative differences. Note that all this deduplication nonsense is not necessary for the betalinkr call because it deduplicates internally.
+
 
 # fl_beta_dist <- survey %>%
 #   group_by(site, plant.sp) %>%
@@ -310,7 +303,7 @@ beta_mit_data <- beta_site %>%
                                        "OS.repl", "OS.rich")))
 
 # Write to csv for archiving
-write_csv(beta_mit_data, "../Dryad_ms1/partitioned_beta_diversity")
+#write_csv(beta_mit_data, "../Dryad_ms1/partitioned_beta_diversity")
 ```
 
 ### Plot interaction beta-diversity against elevation difference
@@ -329,7 +322,7 @@ g1 <- ggplot(filter(species_beta,
               method.args = list(family = "binomial"), 
               se = FALSE) +
   xlab("Elevation difference (m)") +
-  ylab("β-diversity") +
+  ylab("β-diversity (proportional species turnover)") +
   theme_light()
 
 # BB * FL elevation diff (aggregate)
@@ -362,13 +355,13 @@ g3 <- ggplot(filter(beta_mit_data,
   theme_light()
 
 # Patchwork plot for comparing species beta-diversity with interaction beta-diversity
-png("../output/beta_stack.png", width = 6.5, height = 4.5, units = "in", res = 300)
+png("../ms_1/figures/beta_stack.png", width = 6.5, height = 4.5, units = "in", res = 300)
 (g1 | (g2 / g3)) + 
   plot_annotation(tag_levels = c("A", "B", "C")) + 
   theme_light() 
 dev.off()
 
-pdf("../output/beta_stack.pdf", width = 6.5, height = 4.5)
+pdf("../ms_1/figures/beta_stack.pdf", width = 6.5, height = 4.5)
 (g1 | (g2 / g3)) + 
   plot_annotation(tag_levels = c("A", "B", "C")) + 
   theme_light() 
@@ -531,14 +524,29 @@ mrm_results_sub <- bind_rows(mrm_fl, mrm_bb, mrm_WN) %>%
 ```{r message=FALSE, warning=FALSE}
 # Prep sitepairs
 sitepair_WN <- interaction_gdm_prep(net)
+sitepair_WNb <- interaction_gdm_prep2(net)
 
 # Run GDM analysis
-gdm_WN <- gdm(sitepair_WN, geo = FALSE)
+gdm_WN6 <- gdm(sitepair_WN, geo = FALSE, splines = c(6, 6, 6, 6, 6))
+gdm_WN6b <- gdm(sitepair_WNb, geo = FALSE, splines = c(6, 6, 6, 6, 6))
+
+gdm_WN6 <- gdm(sitepair_WN, geo = TRUE, splines = c(6, 6, 6, 6, 6, 6))
+
+
 summary(gdm_WN)
+
 gdm.varImp_WN <- gdm.varImp(sitepair_WN, geo = FALSE)
+gdm.varImp_WN <- gdm.varImp(sitepair_WN, geo = FALSE, splines = c(6, 6, 6, 6, 6))
+gdm.varImp_WN <- gdm.varImp(sitepair_WN, geo = FALSE, splines = c(6, 6, 6, 6))
+gdm.varImp_WN <- gdm.varImp(sitepair_WN, geo = FALSE, splines = c(6, 6, 6))
+
+
+# gdm.varImp_WN <- gdm.varImp(sitepair_WN, geo = FALSE, splines = c(6, 6, 6, 6))
 
 # Plot
-plot(gdm_WN)
+plot(gdm_WN6)
+plot(gdm_WN6b)
+
 
 # Plot with confidence intervals 
 # pdf("../output/gdm_interactions.pdf", height = 2.5, width =  6.5)
@@ -555,12 +563,20 @@ predData_survey <- predData_prep_survey(survey)
 sitepair_survey <- format_set(bioData_survey, predData_survey)
 
 # Call GDMs
-gdm_survey <- gdm(sitepair_survey, geo = FALSE)
+gdm_survey10 <- gdm(sitepair_survey, geo = TRUE, splines = c(10, 10, 10, 10, 10, 10))
+gdm_survey6 <- gdm(sitepair_survey, geo = FALSE, splines = c(6, 6, 6, 6, 6))
+gdm_survey5 <- gdm(sitepair_survey, geo = TRUE, splines = c(5, 5, 5, 5, 5, 5))
+gdm_survey4 <- gdm(sitepair_survey, geo = TRUE, splines = c(4, 4, 4, 4, 4, 4))
+
 summary(gdm_survey)
-gdm.varImp_survey <- gdm.varImp(sitepair_survey, geo = FALSE)
+gdm.varImp_survey <- gdm.varImp(sitepair_survey, geo = FALSE, splines = c(6, 6, 6, 6, 6, 6))
 
 # Plot
-plot(gdm_survey)
+plot(gdm_survey10)
+plot(gdm_survey6)
+plot(gdm_survey5)
+plot(gdm_survey4)
+
 
 # Plot with confidence intervals (slow)
 # pdf("../output/gdm_flora.pdf", height = 2.5, width =  6.5)
@@ -577,12 +593,18 @@ predData_BB <- predData_prep_BB(net)
 sitepair_BB <- format_set(bioData_BB, predData_BB)
 
 # Call GDMs
-gdm_BB <- gdm(sitepair_BB, geo = FALSE)
+gdm_BB6 <- gdm(sitepair_BB, geo = FALSE, splines = c(6, 6, 6, 6, 6))
+gdm_BB5 <- gdm(sitepair_BB, geo = FALSE, splines = c(5, 5, 5, 5, 5, 5))
+gdm_BB4 <- gdm(sitepair_BB, geo = TRUE, splines = c(4, 4, 4, 4, 4, 4))
+
 summary(gdm_BB)
-gdm.varImp_BB <- gdm.varImp(sitepair_BB, geo = FALSE)
+gdm.varImp_BB <- gdm.varImp(sitepair_BB, geo = TRUE, splines = c(6, 6, 6, 6, 6, 6))
 
 # Plot
-plot(gdm_BB)
+plot(gdm_BB6)
+plot(gdm_BB5)
+plot(gdm_BB4)
+
 
 # Plot with confidence intervals (slow)
 # pdf("../output/gdm_BB.pdf", height = 2.5, width =  6.5)
@@ -659,40 +681,89 @@ gdm.varImp.tab <- bind_rows(gdm.varImp_WN.tab, gdm.varImp_survey.tab, gdm.varImp
 gtsave(gdm.varImp.tab, "../output/gdm_tab.pdf")
 ```
 
+### Fixed isplineExtract()
+```{r}
+##Extracts Ispline data from a gdm model
+isplineExtract2 <- function (model){
+  ###########################
+  #model = gdmOb
+  ###########################
+  ##error checking
+  ##checks to make sure a gdm model is given
+  if(!is(model, "gdm")){
+    stop("model argument must be of class = 'gdm'.")
+  }
+  
+  ##Collects or sets simple data
+  options(warn.FPU = FALSE)
+  PSAMPLE <- 200
+  preddata <- rep(0, times = PSAMPLE)
+  pn <- model$predictors
+  nPreds <- length(pn)
+  yDat <- xDat <- matrix(0,PSAMPLE,nPreds)
+  colnames(yDat) <- colnames(xDat) <- pn
+  pmin <- 1
+  pmax <- PSAMPLE
+  
+  ##cycles through each prodictor and fills the spline matrices
+  splineindex <- 1
+  for (i in 1:nPreds){ 
+    #i<-1
+    numsplines <- model$splines[i]
+    z <- .C("GetPredictorPlotData", 
+            pdata = as.double(preddata), 
+            as.integer(PSAMPLE), 
+            as.double(model$coefficients[splineindex:(splineindex + numsplines - 1)]), 
+            as.double(model$knots[splineindex:(splineindex + numsplines - 1)]), 
+            as.integer(numsplines),
+            PACKAGE = "gdm")
+    yDat[,i] <- z$pdata
+    pmin <- pmin + PSAMPLE
+    pmax <- pmax + PSAMPLE
+    xDat[,i] <-  seq(from=model$knots[[(i*numsplines)-(numsplines-1)]],to=model$knots[[(i*numsplines)]], length=PSAMPLE)
+    splineindex <- splineindex + numsplines
+  }
+  
+  ##lists and returns matrices
+  outData <- list(x=xDat,y=yDat)
+  return(outData)
+}
+```
+
 ### Plot GDM splines
 ```{r}
 # Interaction model
-gdm_WN_splines1 <- isplineExtract(gdm_WN)$x %>%
+gdm_WN_splines1 <- isplineExtract2(gdm_WN6)$x %>%
   as.data.frame() %>%
-  select(elevation = elev.mean)
+  dplyr::select(elevation = elev.mean)
 
-gdm_WN_splines2 <- isplineExtract(gdm_WN)$y %>%
+gdm_WN_splines2 <- isplineExtract2(gdm_WN6)$y %>%
   as.data.frame() %>%
-  select(response = elev.mean)
+  dplyr::select(response = elev.mean)
 
 gdm_WN_splines <- bind_cols(gdm_WN_splines1, gdm_WN_splines2) %>%
   mutate(level = rep("Interactions"))
 
 # Flora model
-gdm_survey_splines1 <- isplineExtract(gdm_survey)$x %>%
+gdm_survey_splines1 <- isplineExtract2(gdm_survey6)$x %>%
   as.data.frame() %>%
-  select(elevation = elev.mean)
+  dplyr::select(elevation = elev.mean)
 
-gdm_survey_splines2 <- isplineExtract(gdm_survey)$y %>%
+gdm_survey_splines2 <- isplineExtract2(gdm_survey6)$y %>%
   as.data.frame() %>%
-  select(response = elev.mean)
+  dplyr::select(response = elev.mean)
 
 gdm_survey_splines <- bind_cols(gdm_survey_splines1, gdm_survey_splines2) %>%
   mutate(level = rep("Flora"))
 
 # BB model
-gdm_BB_splines1 <- isplineExtract(gdm_BB)$x %>%
+gdm_BB_splines1 <- isplineExtract2(gdm_BB6)$x %>%
   as.data.frame() %>%
-  select(elevation = elev.mean)
+  dplyr::select(elevation = elev.mean)
 
-gdm_BB_splines2 <- isplineExtract(gdm_BB)$y %>%
+gdm_BB_splines2 <- isplineExtract2(gdm_BB6)$y %>%
   as.data.frame() %>%
-  select(response = elev.mean)
+  dplyr::select(response = elev.mean)
 
 gdm_BB_splines <- bind_cols(gdm_BB_splines1, gdm_BB_splines2) %>%
   mutate(level = rep("Bumble bees"))
@@ -702,7 +773,7 @@ gdm_splines <- bind_rows(gdm_WN_splines, gdm_survey_splines, gdm_BB_splines) %>%
   mutate(Level = factor(level, levels = c("Interactions", "Flora", "Bumble bees")))
 
 tree_line <- site_data %>%
-  select(elevation = elev.mean, tree_line)
+  dplyr::select(elevation = elev.mean, tree_line)
 
 # Plot
 ggplot(gdm_splines, aes(elevation, response, linetype = Level)) +
@@ -712,8 +783,8 @@ ggplot(gdm_splines, aes(elevation, response, linetype = Level)) +
   labs(color = "Tree Line", x = "Elevation", y = "Response") +
   theme_light(14) 
 
-ggsave("../output/gdm_splines.pdf")
-ggsave("../output/gdm_splines.png")
+ggsave("../output/gdm_splines2.pdf")
+ggsave("../output/gdm_splines2.png")
 
 ```
 

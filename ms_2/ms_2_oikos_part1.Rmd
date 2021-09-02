@@ -1,0 +1,72 @@
+---
+title: "Floral preferences of mountain bumble bees are constrained by trait matching but flexible through elevation and season"
+header-includes:
+   - \usepackage{lineno}\linenumbers
+   - \usepackage{setspace}\doublespacing
+output: 
+  pdf_document: 
+    keep_tex: yes
+---
+
+**Douglas Sponsler** (corresponding author)  
+University of Würzburg  
+Department of Animal Ecology and Tropical Biology  
+Biozentrum der Universität Würzburg C-018  
+Am Hubland  
+97074 Würzburg, Germany  
+Email: douglas.sponsler@uni-wuerzburg.de  
+Telephone: +49 0176 363 20273    
+
+**Katharina Kallnik**  
+University of Würzburg  
+Department of Animal Ecology and Tropical Biology  
+97074 Würzburg, Germany  
+Email: katharina.kallnik@uni-wuerzburg.de   
+
+**Fabrice Requier**  
+Université Paris-Saclay  
+Évolution, Génomes, Comportement et Écologie  
+91198 Gif-sur-Yvette, France  
+Email: fabrice.requier@egce.cnrs-gif.fr  
+
+**Alice Classen**  
+University of Würzburg  
+Department of Animal Ecology and Tropical Biology  
+97074 Würzburg, Germany  
+Email: alice.classen@uni-wuerzburg.de
+
+**A. Fabienne Maihoff**  
+University of Würzburg  
+Department of Animal Ecology and Tropical Biology  
+97074 Würzburg, Germany  
+Email: anne_fabienne.maihoff@uni-wuerzburg.de
+
+**Johanna Sieger**  
+Naturpark Frankenhöhe  
+91522 Ansbach, Germany   
+Email: sieger@lpv-mfr.de
+
+**Ingolf Steffan-Dewenter**  
+University of Würzburg  
+Department of Animal Ecology and Tropical Biology  
+97074 Würzburg, Germany  
+Email: ingolf.steffan@uni-wuerzburg.de 
+
+\     
+
+**AUTHORSHIP STATEMENT:** KK and ISD conceived the study. KK, JS, and ISD designed and carried out field work. DS analyzed the data and wrote the paper with substantial contributions from FR, AC, AFM, KK, and ISD.  
+
+
+**DATA ACCESSIBILITY:** All data used in this study have been archived on DRYAD (https://datadryad.org/stash/dataset/doi:10.5061/dryad.s1rn8pk7f) and will be available upon article publication.  
+
+
+**ARTICLE TYPE:** Research  
+
+  
+**RUNNING TITLE:** Bumble bee floral preferences  
+
+**SECTION LENGTHS:**  
+Abstract: 141 words
+Main text: 4979 words
+References: 61  
+Figures: 6  

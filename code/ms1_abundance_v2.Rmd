@@ -3,8 +3,8 @@ title: "Abundance/diversity GAM"
 output: html_document
 ---
 
-# 1. Prep work
-## 1.1 Prepare environment
+# 1. Prepare environment
+## 1.1 Load packages
 ```{r setup, include=FALSE, echo=FALSE}
 library(mgcv)
 library(mgcViz)
@@ -30,9 +30,13 @@ fl_tax <- read_csv("../data/processed_data/floral_tax.csv")
 ## 1.3 Load network and survey data
 ```{r message=FALSE}
 ### BB-FL visitation data
+# net <- read_csv("../data/processed_data/network.csv") %>%
+#   filter(caste != "male",
+#          !bb.sp %in% c("humi", "hypn", "lapi")) %>% # too rare
+#   dplyr::select(site, date, bb.sp, plant.sp) # drop unused columns
+
 net <- read_csv("../data/processed_data/network.csv") %>%
-  filter(caste != "male",
-         !bb.sp %in% c("humi", "hypn", "lapi")) %>% # too rare
+  filter(caste != "male") %>% 
   dplyr::select(site, date, bb.sp, plant.sp) # drop unused columns
 
 ### Floral survey data
@@ -60,10 +64,20 @@ surv_sp <- survey %>%
 missing <- anti_join(vis_sp, surv_sp)
 ```
 
-## 1.4 Calculate FL and BB abundance
+# 2. Process data
+## 2.1 Calculate transect-wise FL and BB abundance
 ```{r echo=FALSE, include=TRUE, message=FALSE}
+# Survey transects
+survey_transects_site <- survey %>%
+  group_by(site) %>%
+  summarize(survey.transects = length(unique(date)))
+
+# BB transects
+net_transects_site <- net %>%
+  group_by(site) %>%
+  summarize(net.transects = length(unique(date)))
+
 # Per-transect BB abundance
-## full dataset
 bb_abund_sp <- net %>%
   dplyr::select(site, date, bb.sp) %>%
   group_by(site, date, bb.sp) %>% # 
@@ -91,34 +105,100 @@ fl_abund_sp <- survey %>%
   unique() %>%
   mutate(year = factor(year(date))) %>%
   left_join(fl_tax)
+
+### Bumble bee richness per site
+bb_rich_site <- net %>%
+  group_by(site) %>%
+  summarize(bb.rich = length(unique(bb.sp))) %>%
+  left_join(site_data) %>% # add site data
+  mutate(management = factor(management),
+         site = factor(site),
+         transect = factor(transect))
+
+### Peak and mean BB abundance per site
+bb_abund_site <- bb_abund_sp %>%
+  group_by(site, date) %>%
+  summarize(bb.total.abund = sum(bb.abund)) %>%
+  group_by(site) %>%
+  summarize(bb.peakabund = max(bb.total.abund)) %>%
+  left_join(site_data) %>% # add site data
+  mutate(management = factor(management),
+         site = factor(site),
+         transect = factor(transect))
+
+### Floral richness per site
+fl_rich_site <- survey %>%
+  group_by(site) %>%
+  summarize(fl.rich = length(unique(plant.sp))) %>%
+  left_join(site_data) %>% # add site data
+  mutate(management = factor(management),
+         site = factor(site),
+         transect = factor(transect))
+
+### Peak floral abundance per site
+fl_abund_site <- survey %>%
+  group_by(site, date) %>%
+  summarize(fl.abund = sum(flower.cover)) %>%
+  group_by(site) %>%
+  summarize(fl.peakabund = max(fl.abund),
+            fl.meanabund = mean(fl.abund),
+            fl.medabund = median(fl.abund)) %>%
+  left_join(site_data) %>% # add site data
+  mutate(management = factor(management),
+         site = factor(site),
+         transect = factor(transect))
+
+### Interaction richness per site
+interaction_rich_site <- net %>%
+  group_by(site) %>%
+  unite(interaction, c(bb.sp, plant.sp), sep = "_") %>%
+  summarize(interaction.rich = length(unique(interaction))) %>%
+  left_join(site_data) %>% # add site data
+  mutate(management = factor(management),
+         site = factor(site),
+         transect = factor(transect))
+
+rich_abund_collated <- bb_rich_site %>% 
+  full_join(fl_rich_site) %>%
+  full_join(bb_abund_site) %>% 
+  full_join(fl_abund_site) %>%
+  full_join(interaction_rich_site)
+  
+rich_abund_collated.long <- rich_abund_collated %>%
+  pivot_longer(cols = c(bb.rich, fl.rich, bb.peakabund, 
+                        fl.peakabund, fl.meanabund, 
+                        fl.medabund, interaction.rich)) %>%
+  separate(name, c("group", "metric"), sep = "\\.") %>%
+  group_by(group, metric) %>%
+  mutate(z = scale(value))
+
+ggplot(rich_abund_collated.long, aes(elev.mean, z, color = group)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_wrap(~metric) +
+  theme_light()
+
+
+# Exploring some bivariate relations
+
+ggplot(rich_abund_collated, aes(fl.rich, bb.rich)) +
+  geom_point() +
+  geom_smooth(method = "lm") 
+
+ggplot(rich_abund_collated, aes(fl.peakabund, fl.rich)) +
+  geom_point() +
+  geom_smooth(method = "lm") 
+
+ggplot(rich_abund_collated, aes(fl.peakabund, bb.peakabund)) +
+  geom_point() +
+  geom_smooth(method = "lm") 
+
+ggplot(rich_abund_collated, aes(fl.peakabund, bb.rich)) +
+  geom_point() +
+  geom_smooth(method = "lm") 
 ```
 
-## 1.5 Calculate binary "preference" for each plant genus by each bumble bee species; score species 0 or 1 based on whether they were visited
-```{r message=FALSE}
-weights <- fl_abund_sp %>%
-  select(plant.sp, plant.genus) %>%
-  unique() %>%
-  left_join(select(net, bb.sp, plant.sp)) %>%
-  select(plant.genus, bb.sp) %>%
-  distinct() %>%
-  mutate(visited = rep(1, n())) %>%
-  pivot_wider(values_from = visited, names_from = bb.sp, values_fill = 0) %>%
-  pivot_longer(cols = 2:14, values_to = "visited", names_to = "bb.sp")
-  
-weighted_fl_abund <- fl_abund_sp %>%
-  group_by(site, date, plant.genus) %>%
-  summarize(flower.cover = sum(fl.abund)) %>%
-  left_join(weights) %>%
-  mutate(weighted.flower.cover = flower.cover*visited) %>%
-  group_by(site, date, bb.sp) %>%
-  summarize(total.weighted.flower.cover = sum(weighted.flower.cover)) %>%
-  left_join(site_data) %>%
-  select(site, date, elev.mean, bb.sp, total.weighted.flower.cover) %>%
-  mutate(yday = yday(date),
-         bb.sp = factor(bb.sp),
-         site = factor(site),
-         year = factor(year(date)))
-```
+## 2.2 Summarize 
 
 # 2. Analyses
 
@@ -451,7 +531,7 @@ dev.off()
 # ggsave("../output/gam_fl_abund.png")
 ```
 
-## 2.3 Mean total floral cover (not broken down by bumble bee species) ~ elevation
+## 2.3 Mean total floral cover (not broken down by bumble bee species) ~ elevation * time
 ```{r}
 fl_abund_total <- fl_abund_sp %>%
   group_by(site, date) %>%
@@ -459,7 +539,36 @@ fl_abund_total <- fl_abund_sp %>%
   left_join(site_data) %>%
   mutate(yday = yday(date),
          year = factor(year(date)),
-         site = factor(site))
+         site = factor(site),
+         management = factor(management))
+
+bb_abund_total <- net %>%
+  group_by(site, date) %>%
+  summarize(bb.abund = n()) %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date),
+         year = factor(year(date)),
+         site = factor(site),
+         management = factor(management))
+
+fl_rich_total <- fl_abund_sp %>%
+  filter(fl.abund > 0) %>%
+  group_by(site, date) %>%
+  summarize(fl.rich = length(unique(plant.sp))) %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date),
+         year = factor(year(date)),
+         site = factor(site),
+         management = factor(management))
+
+bb_rich_total <- net %>%
+  group_by(site, date) %>%
+  summarize(bb.rich = length(unique(bb.sp))) %>%
+  left_join(site_data) %>%
+  mutate(yday = yday(date),
+         year = factor(year(date)),
+         site = factor(site),
+         management = factor(management))
 
 fl_rich_total <- fl_abund_sp %>%
   filter(fl.abund > 0) %>%
@@ -480,112 +589,58 @@ ggplot(fl_rich_total, aes(fl.rich)) +
   facet_wrap(~site)
 
 ### Abundance
-
-total_fl_abund_GAM <- bam(fl.abund ~ 
-                            #management +
-                            year +
-                            s(site, bs = "re") +
-                            te(yday, elev.mean, bs=c("gp","tp")),
-                          family = "nb",
-                          method = "fREML",
-                          discrete = TRUE,
-                          data = fl_abund_total) %>% getViz()
+total_fl_abund_GAM <- gam(log(fl.abund + 0.01) ~ 
+                             year +
+                             management +
+                             s(site, bs = "re") +
+                             te(yday, elev.mean, by = year, bs=c("gp","tp")),
+                           family = "gaussian",
+                           method = "REML",
+                           data = fl_abund_total) %>% getViz()
 
 check.gamViz(total_fl_abund_GAM)
 summary(total_fl_abund_GAM)
-plot.gamViz(total_fl_abund_GAM)
+plot.gamViz(total_fl_abund_GAM, allTerms = TRUE)
 
-total_fl_abund_GAM.2012 <- bam(fl.abund ~ 
-                            management +
-                            s(site, bs = "re") +
-                            te(yday, elev.mean, bs=c("gp","tp")),
-                          family = "nb",
-                          method = "fREML",
-                          discrete = TRUE,
-                          data = filter(fl_abund_total, year == "2012")) %>% getViz()
+total_bb_abund_GAM <- gam(bb.abund ~ 
+                             year +
+                             management +
+                             s(site, bs = "re") +
+                             te(yday, elev.mean, by = year, bs=c("gp","tp")),
+                           family = "nb",
+                           method = "REML",
+                           data = bb_abund_total) %>% getViz()
 
-check.gamViz(total_fl_abund_GAM.2012)
-summary(total_fl_abund_GAM.2012)
-plot.gamViz(total_fl_abund_GAM.2012)
+check.gamViz(total_bb_abund_GAM)
+summary(total_bb_abund_GAM)
+plot.gamViz(total_bb_abund_GAM, allTerms = TRUE)
 
-total_fl_abund_GAM.2011 <- bam(fl.abund ~ 
-                            management +
-                            s(site, bs = "re") +
-                            te(yday, elev.mean, bs=c("gp","tp")),
-                          family = "nb",
-                          method = "fREML",
-                          discrete = TRUE,
-                          data = filter(fl_abund_total, year == "2011")) %>% getViz()
-
-check.gamViz(total_fl_abund_GAM.2011)
-summary(total_fl_abund_GAM.2011)
-plot.gamViz(total_fl_abund_GAM.2011)
-
-total_fl_abund_GAM.2010 <- bam(fl.abund ~ 
-                            management +
-                            s(site, bs = "re") +
-                            te(yday, elev.mean, bs=c("gp","tp")),
-                          family = "nb",
-                          method = "fREML",
-                          discrete = TRUE,
-                          data = filter(fl_abund_total, year == "2010")) %>% getViz()
-
-check.gamViz(total_fl_abund_GAM.2010)
-summary(total_fl_abund_GAM.2010)
-plot.gamViz(total_fl_abund_GAM.2010)
 
 ### Richness
 
-total_fl_rich_GAM <- bam(fl.rich ~ 
-                            #management +
+total_fl_rich_GAM <- gam(fl.rich ~ 
                             year +
+                            management +
                             s(site, bs = "re") +
-                            te(yday, elev.mean, bs=c("gp","tp")),
+                            te(yday, elev.mean, by = year, bs=c("gp","tp")),
                           family = "poisson",
-                          method = "fREML",
-                          discrete = TRUE,
+                          method = "REML",
                           data = fl_rich_total) %>% getViz()
 
 check.gamViz(total_fl_rich_GAM)
 summary(total_fl_rich_GAM)
 plot.gamViz(total_fl_rich_GAM, allTerms = TRUE)
 
-total_fl_rich_GAM.2012 <- bam(fl.rich ~ 
+total_bb_rich_GAM <- gam(bb.rich ~ 
+                            year +
                             management +
                             s(site, bs = "re") +
-                            te(yday, elev.mean, bs=c("gp","tp")),
-                          family = "poisson",
-                          method = "fREML",
-                          discrete = TRUE,
-                          data = filter(fl_rich_total, year == "2012")) %>% getViz()
-
-check.gamViz(total_fl_rich_GAM.2012)
-summary(total_fl_rich_GAM.2012)
-plot.gamViz(total_fl_rich_GAM.2012)
-
-total_fl_rich_GAM.2011 <- bam(fl.rich ~ 
-                            management +
-                            s(site, bs = "re") +
-                            te(yday, elev.mean, bs=c("gp","tp")),
+                            te(yday, elev.mean, by = year, bs=c("gp","tp")),
                           family = "nb",
-                          method = "fREML",
-                          discrete = TRUE,
-                          data = filter(fl_rich_total, year == "2011")) %>% getViz()
+                          method = "REML",
+                          data = bb_rich_total) %>% getViz()
 
-check.gamViz(total_fl_rich_GAM.2011)
-summary(total_fl_rich_GAM.2011)
-plot.gamViz(total_fl_rich_GAM.2011)
-
-total_fl_rich_GAM.2010 <- bam(fl.rich ~ 
-                            management +
-                            s(site, bs = "re") +
-                            te(yday, elev.mean, bs=c("gp","tp")),
-                          family = "nb",
-                          method = "fREML",
-                          discrete = TRUE,
-                          data = filter(fl_rich_total, year == "2010")) %>% getViz()
-
-check.gamViz(total_fl_rich_GAM.2010)
-summary(total_fl_rich_GAM.2010)
-plot.gamViz(total_fl_rich_GAM.2010)
+check.gamViz(total_bb_rich_GAM)
+summary(total_bb_rich_GAM)
+plot.gamViz(total_bb_rich_GAM, allTerms = TRUE)
 ```
