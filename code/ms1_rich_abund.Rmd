@@ -1,0 +1,1057 @@
+---
+title: "Abundance/diversity GAM"
+output: html_document
+---
+
+# 1. Prepare environment
+## 1.1 Load packages
+```{r setup, include=FALSE, echo=FALSE}
+library(mgcv)
+library(mgcViz)
+library(magick)
+library(patchwork)
+library(tidymv)
+library(vegan)
+library(gratia)
+library(tidyverse)
+library(broom)
+library(lubridate)
+library(cowplot)
+```
+
+## 1.2 Load site data and floral taxonomy data
+```{r, include=FALSE, echo=FALSE}
+site_data <- read_csv("../data/processed_data/site_data.csv") %>%
+  dplyr::select(-c(slope.calc, slope.est, elev.min, elev.max, 
+                   temp.mean, elev.class, elev.class2)) %>% 
+  mutate(site = factor(site),
+         tree_line = factor(tree_line))
+
+# FL traits
+## family-level taxonomy
+fl_tax <- read_csv("../data/processed_data/floral_tax.csv") 
+```
+
+## 1.3 Load network and survey data
+```{r message=FALSE}
+### BB-FL visitation data
+net <- read_csv("../data/processed_data/network.csv") %>%
+  filter(caste != "male") %>% 
+  dplyr::select(site, date, bb.sp, plant.sp) # drop unused columns
+
+### Floral survey data
+survey <- read_csv("../data/processed_data/floral_survey.csv") %>%
+  # Consider only visited plant species (anytime anywhere, not specifically for a given site*date)
+  semi_join(net, by = "plant.sp") %>% 
+  dplyr::select(site, date, plant.sp, flower.cover) %>%
+  group_by(plant.sp) %>%
+  mutate(present = case_when(
+    max(flower.cover) > 0 ~ TRUE,
+    max(flower.cover) == 0 ~ FALSE
+  )) %>%
+  filter(present == TRUE) # Ignore plants that never had any flower cover
+```
+
+## 1.4 Load images
+```{r}
+BB <- image_read("../ms_1/figures/phylopic_BB.png")
+FL <- image_read("../ms_1/figures/phylopic_FL.png")
+BBxFL <- image_read("../ms_1/figures/phylopic_BBxFL.png")
+```
+
+## 1.5 Define functions
+```{r}
+gam_tab1 <-function(x1, x2, x3, 
+                    name1, name2, name3) {
+  
+  tab1.1 <- x1 %>%
+    tidy(parametric = TRUE, conf.int = TRUE) %>%
+    mutate(class = rep("parametric", n()),
+           estimate = round(estimate, 3),
+           statistic = round(statistic, 3),
+           p.value = round(p.value, 3),
+           model = rep(name1, n())
+           )
+
+  tab1.2 <- x1 %>%
+    tidy(parametric = FALSE) %>%
+    mutate(class = rep("smooth", n()),
+           edf = round(edf, 2),
+           statistic = round(statistic, 3),
+           p.value = round(p.value, 3),
+           model = rep(name1, n()))
+  
+  tab2.1 <- x2 %>%
+    tidy(parametric = TRUE, conf.int = TRUE) %>%
+    mutate(class = rep("parametric", n()),
+           estimate = round(estimate, 3),
+           statistic = round(statistic, 3),
+           p.value = round(p.value, 3),
+           model = rep(name2, n())
+           )
+  
+  tab2.2 <- x2 %>%
+    tidy(parametric = FALSE) %>%
+    mutate(class = rep("smooth", n()),
+           edf = round(edf, 2),
+           statistic = round(statistic, 3),
+           p.value = round(p.value, 3),
+           model = rep(name2, n())
+           )
+
+  tab3.1 <- x3 %>%
+    tidy(parametric = TRUE, conf.int = TRUE) %>%
+    mutate(class = rep("parametric", n()),
+           estimate = round(estimate, 3),
+           statistic = round(statistic, 3),
+           p.value = round(p.value, 3),
+           model = rep(name3, n())
+           )
+
+  tab3.2 <- x3 %>%
+    tidy(parametric = FALSE) %>%
+    mutate(class = rep("smooth", n()),
+           edf = round(edf, 2),
+           statistic = round(statistic, 3),
+           p.value = round(p.value, 3),
+           model = rep(name3, n())
+           )
+  
+  out <- bind_rows(tab1.1, tab1.2, tab2.1, tab2.2, tab3.1, tab3.2) %>%
+    select(model, class, term, estimate, edf, statistic, p.value) %>%
+    mutate(term = case_when(
+      term == "(Intercept)" ~ "Intercept",
+      term == "mgmtnone" ~ "mgmt:none",
+      term == "mgmtmowing" ~ "mgmt:mowing",
+      term == "year2011" ~ "year:2011",
+      term == "year2012" ~ "year:2012",
+      term == "s(site)" ~ "s(site)",
+      term == "s(net.transects)" ~ "s(samples)",
+      term == "s(survey.transects)" ~ "s(samples)",
+      term == "s(elev.mean)" ~ "s(elevation)",
+      term == "s(elev.mean):year2010" ~ "s(elevation:2010)",
+      term == "s(elev.mean):year2011" ~ "s(elevation:2011)",
+      term == "s(elev.mean):year2012" ~ "s(elevation:2012)"),
+      sig = case_when(
+        p.value < 0.001 ~ "***",
+        p.value >= 0.001 & p.value < 0.01 ~ "**",
+        p.value >= 0.01 & p.value < 0.05 ~ "*",
+        p.value >= 0.05 ~ ""
+      ),
+      p.value = ifelse(p.value < 0.001, "<0.001", p.value),
+      statistic = ifelse(statistic < 0.001, "<0.001", statistic),
+      edf = ifelse(edf < 0.001, "<0.001", edf)) %>%
+    flextable() %>%
+    merge_v(j = c("model", "class")) %>%
+    valign(j = c("model", "class"), valign = "top") %>%
+    autofit()
+}
+
+gam_tab2 <-function(x1, x2, name1, name2) {
+  
+  tab1.1 <- x1 %>%
+    tidy(parametric = TRUE, conf.int = TRUE) %>%
+    mutate(class = rep("parametric", n()),
+           estimate = round(estimate, 3),
+           statistic = round(statistic, 3),
+           p.value = round(p.value, 3),
+           model = rep(name1, n())
+           )
+
+  tab1.2 <- x1 %>%
+    tidy(parametric = FALSE) %>%
+    mutate(class = rep("smooth", n()),
+           edf = round(edf, 2),
+           statistic = round(statistic, 3),
+           p.value = round(p.value, 3),
+           model = rep(name1, n()))
+  
+  tab2.1 <- x2 %>%
+    tidy(parametric = TRUE, conf.int = TRUE) %>%
+    mutate(class = rep("parametric", n()),
+           estimate = round(estimate, 3),
+           statistic = round(statistic, 3),
+           p.value = round(p.value, 3),
+           model = rep(name2, n())
+           )
+  
+  tab2.2 <- x2 %>%
+    tidy(parametric = FALSE) %>%
+    mutate(class = rep("smooth", n()),
+           edf = round(edf, 2),
+           statistic = round(statistic, 3),
+           p.value = round(p.value, 3),
+           model = rep(name2, n())
+           )
+  
+  out <- bind_rows(tab1.1, tab1.2, tab2.1, tab2.2) %>%
+    select(model, class, term, estimate, edf, statistic, p.value) %>%
+    mutate(term = case_when(
+      term == "(Intercept)" ~ "Intercept",
+      term == "mgmtnone" ~ "mgmt:none",
+      term == "mgmtmowing" ~ "mgmt:mowing",
+      term == "year2011" ~ "year:2011",
+      term == "year2012" ~ "year:2012",
+      term == "s(site)" ~ "s(site)",
+      term == "s(net.transects)" ~ "s(samples)",
+      term == "s(survey.transects)" ~ "s(samples)",
+      term == "s(elev.mean)" ~ "s(elevation)",
+      term == "s(elev.mean):year2010" ~ "s(elevation:2010)",
+      term == "s(elev.mean):year2011" ~ "s(elevation:2011)",
+      term == "s(elev.mean):year2012" ~ "s(elevation:2012)"),
+      sig = case_when(
+        p.value < 0.001 ~ "***",
+        p.value >= 0.001 & p.value < 0.01 ~ "**",
+        p.value >= 0.01 & p.value < 0.05 ~ "*",
+        p.value >= 0.05 ~ ""
+      ),
+      p.value = ifelse(p.value < 0.001, "<0.001", p.value),
+      statistic = ifelse(statistic < 0.001, "<0.001", statistic),
+      edf = ifelse(edf < 0.001, "<0.001", edf)) %>%
+    flextable() %>%
+    merge_v(j = c("model", "class")) %>%
+    valign(j = c("model", "class"), valign = "top") %>%
+    autofit()
+}
+```
+
+
+## 1.6 Identify plant species that were visited but not recorded in the survey
+```{r message=FALSE}
+vis_sp <- net %>%
+  left_join(fl_tax) %>%
+  select(plant.sp, plant.genus, plant.family) %>%
+  unique()
+
+surv_sp <- survey %>%
+  left_join(fl_tax) %>%
+  select(plant.sp, plant.genus, plant.family) %>%
+  unique()
+
+missing <- anti_join(vis_sp, surv_sp)
+```
+
+# 2. Process data
+## 2.1 Calculate transect-wise FL and BB abundance and richness
+```{r echo=FALSE, include=TRUE, message=FALSE}
+# Survey transects per site
+survey_transects_siteyear <- survey %>%
+  mutate(year = factor(year(date)),
+         site = factor(site)) %>%
+  group_by(site, year) %>%
+  summarize(survey.transects = length(unique(date)))
+
+# BB transects per site
+net_transects_siteyear <- net %>%
+  mutate(year = factor(year(date)),
+         site = factor(site)) %>%
+  group_by(site, year) %>%
+  summarize(net.transects = length(unique(date)))
+
+# Per-transect BB abundance ~ sp
+bb_abund_sp <- net %>%
+  dplyr::select(site, date, bb.sp) %>%
+  group_by(site, date, bb.sp) %>% # 
+  summarize(bb.abund = n()) %>% # get per transect bb abundance
+  ungroup() %>%
+  complete(site, date, bb.sp, fill = list(bb.abund = 0)) %>% # complete implicit absences
+  semi_join(net, by = c("site", "date")) %>% # drop site-dates that did not exist in the data set
+  left_join(site_data) %>% # add site data
+  mutate(year = factor(year(date)),
+         yday = yday(date),
+         bb.sp = factor(bb.sp),
+         mgmt = factor(management),
+         site = factor(site),
+         transect = factor(transect)) 
+
+### Total BB abundance per transect
+bb_abund <- bb_abund_sp %>%
+  group_by(site, date) %>%
+  summarize(bb.abund = sum(bb.abund)) %>%
+  left_join(site_data) %>%
+  mutate(site = factor(site),
+         yday = yday(date),
+         year = factor(year(date)),
+         mgmt = factor(management)) %>%
+  dplyr::select(-management)
+
+
+### Per-transect floral abund by species
+fl_abund_sp <- survey %>%
+  group_by(site, date, plant.sp) %>% # group by plant.sp*transect
+  summarize(fl.abund = sum(flower.cover)) %>% # get plant.sp*transect total flower cover; this step really shouldn't be required, but in a few cases, there is more than one abundance entry for the same species on a given transect; not sure how that happened, but it's in the original data; alternatively, I could drop the dups or average them. 
+  group_by(site, date) %>%
+  mutate(prop.fl.abund = fl.abund/sum(fl.abund)) %>% # get the proportional flower cover for each species.
+  ungroup() %>%
+  complete(site, date, plant.sp, fill = list(fl.abund = 0, prop.fl.abund = 0)) %>%
+  semi_join(survey, by = c("site", "date")) %>%  # only include site-dates that actually occurred
+  unique() %>%
+  mutate(year = factor(year(date))) %>%
+  left_join(fl_tax)
+
+### Total floral abundance per transect
+fl_abund <- fl_abund_sp %>%
+  group_by(site, date) %>%
+  summarize(fl.abund = sum(fl.abund)) %>%
+  left_join(site_data) %>%
+  mutate(site = factor(site),
+         yday = yday(date),
+         year = factor(year(date)),
+         mgmt = factor(management)) %>%
+  dplyr::select(-management) %>%
+  mutate(year2010 = ifelse(year == "2010", 1, 0),
+         year2011 = ifelse(year == "2011", 1, 0),
+         year2012 = ifelse(year == "2012", 1, 0))
+```
+
+## 2.2 Calculate aggregate abundance and richness by site-year
+```{r}
+### Bumble bee richness per site-year
+bb_rich_siteyear <- net %>%
+  mutate(year = factor(year(date))) %>%
+  group_by(site, year) %>%
+  summarize(bb.rich = length(unique(bb.sp))) %>%
+  left_join(site_data) %>% # add site data
+  mutate(mgmt = factor(management),
+         site = factor(site),
+         transect = factor(transect)) %>%
+  select(-management) %>%
+  left_join(net_transects_siteyear)
+
+### Peak BB abundance per site-year
+bb_abund_siteyear <- bb_abund %>%
+  group_by(site, year, elev.mean, mgmt) %>%
+  summarize(bb.peakabund = max(bb.abund))
+
+### Peak BB abundance by species per site-year
+bb_abund_sp_siteyear <- bb_abund_sp %>%
+  group_by(site, year, elev.mean, mgmt, bb.sp) %>%
+  summarize(bb.peakabund = max(bb.abund))
+
+### Floral richness per site-year
+fl_rich_siteyear <- survey %>%
+  mutate(year = factor(year(date))) %>%
+  group_by(site, year) %>%
+  summarize(fl.rich = length(unique(plant.sp))) %>%
+  left_join(site_data) %>% # add site data
+  mutate(mgmt = factor(management),
+         site = factor(site),
+         transect = factor(transect)) %>%
+  select(-management) %>%
+  left_join(survey_transects_siteyear)
+
+### Peak floral abundance per site
+fl_abund_siteyear <- fl_abund %>%
+  group_by(site, year, elev.mean, mgmt) %>%
+  summarize(fl.peakabund = max(fl.abund)) 
+
+### Interaction richness per site
+interaction_rich_siteyear <- net %>%
+  mutate(year = factor(year(date))) %>%
+  group_by(site, year) %>%
+  unite(interaction, c(bb.sp, plant.sp), sep = "_") %>%
+  summarize(interaction.rich = length(unique(interaction))) %>%
+  left_join(site_data) %>% # add site data
+  mutate(mgmt = factor(management),
+         site = factor(site),
+         transect = factor(transect)) %>%
+  select(-management) %>%
+  left_join(net_transects_siteyear)
+
+### Get everything into a single data frame
+rich_abund_siteyear <- bb_rich_siteyear %>% 
+  full_join(fl_rich_siteyear) %>%
+  full_join(bb_abund_siteyear) %>% 
+  full_join(fl_abund_siteyear) %>%
+  full_join(interaction_rich_siteyear)
+
+### Long version for plotting
+rich_abund_siteyear.long <- rich_abund_siteyear %>%
+  pivot_longer(cols = c(bb.rich, fl.rich, bb.peakabund, 
+                        fl.peakabund, interaction.rich)) %>%
+  separate(name, c("group", "metric"), sep = "\\.") %>%
+  group_by(group, metric) %>%
+  mutate(z = scale(value))
+```
+
+
+# 3. Analyses
+
+## 3.1 Preliminary visualization
+```{r eval=FALSE, include=FALSE}
+ggplot(rich_abund_siteyear.long, aes(elev.mean, z, color = group)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5)) +
+  facet_grid(year~metric) +
+  theme_classic()
+
+ggplot(rich_abund_site.long, aes(z, fill = group)) +
+  geom_histogram() +
+  facet_wrap(~metric) +
+  theme_classic()
+
+# Exploring some bivariate relations
+
+ggplot(rich_abund_site, aes(fl.rich, bb.rich)) +
+  geom_point() +
+  geom_smooth(method = "lm") 
+
+ggplot(rich_abund_site, aes(fl.peakabund, fl.rich)) +
+  geom_point() +
+  geom_smooth(method = "lm") 
+
+ggplot(rich_abund_site, aes(fl.peakabund, bb.peakabund)) +
+  geom_point() +
+  geom_smooth(method = "lm") 
+
+ggplot(rich_abund_site, aes(fl.peakabund, bb.rich)) +
+  geom_point() +
+  geom_smooth(method = "lm") 
+
+ggplot(rich_abund_site, aes(survey.transects, net.transects)) +
+  geom_point() +
+  geom_smooth(method = "lm") 
+```
+
+## 3.2 Model richness ~ elevation
+
+Our interest in all these models is the global effect of elevation, but we need to account for the annual structure of our data. We do this by including year as a smoothing factor (interacting with elevation) that can deviate from the global effect of elevation. This represents the type GI model structure from Pedersen et al. (2019). What we will focus on is the "G" part of this model, i.e. the global elevation smoother, but I will include the year*elevation smooths in the Appendix.
+
+It was a bit tricky to decide what distribution family to use for these models. The residuals are approximately gaussian, but richness data is count data, so theoretically we should use a zero-bounded distribution. Poisson would be a good start, but it is badly overdispersed in our models. Quasipoisson fixes that, and it gives results that are essentially identical to what we get with gaussian models. For some reason, a negative binomial model does not fix the dispersion problem. 
+
+The quasipoisson family also works well for the abundance models, and it can handle the continuous (i.e. non-integer) floral abundance data. So, we will stick with the quasipoisson family for all these models.
+
+### 3.2.1 BB richness
+```{r}
+# Sanity check visualization
+ggplot(bb_rich_siteyear, aes(elev.mean, bb.rich)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))  +
+  facet_wrap(~year, ncol = 1) +
+  theme_classic()
+
+# Call model
+gam1.1 <- gam(bb.rich ~ 
+                mgmt +
+                year +
+                s(site, bs = "re") +
+                s(net.transects) +
+                s(elev.mean) +
+                s(elev.mean, by = year, k = 3, m = 1),
+              method = "REML",
+              family = "quasipoisson",
+              #select = TRUE,
+              data = bb_rich_siteyear)
+
+# Summary and model diagnostics
+summary(gam1.1)
+check.gamViz(getViz(gam1.1))
+
+# Plot all conditional effects
+draw(gam1.1, 
+     residuals = TRUE) & theme_classic()
+
+# Extract elevation effect
+gam1.1_elev <- evaluate_smooth(gam1.1, smooth = "s(elev.mean)") %>%
+  filter(is.na(by_variable)) %>% # we want only the global effect
+  mutate(upper = est + (2*se),
+         lower = est - (2*se))
+
+# Extract year effect
+gam1.1_year <- evaluate_parametric_term(gam1.1, term = "year") %>%
+  mutate(upper = partial + (2*se),
+         lower = partial - (2*se))
+
+# Extract managment effect
+gam1.1_mgmt <- evaluate_parametric_term(gam1.1, term = "mgmt") %>%
+  mutate(upper = partial + (2*se),
+         lower = partial - (2*se))
+
+# Plot elevation effect
+gam1.1_plot1 <- ggplot(gam1.1_elev, aes(elev.mean, est)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), # Uncertainty
+              fill = "black", alpha = 0.2) +
+  # geom_rug(data = semi_join(site_data, net), 
+  #          aes(elev.mean, color = tree_line), 
+  #          inherit.aes = FALSE) +
+  theme_classic() +
+  labs(y = "Conditional effect", x = "Elevation [m]", color = "Tree line")
+
+# Plot year effect
+gam1.1_plot2 <- ggplot(gam1.1_year, aes(value, partial)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  geom_point() +
+  theme_classic() +
+  labs(y = NULL, x = NULL)
+
+# Plot management effect
+gam1.1_plot3 <- ggplot(gam1.1_mgmt, aes(value, partial)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  geom_point() +
+  theme_classic() +
+  labs(y = NULL, x = NULL)
+
+# Assemble
+gam1.1_plot <- (gam1.1_plot1 | (gam1.1_plot2 / gam1.1_plot3)) 
+```
+
+### 3.2.2 FL richness
+```{r}
+# Sanity check visualization
+ggplot(fl_rich_siteyear, aes(elev.mean, fl.rich)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))  +
+  facet_wrap(~year, ncol = 1) +
+  theme_classic()
+
+# Call model
+gam2.1 <- gam(fl.rich ~ 
+                mgmt +
+                year +
+                s(site, bs = "re") +
+                s(survey.transects) +
+                s(elev.mean) +
+                s(elev.mean, by = year, k = 3, m = 1),
+              method = "REML",
+              family = "quasipoisson",
+              #select = TRUE,
+              data = fl_rich_siteyear)
+
+# Summary and model diagnostics
+summary(gam2.1)
+check.gamViz(getViz(gam2.1))
+
+# Plot all conditional effects
+draw(gam2.1, 
+     residuals = TRUE) & theme_classic()
+
+# Extract elevation effect
+gam2.1_elev <- evaluate_smooth(gam2.1, smooth = "elev") %>%
+  filter(is.na(by_variable)) %>% # we want only the global effect
+  mutate(upper = est + (2*se),
+         lower = est - (2*se))
+
+# Extract year effect
+gam2.1_year <- evaluate_parametric_term(gam2.1, term = "year") %>%
+  mutate(upper = partial + (2*se),
+         lower = partial - (2*se))
+
+# Extract managment effect
+gam2.1_mgmt <- evaluate_parametric_term(gam2.1, term = "mgmt") %>%
+  mutate(upper = partial + (2*se),
+         lower = partial - (2*se))
+
+# Plot elevation effect
+gam2.1_plot1 <- ggplot(gam2.1_elev, aes(elev.mean, est)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), # Uncertainty
+              fill = "black", alpha = 0.2) +
+  # geom_rug(data = semi_join(site_data, net), 
+  #          aes(elev.mean, color = tree_line), 
+  #          inherit.aes = FALSE) +
+  theme_classic() +
+  labs(y = "Conditional effect", x = "Elevation [m]", color = "Tree line")
+
+# Plot year effect
+gam2.1_plot2 <- ggplot(gam2.1_year, aes(value, partial)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  geom_point() +
+  theme_classic() +
+  labs(y = NULL, x = NULL)
+
+# Plot management effect
+gam2.1_plot3 <- ggplot(gam2.1_mgmt, aes(value, partial)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  geom_point() +
+  theme_classic() +
+  labs(y = NULL, x = NULL)
+
+# Assemble
+gam2.1_plot <- gam2.1_plot1 | (gam2.1_plot2 / gam2.1_plot3)
+```
+
+### 3.2.3 Interaction richness
+```{r}
+# Sanity check visualization
+ggplot(interaction_rich_siteyear, aes(elev.mean, interaction.rich)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))  +
+  facet_wrap(~year, ncol = 1) +
+  theme_classic()
+
+# Call model
+gam3.1 <- gam(interaction.rich ~ 
+                mgmt +
+                year +
+                s(site, bs = "re") +
+                s(net.transects) +
+                s(elev.mean) +
+                s(elev.mean, by = year, k = 3, m = 1),
+              method = "REML",
+              family = "quasipoisson",
+              #select = TRUE,
+              data = interaction_rich_siteyear)
+
+# Summary and model diagnostics
+summary(gam3.1)
+check.gamViz(getViz(gam3.1))
+
+# Plot all conditional effects
+draw(gam3.1, 
+     residuals = TRUE) & theme_classic()
+
+# Extract elevation effect
+gam3.1_elev <- evaluate_smooth(gam3.1, smooth = "s(elev.mean)") %>%
+  filter(is.na(by_variable)) %>% # we want only the global effect
+  mutate(upper = est + (2*se),
+         lower = est - (2*se))
+
+# Extract year effect
+gam3.1_year <- evaluate_parametric_term(gam3.1, term = "year") %>%
+  mutate(upper = partial + (2*se),
+         lower = partial - (2*se))
+
+# Extract managment effect
+gam3.1_mgmt <- evaluate_parametric_term(gam3.1, term = "mgmt") %>%
+  mutate(upper = partial + (2*se),
+         lower = partial - (2*se))
+
+# Plot elevation effect
+gam3.1_plot1 <- ggplot(gam3.1_elev, aes(elev.mean, est)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lower, ymax = upper), # Uncertainty
+              fill = "black", alpha = 0.2) +
+  # geom_rug(data = semi_join(site_data, net), 
+  #          aes(elev.mean, color = tree_line), 
+  #          inherit.aes = FALSE) +
+  theme_classic() +
+  labs(y = "Conditional effect", x = "Elevation [m]", color = "Tree line")
+
+
+# Plot year effect
+gam3.1_plot2 <- ggplot(gam3.1_year, aes(value, partial)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  geom_point() +
+  theme_classic() +
+  labs(y = NULL, x = NULL)
+
+# Plot management effect
+gam3.1_plot3 <- ggplot(gam3.1_mgmt, aes(value, partial)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  geom_point() +
+  theme_classic() +
+  labs(y = NULL, x = NULL)
+
+# Assemble
+gam3.1_plot <- gam3.1_plot1 | (gam3.1_plot2 / gam3.1_plot3)
+
+# Tabulate
+library(flextable)
+as_flextable(gam3.1)
+```
+
+### 3.1.4 Compile plots
+```{r}
+gam_plot_richness_ <- ( gam1.1_plot / gam2.1_plot / gam3.1_plot ) +
+  #plot_annotation(tag_levels = 'A') +
+  plot_layout(nrow = 3) 
+
+gam_plot_richness <- ggdraw() +
+  draw_plot(gam_plot_richness_) +
+  draw_image(BB, scale = 0.15, x = -0.18, y = 0.28) +
+  draw_image(FL, scale = 0.125, x = -0.18, y = -0.025) +
+  draw_image(BBxFL, scale = 0.25, x = -0.18, y = -0.38) 
+  
+
+ggsave("../ms_1/figures/fig3.pdf", gam_plot_richness, width = 6.5, height = 8.5)
+```
+
+## 3.3 Model peak abundance ~ elevation
+We will use the same model structure that we used for the richness models. 
+
+### 3.3.1 BB abundance
+```{r}
+ggplot(bb_abund_siteyear, aes(elev.mean, bb.peakabund)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10))  +
+  facet_wrap(~year, ncol = 1) +
+  theme_classic()
+
+# Call model
+gam4.1 <- gam(bb.peakabund ~ 
+                mgmt +
+                year +
+                s(site, bs = "re") +
+                s(elev.mean) +
+                s(elev.mean, by = year, k = 3, m = 2),
+              method = "REML",
+              family = "quasipoisson",
+              data = bb_abund_siteyear)
+
+# Summary and model diagnostics
+summary(gam4.1)
+check.gamViz(getViz(gam4.1))
+
+# Plot all conditional effects
+draw(gam4.1, 
+     residuals = TRUE) & theme_classic()
+
+# Extract elevation effect
+gam4.1_elev <- evaluate_smooth(gam4.1, smooth = "s(elev.mean)") %>%
+  filter(is.na(by_variable)) %>% # we want only the global effect
+  mutate(upper = est + (2*se),
+         lower = est - (2*se))
+
+# Extract year effect
+gam4.1_year <- evaluate_parametric_term(gam4.1, term = "year") %>%
+  mutate(upper = partial + (2*se),
+         lower = partial - (2*se))
+
+# Extract managment effect
+gam4.1_mgmt <- evaluate_parametric_term(gam4.1, term = "mgmt") %>%
+  mutate(upper = partial + (2*se),
+         lower = partial - (2*se))
+
+# Plot elevation effect
+gam4.1_plot1 <- ggplot(gam4.1_elev, aes(elev.mean, est)) +
+  geom_line(linetype = "dashed") +
+  geom_ribbon(aes(ymin = lower, ymax = upper), # Uncertainty
+              fill = "black", alpha = 0.2) +
+  # geom_rug(data = semi_join(site_data, net), 
+  #          aes(elev.mean, color = tree_line), 
+  #          inherit.aes = FALSE) +
+  theme_classic() +
+  labs(y = "Conditional effect", x = "Elevation [m]", color = "Tree line")
+
+# Plot year effect
+gam4.1_plot2 <- ggplot(gam4.1_year, aes(value, partial)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  geom_point() +
+  theme_classic() +
+  labs(y = NULL, x = NULL)
+
+# Plot management effect
+gam4.1_plot3 <- ggplot(gam4.1_mgmt, aes(value, partial)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  geom_point() +
+  theme_classic() +
+  labs(y = NULL, x = NULL)
+
+# Assemble
+gam4.1_plot <- gam4.1_plot1 | (gam4.1_plot2 / gam4.1_plot3)
+```
+
+### 3.3.2 FL abundance
+```{r}
+ggplot(fl_abund_siteyear, aes(elev.mean, fl.peakabund)) +
+  geom_point() +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 5))  +
+  facet_wrap(~year, ncol = 1) +
+  theme_classic()
+
+# Call model
+gam5.1 <- gam(fl.peakabund ~ 
+                mgmt +
+                year +
+                s(site, bs = "re") +
+                s(elev.mean, k = 5) +
+                s(elev.mean, by = year, k = 3, m = 2),
+              method = "REML",
+              family = "quasipoisson",
+              data = fl_abund_siteyear)
+
+# Summary and model diagnostics
+summary(gam5.1)
+check.gamViz(getViz(gam5.1))
+
+
+# Plot all conditional effects
+draw(gam5.1, 
+     residuals = TRUE) & theme_classic()
+
+# Extract elevation effect
+gam5.1_elev <- evaluate_smooth(gam5.1, smooth = "s(elev.mean)") %>%
+  filter(is.na(by_variable)) %>% # we want only the global effect
+  mutate(upper = est + (2*se),
+         lower = est - (2*se))
+
+# Extract year effect
+gam5.1_year <- evaluate_parametric_term(gam5.1, term = "year") %>%
+  mutate(upper = partial + (2*se),
+         lower = partial - (2*se))
+
+# Extract managment effect
+gam5.1_mgmt <- evaluate_parametric_term(gam5.1, term = "mgmt") %>%
+  mutate(upper = partial + (2*se),
+         lower = partial - (2*se))
+
+# Plot elevation effect
+gam5.1_plot1 <- ggplot(gam5.1_elev, aes(elev.mean, est)) +
+  geom_line(linetype = "solid") +
+  geom_ribbon(aes(ymin = lower, ymax = upper), # Uncertainty
+              fill = "black", alpha = 0.2) +
+  # geom_rug(data = semi_join(site_data, net), 
+  #          aes(elev.mean, color = tree_line), 
+  #          inherit.aes = FALSE) +
+  theme_classic() +
+  labs(y = "Conditional effect", x = "Elevation [m]", color = "Tree line")
+
+# Plot year effect
+gam5.1_plot2 <- ggplot(gam5.1_year, aes(value, partial)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  geom_point() +
+  theme_classic() +
+  labs(y = NULL, x = NULL)
+
+# Plot management effect
+gam5.1_plot3 <- ggplot(gam5.1_mgmt, aes(value, partial)) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
+  geom_point() +
+  theme_classic() +
+  labs(y = NULL, x = NULL)
+
+# Assemble
+gam5.1_plot <- gam5.1_plot1 | (gam5.1_plot2 / gam5.1_plot3)
+```
+
+
+
+### 3.3.3 Compile plots
+```{r}
+gam_plot_abundance_ <- ( gam4.1_plot / gam5.1_plot) +
+  #plot_annotation(tag_levels = 'A') +
+  plot_layout(nrow = 2) 
+
+gam_plot_abundance <- ggdraw() +
+  draw_plot(gam_plot_abundance_) +
+  draw_image(BB, scale = 0.15, x = -0.18, y = 0.16) +
+  draw_image(FL, scale = 0.2, x = -0.18, y = -0.3) 
+  
+
+ggsave("../ms_1/figures/fig4.pdf", gam_plot_abundance, width = 6.5, height = 5.5)
+```
+
+### 3.3.4 BB sp-level abundance ~ elevation
+For this model, the negative-binomial family works best. Maybe it handles zeros better than the quasipoisson.
+```{r}
+ggplot(bb_abund_sp_siteyear, aes(elev.mean, bb.peakabund, color = year)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~bb.sp, scales = "free")
+
+gam6.1 <- gam(bb.peakabund ~ 
+                year +
+                mgmt +
+                s(site, bs = "re") +
+                s(bb.sp, bs = "re") +
+                s(elev.mean, by = bb.sp),
+              method = "REML",
+              family = "nb",
+              select = FALSE, # I want to visualize even the non-significant smooths
+              data = bb_abund_sp_siteyear)
+
+
+
+# Summary and model diagnostics
+summary(gam6.1)
+check.gamViz(getViz(gam6.1))
+
+# Plot all conditional effects
+draw(gam6.1, 
+     residuals = FALSE) & theme_classic()
+
+# Extract p-values
+gam6.1_pval <- gam6.1 %>%
+  tidy()
+
+# Extract elevation effect
+gam6.1_elev <- evaluate_smooth(gam6.1, smooth = "s(elev.mean)") %>%
+  mutate(upper = est + (2*se),
+         lower = est - (2*se)) %>%
+  group_by(bb.sp) %>%
+  mutate(diff = last(est) - first(est)) %>%
+  left_join(gam6.1_pval, by = c("smooth" = "term")) %>%
+  mutate(sig = factor(ifelse(p.value < 0.05, "p < 0.05", "ns")))
+
+# Plot elevation effect
+gam6.1_plot1 <- ggplot(gam6.1_elev, aes(elev.mean, est)) +
+  geom_line(aes(linetype = fct_rev(sig))) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = diff), # Uncertainty
+              alpha = 0.5) +
+  scale_fill_gradient2(low = "#4dac26", mid = "gray75", high = "#d01c8b") +
+  theme_light(12) +
+  labs(y = "Conditional effect", x = "Elevation [m]", fill = "Slope",
+       linetype = "Significance") +
+  facet_wrap(~reorder(bb.sp, -diff)) +
+  theme() 
+  
+
+ggsave("../ms_1/figures/fig5.pdf", gam6.1_plot1, height = 6.5, width = 6.5)
+```
+
+### 3.3.5 Compile tabulated summaries
+```{r}
+gam_tab.rich <- gam_tab1(x1 = gam1.1, x2 = gam2.1, x3 = gam3.1, 
+                   name1 = "Bumble bee richness", 
+                   name2 = "Floral richness", 
+                   name3 = "Interaction richness")
+
+save_as_image(gam_tab.rich, "../ms_1/figures/table1.png")
+
+gam_tab.abund <- gam_tab2(x1 = gam4.1, x2 = gam5.1,
+                   name1 = "Bumble bee abundance", 
+                   name2 = "Floral abundance")
+
+save_as_image(gam_tab.abund, "../ms_1/figures/table2.png")
+
+gam_tab.abund_sp1 <- gam6.1  %>%
+  tidy(parametric = TRUE) %>%
+  mutate(class = rep("parametric", n()),
+         estimate = round(estimate, 3),
+         statistic = round(statistic, 3),
+         p.value = round(p.value, 3)
+         )
+
+gam_tab.abund_sp2 <- gam6.1 %>%
+  tidy(parametric = FALSE) %>%
+  mutate(class = rep("smooth", n()),
+         edf = round(edf, 2),
+         statistic = round(statistic, 3),
+         p.value = round(p.value, 3))
+
+gam_tab.abund_sp <- bind_rows(gam_tab.abund_sp1, gam_tab.abund_sp2) %>%
+    select(class, term, estimate, edf, statistic, p.value) %>%
+    mutate(term = case_when(
+      term == "(Intercept)" ~ "Intercept",
+      term == "mgmtnone" ~ "mgmt:none",
+      term == "mgmtmowing" ~ "mgmt:mowing",
+      term == "year2011" ~ "year:2011",
+      term == "year2012" ~ "year:2012",
+      term == "s(site)" ~ "s(site)",
+      term == "s(bb.sp)" ~ "s(species)",
+      term == "s(elev.mean):bb.spgers" ~ "s(elevation:gers)",
+      term == "s(elev.mean):bb.sphort" ~ "s(elevation:hort)",
+      term == "s(elev.mean):bb.sphumi" ~ "s(elevation:humi)",
+      term == "s(elev.mean):bb.sphypn" ~ "s(elevation:hypn)",
+      term == "s(elev.mean):bb.spjone" ~ "s(elevation:jone)",
+      term == "s(elev.mean):bb.splapi" ~ "s(elevation:lapi)",
+      term == "s(elev.mean):bb.spmend" ~ "s(elevation:mend)",
+      term == "s(elev.mean):bb.spmont" ~ "s(elevation:mont)",
+      term == "s(elev.mean):bb.spmuci" ~ "s(elevation:muci)",
+      term == "s(elev.mean):bb.sppasc" ~ "s(elevation:pasc)",
+      term == "s(elev.mean):bb.spprat" ~ "s(elevation:prat)",
+      term == "s(elev.mean):bb.sppsit" ~ "s(elevation:psit)",
+      term == "s(elev.mean):bb.sppyre" ~ "s(elevation:pyre)",
+      term == "s(elev.mean):bb.spsoro" ~ "s(elevation:soro)",
+      term == "s(elev.mean):bb.sptelu" ~ "s(elevation:telu)",
+      term == "s(elev.mean):bb.spwurf" ~ "s(elevation:wurf)"),
+      sig = case_when(
+        p.value < 0.001 ~ "***",
+        p.value >= 0.001 & p.value < 0.01 ~ "**",
+        p.value >= 0.01 & p.value < 0.05 ~ "*",
+        p.value >= 0.05 ~ ""
+      ),
+      p.value = ifelse(p.value < 0.001, "<0.001", p.value),
+      statistic = ifelse(statistic < 0.001, "<0.001", statistic),
+      edf = ifelse(edf < 0.001, "<0.001", edf)) %>%
+    flextable() %>%
+    merge_v(j = "class") %>%
+    valign(j = "class", valign = "top") %>%
+    autofit()
+
+save_as_image(gam_tab.abund_sp, "../ms_1/figures/table3.png")
+```
+
+### 3.3.6 BB elevation distribution
+```{r}
+bb_range <- net %>%
+  left_join(site_data) %>%
+  group_by(site, date, elev.mean, tree_line, bb.sp) %>%
+  summarize(abund = n()) %>%
+  group_by(site, elev.mean, tree_line, bb.sp) %>%
+  summarize(abund = max(abund)) %>%
+  filter(abund > 0) %>%
+  group_by(bb.sp) %>%
+  mutate(elev.floor = min(elev.mean),
+         elev.ceiling = max(elev.mean),
+         elev.range = elev.ceiling - elev.floor,
+         elev.med = elev.floor + ((elev.ceiling - elev.floor)/2))
+
+ggplot(bb_range, aes(reorder(bb.sp, elev.med), elev.mean)) +
+  geom_line(size = 2, alpha = 0.25) +
+  geom_point(aes(size = abund), alpha = 0.5) +
+  theme_classic(14) +
+  scale_size_continuous(name = "Peak abundance",
+                        breaks = c(1, 10, 20, 40, 80)) +
+  scale_color_discrete(name = "Tree line") +
+  xlab("Bumble bee species") +
+  ylab("Elevation (m)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("../output/bb_range_ms1.pdf")
+ggsave("../output/bb_range_ms1.png")
+
+
+# Compare bumble bee species in terms of proportional abundance (unit = site)
+bb_abund_sum <- bb_abund_sp %>%
+  group_by(site, bb.sp) %>%
+  summarize(cum.abund = sum(bb.abund),
+            mean.abund = mean(bb.abund)) %>%
+  group_by(site) %>%
+  mutate(prop.abund = cum.abund/sum(cum.abund)) %>%
+  group_by(bb.sp) %>%
+  mutate(mean.prop.abund = mean(prop.abund))
+
+ggplot(bb_abund_sum, aes(reorder(bb.sp, -mean.prop.abund), prop.abund)) +
+  geom_boxplot(fill = "gray85") +
+  theme_classic() +
+  ylab("Proportional abundance") +
+  xlab("Bumble bee species")
+
+ggsave("../output/bb_abundsum.pdf")
+ggsave("../output/bb_abundsum.png")
+```
+
+## 3.4 Model sample-wise abundance ~ elevation * time
+### 3.4.1 BB abundance
+```{r}
+gam7.1 <- gam(bb.abund ~ 
+                year +
+                mgmt +
+                s(site, bs = "re") +
+                te(yday, elev.mean, bs=c("gp","tp")) +
+                te(yday, elev.mean, by = year, bs = c("tp", "tp"), m = 1),
+              family = "nb",
+              method = "REML",
+              select = TRUE,
+              data = bb_abund) 
+
+check.gamViz(getViz(gam7.1))
+summary(gam7.1)
+
+draw(gam7.1, 
+     parametric = TRUE, 
+     residuals = TRUE) & theme_classic()
+```
+
+### 3.4.2 FL abundance
+```{r}
+gam8.1 <- gam(fl.abund ~ 
+                year +
+                mgmt +
+                s(site, bs = "re") +
+                te(yday, elev.mean, bs=c("gp","tp")) +
+                te(yday, elev.mean, by = year, bs = c("tp", "tp"), m = 1),
+              family = "quasipoisson",
+              method = "REML",
+              select = TRUE,
+              data = fl_abund) 
+
+check.gamViz(getViz(gam8.1))
+summary(gam8.1)
+
+draw(gam8.1, 
+     parametric = TRUE, 
+     residuals = TRUE) & theme_classic()
+```

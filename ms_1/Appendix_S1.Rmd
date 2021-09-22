@@ -24,6 +24,15 @@ library(lubridate)
 library(tidyverse)
 ```
 
+# Phylopic illustrations
+
+*Bombus terrestris*: 
+http://phylopic.org/image/750eeb4f-7ca5-49ff-a814-27a12d0cb13a/
+https://creativecommons.org/licenses/by/3.0/
+
+*Chamaemelum fuscatum*:
+http://phylopic.org/image/39335c0c-f879-4df6-90d5-e4f65d90d04e/
+
 # Sampling patterns
 ## Load sampling data
 ```{r message=FALSE, warning=FALSE}
