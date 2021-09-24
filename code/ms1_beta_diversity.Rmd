@@ -583,51 +583,6 @@ species_beta <- full_join(bb_beta, fl_beta) %>%
   filter(elev.diff >= 0) 
 
 # For each site pair, one will be higher and the other lower; thus, when their order is reversed only the sign of the difference changes. Since no two sites have exactly the same elevation, `filter(elev.diff >= 0)` deduplicates the data by dropping the ordering of a given pair of sites (one of the two orderings) that yields a negative elevation difference while retaining the alternative ordering that yields a positive elevation difference. By >= 0, I retain comparisons of a site to itself. I drop (in the ggplot call) within-site comparisons when I plot against elevation difference, and I isolate within-site comparison when I plot against time. In the latter case, it is also necessary to deduplicate, since each pair of site dates occurs in A-B and B-A. For that, I filter (again, in the ggplot call) so that yday.diff > 0, similarly dropping the orderings that yield negative differences. Note that all this deduplication nonsense is not necessary for the betalinkr call because it deduplicates internally.
-
-# Fun with betapart
-fl_betapart <- survey %>%
-  group_by(site, plant.sp) %>%
-  summarize(count = sum(flower.cover)) %>%
-  mutate(present = ifelse(count > 0, 1, 0)) %>%
-  select(-count) %>%
-  pivot_wider(names_from = plant.sp, values_from = present) %>%
-  replace(is.na(.), 0) %>%
-  column_to_rownames("site") %>%
-  beta.pair(index.family = "jaccard") 
-
-fl_betapart.turnover <- fl_betapart$beta.jtu %>%
-  as.matrix() %>%
-  as.data.frame() %>%
-  rownames_to_column(var = "site1") %>%
-  pivot_longer(cols = -site1, names_to = "site2", values_to = "tu") %>%
-  filter(site1 != site2) %>%
-  left_join(site_data, by = c("site1" = "site")) %>%
-  dplyr::select(site1, site2, tu, tree_line1 = tree_line) %>%
-  left_join(site_data, by = c("site2" = "site")) %>%
-  dplyr::select(site1, site2, tu, tree_line1, tree_line2 = tree_line) 
-
-fl_betapart.nestedness <- fl_betapart$beta.jne %>%
-  as.matrix() %>%
-  as.data.frame() %>%
-  rownames_to_column(var = "site1") %>%
-  pivot_longer(cols = -site1, names_to = "site2", values_to = "ne") %>%
-  filter(site1 != site2) %>%
-  left_join(site_data, by = c("site1" = "site")) %>%
-  dplyr::select(site1, site2, ne, tree_line1 = tree_line) %>%
-  left_join(site_data, by = c("site2" = "site")) %>%
-  dplyr::select(site1, site2, ne, tree_line1, tree_line2 = tree_line) 
-
-fl_betapart.collate <- full_join(fl_betapart.turnover, fl_betapart.nestedness) %>%
-  mutate(tree_line.comp = case_when(
-    tree_line1 == "below" & tree_line2 == "below" ~ "bb",
-    tree_line1 == "above" & tree_line2 == "above" ~ "aa",
-    tree_line1 != tree_line2 ~ "ab"
-  )) %>%
-  pivot_longer(cols = c(tu, ne), values_to = "value", names_to = "var")
-
-ggplot(fl_betapart.collate, aes(var, value)) +
-  geom_boxplot() +
-  facet_wrap(~tree_line.comp)
 ```
 
 ## 3.2  Interaction beta-diversity and partitioning
@@ -849,7 +804,6 @@ plot(gdm_survey)
 #                  plot.layout = c(1,3))
 # dev.off()
 ```
-
 
 
 ## 5.4 Tabulate `gdm.varImp()` results
