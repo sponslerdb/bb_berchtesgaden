@@ -1055,3 +1055,22 @@ draw(gam8.1,
      parametric = TRUE, 
      residuals = TRUE) & theme_classic()
 ```
+
+## 3.5 Does flower cover predict BB abundance?
+```{r}
+ggplot(rich_abund_siteyear, aes(fl.peakabund, bb.peakabund)) +
+  geom_point()
+
+ggplot(rich_abund_siteyear, aes(log(fl.peakabund), log(bb.peakabund))) +
+  geom_point()
+
+ggplot(rich_abund_siteyear, aes(log(fl.peakabund), bb.peakabund)) +
+  geom_point()
+
+library(lme4)
+mod <- glm(bb.peakabund ~ log(fl.peakabund) + elev.mean + year,
+           data = rich_abund_siteyear)
+
+plot(mod)
+summary(mod)
+```
