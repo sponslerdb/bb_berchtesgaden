@@ -1,6 +1,9 @@
 ---
-title: "Beta Diversity through Elevation"
-output: html_document
+title: "Appendix 2: Beta-diversity analysis"
+output: 
+  pdf_document:
+    toc: true
+    toc_depth: 3
 ---
 
 # 1. Prepare environment
@@ -20,7 +23,7 @@ library(cowplot)
 ```
 ## 1.2 Define functions
 ### 1.2.1 `sfc_as_cols`: convert geometry column back to x and y columns
-```{r}
+```{r message=FALSE}
 # A function for converting a geometry column back to x and y columns
 # https://github.com/r-spatial/sf/issues/231
 sfc_as_cols <- function(x, names = c("x","y")) {
@@ -35,7 +38,7 @@ sfc_as_cols <- function(x, names = c("x","y")) {
 ```
 
 ### 1.2.2 `web_prep`: convert networks to webs arrays
-```{r}
+```{r message=FALSE}
 # Function to convert networks to webs arrays
 web_prep <- function(net) {
   
@@ -47,7 +50,9 @@ web_prep <- function(net) {
     mutate(bb.sp.count = length(unique(bb.sp)),
            plant.sp.count = length(unique(plant.sp))) %>%
     ungroup() %>%
-    dplyr::select(higher = bb.sp, lower = plant.sp, webID = site, freq) %>% # rename columns to match bipartite's expectations
+    dplyr::select(higher = bb.sp, 
+                  lower = plant.sp, 
+                  webID = site, freq) %>% # rename columns to match bipartite's expectations
     data.frame() %>% # convert to data frame
     frame2webs(type.out = "array")
 }
@@ -55,18 +60,19 @@ web_prep <- function(net) {
 
 
 ### 1.2.3 `betalinkr_set1`: betalinkr settings and conversion to tibble
-```{r}
+```{r message=FALSE}
 # Function for betalinkr settings and conversion to tibble()
 betalinkr_set1 <- function(x) {
-  betalinkr_multi(x, partition.st = TRUE, partition.rr = TRUE, # partition both species turnover and richness/replacement
-                  binary = TRUE, # treating beta-diversity as binary is an appropriate complement to our abundance analysis
+  betalinkr_multi(x, partition.st = TRUE, 
+                  partition.rr = TRUE, # partition both species turnover and richness/replacement
+                  binary = TRUE, # treating beta-diversity as binary
                   index = "jaccard") %>% # the Jaccard index is best, I think, for binary analysis
   as_tibble() # for convenience
 }
 ```
 
 ### 1.2.4 `interaction_gdm_prep`: convert visitation data into site-pair table for GDM analysis
-```{r}
+```{r message=FALSE}
 # Function for converting visitation data into site-pair table for GDM analysis 
 interaction_gdm_prep <- function(x) {
   
@@ -75,8 +81,11 @@ interaction_gdm_prep <- function(x) {
     dplyr::select(bb.sp, plant.sp.abb, site) %>% 
     distinct() %>% # each unique bb-fl-site combo
     mutate(present = rep(1, length(.[,1]))) %>% # we will treat abundance as binary
-    unite(interaction, c(bb.sp, plant.sp.abb), sep = "_") %>% # unite bb and fl into interaction "species", i.e. a unique bb-fl combo
-    pivot_wider(names_from = interaction, values_from = present) %>% # spread so that columns are interaction "species"
+    unite(interaction, 
+          c(bb.sp, plant.sp.abb), 
+          sep = "_") %>% # unite bb and fl into interaction "species", i.e. a unique bb-fl combo
+    pivot_wider(names_from = interaction, 
+                values_from = present) %>% # spread so that columns are interaction "species"
     replace(is.na(.), 0) %>% # replace NAs with absences
     as_tibble()
 
@@ -94,7 +103,7 @@ interaction_gdm_prep <- function(x) {
 
   # Prep site-pairs for GDM analysis
   sitepair <- formatsitepair(spdat, 
-                             bioFormat = 1, # i.e. samples as rows, species as columns, site-dates as rows
+                             bioFormat = 1, # i.e. samples = rows, species = columns, site-dates = rows
                              siteColumn = "site", 
                              dist = "jaccard", # I think Jaccard is the right choice
                              XColumn = "x", YColumn = "y", # spatial columns
@@ -105,7 +114,7 @@ interaction_gdm_prep <- function(x) {
 ```
 
 ### 1.2.5 `biodata_prep_survey`: prepare the floral survey biodata input to gdm's `formatsitepair()` function
-```{r}
+```{r message=FALSE}
 # Function for preparing the floral survey biodata input to gdm's formatsitepair function
 biodata_prep_survey <- function(surv) {
   surv %>%
@@ -113,7 +122,7 @@ biodata_prep_survey <- function(surv) {
     mutate(plant.sp = str_replace_all(plant.sp, " ", "_")) %>%
     group_by(site, plant.sp) %>%
     summarize(cover = sum(flower.cover)) %>%
-    mutate(cover = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
+    mutate(cover = rep(1, n())) %>% # this makes the data binary
     spread(plant.sp, cover) %>%
     replace(is.na(.), 0) %>%
     arrange(site)
@@ -121,7 +130,7 @@ biodata_prep_survey <- function(surv) {
 ```
 
 ### 1.2.6 `predData_prep_survey`: prepare the floral survey predictor data input to gdm's `formatsitepair()` function
-```{r}
+```{r message=FALSE}
 # Function for preparing the floral survey predictor data input to gdm's formatsitepair function
 predData_prep_survey <- function(surv) {
   surv %>%
@@ -141,14 +150,14 @@ predData_prep_survey <- function(surv) {
 ```
 
 ### 1.2.7 `biodata_prep_BB`: prepare the visitation biodata input to gdm's `formatsitepair()` function
-```{r}
+```{r message=FALSE}
 # Function for preparing the visitation biodata input to gdm's formatsitepair function
 biodata_prep_BB <- function(net) {
   net %>%
     filter(caste != "male") %>%
     group_by(site, bb.sp) %>%
     summarize(count = n()) %>%
-    mutate(count = rep(1, n())) %>% # this makes the data binary, which I think is what I want here; otherwise, just comment out
+    mutate(count = rep(1, n())) %>% # this makes the data binary
     spread(bb.sp, count) %>%
     replace(is.na(.), 0) %>%
     ungroup()
@@ -156,7 +165,7 @@ biodata_prep_BB <- function(net) {
 ```
 
 ### 1.2.8 `predData_prep_BB`: prepare the visitation predictor data input to gdm's `formatsitepair()` function
-```{r}
+```{r message=FALSE}
 # Function for preparing the visitation predictor data input to gdm's formatsitepair function
 predData_prep_BB <- function(net) {
   net %>%
@@ -176,18 +185,21 @@ predData_prep_BB <- function(net) {
 ```
 
 ### 1.2.9 `format_set`: setting for gdm's `formatsitepair()` function
-```{r}
+```{r message=FALSE}
 # Function with setting for gdm's formatsitepair function
 format_set <- function(bio, pred) {
   formatsitepair(bio, bioFormat = 1, siteColumn = "site", 
                  dist = "jaccard", XColumn = "x", YColumn = "y", 
                  predData = pred, abundance = FALSE) %>%
-  filter(s1.elev.mean != s2.elev.mean) # this avoids comparing repeated measures of the same site (taking advantage of the fact that each site has a unique elevation in our dataset)
+  filter(s1.elev.mean != s2.elev.mean) # this avoids comparing repeated measures 
+                                       # of the same site (taking advantage of the 
+                                       # fact that each site has a unique elevation 
+                                       # in our dataset)
 } 
 ```
 
 ### 1.2.10 `gdm_tab`: tabulate `gdm.varImp()` output 
-```{r}
+```{r message=FALSE}
 # Function for tabulating gdm.varImp output 
 gdm_tab <- function(x, response) {
   x %>%
@@ -198,9 +210,6 @@ gdm_tab <- function(x, response) {
              predictor == "elev.mean" ~ "elevation",
              predictor == "samples" ~ "samples",
              predictor == "Geographic" ~ "distance")
-             # predictor == "mowing" ~ "mowing",
-             # predictor == "grasing" ~ "grazing",
-             # predictor == "none" ~ "none")
            ) %>%
     mutate(importance = round(importance, 2),
            model.var.exp = round(model.var.exp, 2)) %>%
@@ -214,7 +223,7 @@ gdm_tab <- function(x, response) {
 ```
 
 ### 1.2.11 `isplineExtract2`: Fixes a bug in `isplineExtract()` that causes it to break when non-default number of splines are used
-```{r}
+```{r message=FALSE}
 ##Extracts Ispline data from a gdm model
 isplineExtract2 <- function (model){
   ###########################
@@ -263,7 +272,7 @@ isplineExtract2 <- function (model){
 ```
 
 ### 1.2.12 `plotUncertainty2` Tweaked to call `isplineExtract2` instead of the broken version
-```{r}
+```{r message=FALSE}
 ##########################################################################
 plotUncertainty2 <- function(spTable, sampleSites, bsIters, geo=FALSE, splines=NULL, 
                            knots=NULL, splineCol="blue", errCol="grey80", 
@@ -507,7 +516,7 @@ plotUncertainty2 <- function(spTable, sampleSites, bsIters, geo=FALSE, splines=N
 ```
 
 ## 1.3 Load data
-```{r}
+```{r message=FALSE}
 net <- read_csv("../data/processed_data/network.csv") %>%
   filter(caste  != "male") %>%
   unite(site.year.day, site, year, dayofyear, sep = "_", remove = FALSE) %>% 
@@ -515,7 +524,7 @@ net <- read_csv("../data/processed_data/network.csv") %>%
 
 survey <- read_csv("../data/processed_data/floral_survey.csv") %>%
   filter(flower.cover > 0) %>%
-  semi_join(net, by = "plant.sp") %>% # Consider only visited plant spp. (anytime, anywhere, not specifically for a given site*date)
+  semi_join(net, by = "plant.sp") %>% # Consider only visited plant spp. 
   dplyr::select(site, date, plant.sp, flower.cover) 
 
 site_data <- read_csv("../data/processed_data/site_data.csv") %>%
@@ -532,7 +541,7 @@ site_data <- read_csv("../data/processed_data/site_data.csv") %>%
 ```
 
 ## 1.4 Load images
-```{r}
+```{r message=FALSE}
 BB <- image_read("../ms_1/figures/phylopic_BB.png")
 FL <- image_read("../ms_1/figures/phylopic_FL.png")
 BBxFL <- image_read("../ms_1/figures/phylopic_BBxFL.png")
@@ -540,7 +549,7 @@ BBxFL <- image_read("../ms_1/figures/phylopic_BBxFL.png")
 
 # 2. Process data
 ## 2.1 BB and FL beta-diversity
-```{r}
+```{r message=FALSE}
 # Bumble bee beta-diversity based on interaction sampling
 bb_beta <- net %>%
   group_by(site, bb.sp) %>%
@@ -548,7 +557,8 @@ bb_beta <- net %>%
   pivot_wider(names_from = bb.sp, values_from = count) %>%
   replace(is.na(.), 0) %>%
   column_to_rownames("site") %>%
-  vegdist(method = "jaccard", binary = TRUE) %>% # Jaccard and binary settings make this comparable to the way I'm running betalinkr
+  vegdist(method = "jaccard", 
+          binary = TRUE) %>% # Jaccard and binary settings make this comparable to the way I'm running betalinkr
   as.matrix() %>%
   as.data.frame() %>%
   rownames_to_column(var = "site1") %>%
@@ -582,7 +592,18 @@ species_beta <- full_join(bb_beta, fl_beta) %>%
   pivot_longer(cols = c(BB, FL), names_to = "group", values_to = "beta") %>%
   filter(elev.diff >= 0) 
 
-# For each site pair, one will be higher and the other lower; thus, when their order is reversed only the sign of the difference changes. Since no two sites have exactly the same elevation, `filter(elev.diff >= 0)` deduplicates the data by dropping the ordering of a given pair of sites (one of the two orderings) that yields a negative elevation difference while retaining the alternative ordering that yields a positive elevation difference. By >= 0, I retain comparisons of a site to itself. I drop (in the ggplot call) within-site comparisons when I plot against elevation difference, and I isolate within-site comparison when I plot against time. In the latter case, it is also necessary to deduplicate, since each pair of site dates occurs in A-B and B-A. For that, I filter (again, in the ggplot call) so that yday.diff > 0, similarly dropping the orderings that yield negative differences. Note that all this deduplication nonsense is not necessary for the betalinkr call because it deduplicates internally.
+# For each site pair, one will be higher and the other lower; thus, when their order is 
+# reversed only the sign of the difference changes. Since no two sites have exactly the 
+# same elevation, `filter(elev.diff >= 0)` deduplicates the data by dropping the ordering 
+# of a given pair of sites (one of the two orderings) that yields a negative elevation 
+# difference while retaining the alternative ordering that yields a positive elevation 
+# difference. By >= 0, I retain comparisons of a site to itself. I drop (in the ggplot call) 
+# within-site comparisons when I plot against elevation difference, and I isolate within-site 
+# comparison when I plot against time. In the latter case, it is also necessary to deduplicate, 
+# since each pair of site dates occurs in A-B and B-A. For that, I filter (again, in the 
+# ggplot call) so that yday.diff > 0, similarly dropping the orderings that yield negative 
+# differences. Note that all this deduplication nonsense is not necessary for the betalinkr
+# call because it deduplicates internally.
 ```
 
 ## 3.2  Interaction beta-diversity and partitioning
@@ -622,13 +643,10 @@ beta_mit_data <- beta_site %>%
     metric = factor(metric, levels = c("WN", "ST", "OS", "S", "ST.h", "ST.l", 
                                        "ST.lh", "WN.repl", "WN.rich", 
                                        "OS.repl", "OS.rich")))
-
-# Write to csv for archiving
-#write_csv(beta_mit_data, "../Dryad_ms1/partitioned_beta_diversity")
 ```
 
 # 4. Visualize beta-diversity ~ elevation diff
-```{r}
+```{r message=FALSE, warning=FALSE}
 # Set palette
 p1 <- c("OS" = "#e7298a", "ST" = "#66a61e", "WN" = "black")
 
@@ -679,8 +697,6 @@ beta_plot3 <- ggplot(filter(beta_mit_data,
 # Patchwork plot for comparing species beta-diversity with interaction beta-diversity
 beta_plot <- (beta_plot1 / beta_plot2 / beta_plot3) + 
   plot_annotation(tag_levels = c("A", "B", "C"))
-# & 
-#   theme_classic() 
 
 ggsave("../ms_1/figures/fig6.pdf", beta_plot, height = 8.5, width = 4.5)
 ```
@@ -727,12 +743,7 @@ plot(gdm_WN)
 ```
 
 ## 5.2 Bumble bees
-```{r}
-## GDM is not really built for handling categorical variables; when I include 
-## management in the models, they effect is weak, and I don't know how to
-## interpret the curves. So, I think it is better to drop the mgmt variables
-## from the models and just interpret the continuous effects.
-
+```{r message=FALSE, warning=FALSE}
 # Prep input for GDM
 bioData_BB <- biodata_prep_BB(net)
 predData_BB <- predData_prep_BB(net) %>%
@@ -770,7 +781,7 @@ plot(gdm_BB)
 ```
 
 ## 5.3 Flora
-```{r}
+```{r message=FALSE, warning=FALSE}
 # Prep input for GDM
 bioData_survey <- biodata_prep_survey(survey)
 predData_survey <- predData_prep_survey(survey) %>%
@@ -808,7 +819,7 @@ plot(gdm_survey)
 
 ## 5.4 Tabulate `gdm.varImp()` results
 ### 5.4.1 Interactions
-```{r}
+```{r message=FALSE}
 # Extract tables
 gdm.varImp_WN.tab1 <- gdm.varImp_WN[[1]] %>%
   as.data.frame() %>%
@@ -834,7 +845,7 @@ gdm.varImp_WN.tab <- bind_cols(gdm.varImp_WN.tab2, gdm.varImp_WN.tab3) %>%
 ```
 
 ### 5.4.2 Bumble bees
-```{r}
+```{r message=FALSE}
 # Extract tables
 gdm.varImp_BB.tab1 <- gdm.varImp_BB[[1]] %>%
   as.data.frame() %>%
@@ -860,7 +871,7 @@ gdm.varImp_BB.tab <- bind_cols(gdm.varImp_BB.tab2, gdm.varImp_BB.tab3) %>%
 ```
 
 ### 5.4.3 Flora
-```{r}
+```{r message=FALSE}
 # Extract tables
 gdm.varImp_survey.tab1 <- gdm.varImp_survey[[1]] %>%
   as.data.frame() %>%
@@ -886,7 +897,7 @@ gdm.varImp_survey.tab <- bind_cols(gdm.varImp_survey.tab2, gdm.varImp_survey.tab
 ```
 
 ### 5.4.4 Merge and format
-```{r}
+```{r message=FALSE}
 colourer <- scales::col_numeric(
   palette = c("transparent", "red"),
   domain = c(0, 100))
@@ -900,9 +911,12 @@ gdm.varImp.tab <- bind_rows(gdm.varImp_BB.tab,
   flextable::as_flextable() %>%
   merge_v(j = c("Model.pval", "Model.dev.exp [%]")) %>%
   valign(j = c("Model.pval", "Model.dev.exp [%]"), valign = "top") %>%
-  autofit() %>%
-  bg(j = "Importance [%]",
-     bg = colourer, part = "body")
+  autofit() 
+# %>%
+#   bg(j = "Importance [%]",
+#      bg = colourer, part = "body")
+
+gdm.varImp.tab
 
 save_as_image(gdm.varImp.tab, "../ms_1/figures/table4.png")
 ```
@@ -910,7 +924,7 @@ save_as_image(gdm.varImp.tab, "../ms_1/figures/table4.png")
 
 
 ## 5.5. Plot GDM splines
-```{r}
+```{r message=FALSE}
 # Interaction model
 gdm_WN_splines1 <- isplineExtract2(gdm_WN)$x %>%
   as.data.frame() %>%
@@ -955,25 +969,6 @@ gdm_splines <- bind_rows(gdm_WN_splines, gdm_survey_splines, gdm_BB_splines) %>%
 tree_line <- site_data %>%
   dplyr::select(elevation = elev.mean, tree_line)
 
-# Plot
-# gdm_plot_ <- ggplot(gdm_splines, aes(elevation, response, linetype = Level)) +
-#   geom_line(size = 0.75) +
-#   #geom_vline(xintercept = 1500) +
-#   geom_rug(data = tree_line, aes(elevation, color = tree_line), inherit.aes = FALSE) +
-#   labs(color = "Tree Line", x = "Elevation", y = "Conditional effect") +
-#   theme_classic(14) +
-#   guides(linetype = "none") +
-#   theme(legend.position = c(0.12, 0.85),
-#         plot.margin = margin(1, 3, 0.5, 0.5, "cm"),)
-# 
-# gdm_plot <- ggdraw() +
-#   draw_plot(gdm_plot_) +
-#   draw_image(BB, scale = 0.11, x = 0.34, y = -0.19) +
-#   draw_image(FL, scale = 0.15, x = 0.33, y = 0.15) +
-#   draw_image(BBxFL, scale = 0.18, x = 0.38, y = 0.41)
-
-#ggsave("../ms_1/figures/fig7.pdf", width = 7, height = 5)
-
 gdm_plot <- ggplot(gdm_splines, aes(elevation, response)) +
   geom_line() +
   geom_rug(data = tree_line, aes(elevation, color = tree_line), inherit.aes = FALSE) +
@@ -986,8 +981,8 @@ ggsave("../ms_1/figures/fig7.pdf", gdm_plot, width = 4, height = 6.5)
 ```
 
 
-# 6. MRM analysis (not included in paper)
-```{r, warning=FALSE}
+<!-- # 6. MRM analysis (not included in paper) -->
+```{r eval=FALSE, warning=FALSE, include=FALSE}
 survey_sample_diff <- survey %>%
   group_by(site) %>%
   summarize(samples = length(unique(date))) %>%
@@ -1138,8 +1133,8 @@ mrm_results_sub <- bind_rows(mrm_fl, mrm_bb, mrm_WN) %>%
     ))
 ```
 
-# Making plotUncertainty not suck
-```{r}
+<!-- # Making plotUncertainty not suck -->
+```{r eval=FALSE, include=FALSE}
 test <- plotUncertainty3(sitepair_survey, 
                 sampleSites = 0.7, 
                 bsIters = 100, 

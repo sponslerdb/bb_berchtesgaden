@@ -1,5 +1,5 @@
 ---
-title: "Floral preferences of mountain bumble bees are constrained by trait matching but flexible through elevation and season"
+title: "Floral preferences of mountain bumble bees are constrained by functional traits but flexible through elevation and season"
 header-includes:
    - \usepackage{lineno}\linenumbers
    - \usepackage{setspace}\doublespacing

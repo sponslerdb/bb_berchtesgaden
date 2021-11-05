@@ -353,8 +353,8 @@ null_model_overall <- ggplot(null_tab1, aes(ktype, preference)) +
   labs(x = "Floral morphotype",
        y = "Preference")
 
-ggsave("../ms_2/figures/null_model_ktype_preference.pdf", null_model_overall, height = 6, width = 7)
-ggsave("../ms_2/figures/null_model_ktype_preference.png", null_model_overall, height = 6, width = 7)
+ggsave("../ms_2/figures/fig2.pdf", null_model_overall, height = 4.5, width = 6)
+ggsave("../ms_2/figures/fig2.png", null_model_overall, height = 4.5, width = 6)
 
 ####################
 ### Workers only ###
@@ -447,7 +447,7 @@ null_model_pbl_GAM <- ggplot(gam1_pred, aes(pbl.w, fit)) +
   theme_light(12)
 
 ggsave("../ms_2/figures/fig3.pdf", null_model_pbl_GAM, height = 6, width = 7)
-ggsave("../ms_2/figures/null_model_ktypeXtonguelength_preference.png", null_model_pbl_GAM, height = 6, width = 7)
+ggsave("../ms_2/figures/fig3.png", null_model_pbl_GAM, height = 6, width = 7)
 
 
 ####################
