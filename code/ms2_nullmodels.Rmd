@@ -285,7 +285,8 @@ ggplot(null_tab1, aes(Observed, ktype)) +
                    x = Lower.99.CL, xend = Upper.99.CL), 
                color = "gray40", inherit.aes = FALSE) +
   geom_point(aes(color = Test)) +
-  facet_wrap(~fct_rev(bb.sp)) +
+  #facet_wrap(~fct_rev(bb.sp)) +
+  facet_wrap(~bb.sp) +
   scale_y_discrete(limits = rev) +
   scale_color_manual(values = c("gray40", "#F8766D", "#00B6EB")) +
   labs(x = "Mean visitation rate", y = "Floral morphotype", color = "Test (p < 0.01)") +
@@ -651,7 +652,7 @@ ggsave("../ms_2/figures/preference_ordination2.pdf", width = 7, height = 7)
 ```{r}
 clust1 <- null1_prefs %>%
   vegdist(method = "euclidean") %>%
-  hclust(method = "complete")
+  hclust(method = "ward.D2")
 
 pdf("../ms_2/figures/preference_clust.pdf", width = 5, height = 4)
 plot(clust1, main = NULL, xlab = NULL, ylab = NULL)
