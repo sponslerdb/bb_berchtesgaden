@@ -1,5 +1,5 @@
 ---
-title: "Appendix 1: Richness and abundance analysis"
+title: "Appendix S2: Richness and abundance analysis"
 output: 
   pdf_document:
     toc: true
@@ -16,6 +16,7 @@ library(patchwork)
 library(tidymv)
 library(vegan)
 library(gratia)
+library(flextable)
 library(tidyverse)
 library(broom)
 library(lubridate)
@@ -479,22 +480,19 @@ gam1.1_plot1 <- ggplot(gam1.1_elev, aes(elev.mean, est)) +
   theme_classic() +
   labs(y = "Conditional effect", x = "Elevation [m]", color = "Tree line")
 
+gam1.1_plot1
+
 # Plot year effect
-gam1.1_plot2 <- ggplot(gam1.1_year, aes(value, partial)) +
+ggplot(gam1.1_year, aes(value, partial)) +
   geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
   geom_point() +
-  theme_classic() +
-  labs(y = NULL, x = NULL)
+  theme_classic() 
 
 # Plot management effect
-gam1.1_plot3 <- ggplot(gam1.1_mgmt, aes(value, partial)) +
+ggplot(gam1.1_mgmt, aes(value, partial)) +
   geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
   geom_point() +
-  theme_classic() +
-  labs(y = NULL, x = NULL)
-
-# Assemble
-gam1.1_plot <- (gam1.1_plot1 | (gam1.1_plot2 / gam1.1_plot3)) 
+  theme_classic()
 ```
 
 ### 3.1.2 FL richness
@@ -551,22 +549,19 @@ gam2.1_plot1 <- ggplot(gam2.1_elev, aes(elev.mean, est)) +
   theme_classic() +
   labs(y = "Conditional effect", x = "Elevation [m]", color = "Tree line")
 
+gam2.1_plot1
+
 # Plot year effect
-gam2.1_plot2 <- ggplot(gam2.1_year, aes(value, partial)) +
+ggplot(gam2.1_year, aes(value, partial)) +
   geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
   geom_point() +
-  theme_classic() +
-  labs(y = NULL, x = NULL)
+  theme_classic()
 
 # Plot management effect
-gam2.1_plot3 <- ggplot(gam2.1_mgmt, aes(value, partial)) +
+ggplot(gam2.1_mgmt, aes(value, partial)) +
   geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
   geom_point() +
-  theme_classic() +
-  labs(y = NULL, x = NULL)
-
-# Assemble
-gam2.1_plot <- gam2.1_plot1 | (gam2.1_plot2 / gam2.1_plot3)
+  theme_classic()
 ```
 
 ### 3.1.3 Interaction richness
@@ -623,44 +618,36 @@ gam3.1_plot1 <- ggplot(gam3.1_elev, aes(elev.mean, est)) +
   theme_classic() +
   labs(y = "Conditional effect", x = "Elevation [m]", color = "Tree line")
 
+gam3.1_plot1
 
 # Plot year effect
-gam3.1_plot2 <- ggplot(gam3.1_year, aes(value, partial)) +
+ggplot(gam3.1_year, aes(value, partial)) +
   geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
   geom_point() +
-  theme_classic() +
-  labs(y = NULL, x = NULL)
+  theme_classic()
 
 # Plot management effect
-gam3.1_plot3 <- ggplot(gam3.1_mgmt, aes(value, partial)) +
+ggplot(gam3.1_mgmt, aes(value, partial)) +
   geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
   geom_point() +
-  theme_classic() +
-  labs(y = NULL, x = NULL)
-
-# Assemble
-gam3.1_plot <- gam3.1_plot1 | (gam3.1_plot2 / gam3.1_plot3)
-
-# Tabulate
-library(flextable)
-as_flextable(gam3.1)
+  theme_classic()
 ```
 
 ### 3.1.4 Compile plots
 ```{r message=FALSE}
-gam_plot_richness_ <- ( gam1.1_plot / gam2.1_plot / gam3.1_plot ) +
+gam_plot_richness_ <- ( gam1.1_plot1 / gam2.1_plot1 / gam3.1_plot1 ) +
   plot_annotation(tag_levels = 'A') +
   plot_layout(nrow = 3) 
 
 gam_plot_richness <- ggdraw() +
   draw_plot(gam_plot_richness_) +
-  draw_image(BB, scale = 0.15, x = -0.18, y = 0.28) +
-  draw_image(FL, scale = 0.125, x = -0.18, y = -0.025) +
-  draw_image(BBxFL, scale = 0.25, x = -0.18, y = -0.38) 
+  draw_image(BB, scale = 0.2, x = 0.07, y = 0.3) +
+  draw_image(FL, scale = 0.125, x = 0.07, y = -0.025) +
+  draw_image(BBxFL, scale = 0.35, x = 0.07, y = -0.35) 
   
 gam_plot_richness_
 
-ggsave("../ms_1/figures/fig3.pdf", gam_plot_richness, width = 6.5, height = 8.5)
+ggsave("../ms_1/figures/fig2.pdf", gam_plot_richness, width = 4, height = 6.5)
 ```
 
 ## 3.2 Model peak abundance ~ elevation
@@ -717,22 +704,19 @@ gam4.1_plot1 <- ggplot(gam4.1_elev, aes(elev.mean, est)) +
   theme_classic() +
   labs(y = "Conditional effect", x = "Elevation [m]", color = "Tree line")
 
+gam4.1_plot1
+
 # Plot year effect
-gam4.1_plot2 <- ggplot(gam4.1_year, aes(value, partial)) +
+ggplot(gam4.1_year, aes(value, partial)) +
   geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
   geom_point() +
-  theme_classic() +
-  labs(y = NULL, x = NULL)
+  theme_classic()
 
 # Plot management effect
-gam4.1_plot3 <- ggplot(gam4.1_mgmt, aes(value, partial)) +
+ggplot(gam4.1_mgmt, aes(value, partial)) +
   geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
   geom_point() +
-  theme_classic() +
-  labs(y = NULL, x = NULL)
-
-# Assemble
-gam4.1_plot <- gam4.1_plot1 | (gam4.1_plot2 / gam4.1_plot3)
+  theme_classic()
 ```
 
 ### 3.2.2 FL abundance
@@ -787,40 +771,37 @@ gam5.1_plot1 <- ggplot(gam5.1_elev, aes(elev.mean, est)) +
   theme_classic() +
   labs(y = "Conditional effect", x = "Elevation [m]", color = "Tree line")
 
+gam5.1_plot1
+
 # Plot year effect
-gam5.1_plot2 <- ggplot(gam5.1_year, aes(value, partial)) +
+ggplot(gam5.1_year, aes(value, partial)) +
   geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
   geom_point() +
-  theme_classic() +
-  labs(y = NULL, x = NULL)
+  theme_classic()
 
 # Plot management effect
-gam5.1_plot3 <- ggplot(gam5.1_mgmt, aes(value, partial)) +
+ggplot(gam5.1_mgmt, aes(value, partial)) +
   geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2) +
   geom_point() +
-  theme_classic() +
-  labs(y = NULL, x = NULL)
-
-# Assemble
-gam5.1_plot <- gam5.1_plot1 | (gam5.1_plot2 / gam5.1_plot3)
+  theme_classic()
 ```
 
 
 
 ### 3.2.3 Compile plots
 ```{r message=FALSE}
-gam_plot_abundance_ <- ( gam4.1_plot / gam5.1_plot) +
+gam_plot_abundance_ <- ( gam4.1_plot1 / gam5.1_plot1 ) +
   plot_annotation(tag_levels = 'A') +
   plot_layout(nrow = 2) 
 
 gam_plot_abundance <- ggdraw() +
   draw_plot(gam_plot_abundance_) +
-  draw_image(BB, scale = 0.15, x = -0.18, y = 0.16) +
-  draw_image(FL, scale = 0.2, x = -0.18, y = -0.3) 
+  draw_image(BB, scale = 0.25, x = 0.07, y = 0.15) +
+  draw_image(FL, scale = 0.18, x = 0.07, y = -0.3)
   
 gam_plot_abundance_
 
-ggsave("../ms_1/figures/fig4.pdf", gam_plot_abundance, width = 6.5, height = 5.5)
+ggsave("../ms_1/figures/fig3.pdf", gam_plot_abundance, width = 4, height = 6.5)
 ```
 
 ### 3.2.4 BB sp-level abundance ~ elevation
@@ -863,7 +844,26 @@ gam6.1_elev <- evaluate_smooth(gam6.1, smooth = "s(elev.mean)") %>%
   group_by(bb.sp) %>%
   mutate(diff = last(est) - first(est)) %>%
   left_join(gam6.1_pval, by = c("smooth" = "term")) %>%
-  mutate(sig = factor(ifelse(p.value < 0.05, "p < 0.05", "ns")))
+  mutate(sig = factor(ifelse(p.value < 0.05, "p < 0.05", "ns"))) %>%
+  # as per reviewer's request for full species names
+  mutate(bb.sp.full = case_when(
+    bb.sp ==  "pyre" ~ "B. pyrenaeus",
+    bb.sp ==  "mend" ~ "B. mendax",
+    bb.sp ==  "mont" ~ "B. monticola",
+    bb.sp ==  "muci" ~ "B. mucidus",
+    bb.sp ==  "soro" ~ "B. soroeensis",
+    bb.sp ==  "wurf" ~ "B. wurflenii",
+    bb.sp ==  "gers" ~ "B. gerstaeckeri",
+    bb.sp ==  "lapi" ~ "B. lapidarius",
+    bb.sp ==  "jone" ~ "B. jonellus",
+    bb.sp ==  "telu" ~ "B. terrestris/lucorum",
+    bb.sp ==  "hort" ~ "B. hortorum",
+    bb.sp ==  "hypn" ~ "B. hypnorum",
+    bb.sp ==  "prat" ~ "B. pratorum",
+    bb.sp ==  "pasc" ~ "B. pascuorum",
+    bb.sp ==  "humi" ~ "B. humilis",
+    bb.sp ==  "psit" ~ "B. psithyrus"
+  ))
 
 # Plot elevation effect
 gam6.1_plot1 <- ggplot(gam6.1_elev, aes(elev.mean, est)) +
@@ -871,18 +871,17 @@ gam6.1_plot1 <- ggplot(gam6.1_elev, aes(elev.mean, est)) +
   geom_ribbon(aes(ymin = lower, ymax = upper, fill = diff), # Uncertainty
               alpha = 0.5) +
   scale_fill_gradient2(low = "#4dac26", mid = "gray75", high = "#d01c8b") +
-  theme_light(12) +
+  theme_light(10) +
   labs(y = "Conditional effect", x = "Elevation [m]", fill = "Slope",
        linetype = "Significance") +
-  facet_wrap(~reorder(bb.sp, -diff)) +
-  theme() 
-  
+  facet_wrap(~reorder(bb.sp.full, -diff)) +
+  theme(strip.text = element_text(face = "italic", size = 8))
 
-ggsave("../ms_1/figures/fig5.pdf", gam6.1_plot1, height = 6.5, width = 6.5)
+ggsave("../ms_1/figures/fig4.pdf", gam6.1_plot1, height = 6.5, width = 6.5)
 ```
 
 ## 3.3 Compile tabulated summaries
-```{r message=FALSE}
+```{r message=FALSE, warning=FALSE, eval=FALSE}
 gam_tab.rich <- gam_tab1(x1 = gam1.1, x2 = gam2.1, x3 = gam3.1, 
                    name1 = "Bumble bees", 
                    name2 = "Flora", 
@@ -986,9 +985,6 @@ ggplot(bb_range, aes(reorder(bb.sp, elev.med), elev.mean)) +
   ylab("Elevation (m)") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-ggsave("../output/bb_range_ms1.pdf")
-ggsave("../output/bb_range_ms1.png")
-
 
 # Compare bumble bee species in terms of proportional abundance (unit = site)
 bb_abund_sum <- bb_abund_sp %>%
@@ -1006,8 +1002,6 @@ ggplot(bb_abund_sum, aes(reorder(bb.sp, -mean.prop.abund), prop.abund)) +
   ylab("Proportional abundance") +
   xlab("Bumble bee species")
 
-ggsave("../output/bb_abundsum.pdf")
-ggsave("../output/bb_abundsum.png")
 ```
 
 ## 3.5 Model sample-wise abundance ~ elevation * time  

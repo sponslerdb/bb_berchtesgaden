@@ -1,0 +1,186 @@
+---
+title: "Manuscript ECY21-0389.R1: Contrasting patterns of richness, abundance, and turnover in mountain bumble bees and their floral hosts"
+subtitle: "Response to reviewer comments"
+author: 
+  - Douglas B. Sponsler^1^*  
+  - Fabrice Requier^2^
+  - Katharina Kallnik^1^
+  - Alice Classen^1^
+  - A. Fabienne Maihoff^1^
+  - Johanna Sieger^3^
+  - Ingolf Steffan-Dewenter^1^
+output: pdf_document
+bibliography:
+- references.bib
+csl: ecology.csl
+# editor_options: 
+#   markdown: 
+#     wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Editor's comments
+
+**COMMENT**\
+I found the updated manuscript a refreshingly improved one. Its message now matches the data and retains novelty. The reviewers both agree, and we all appreciated your clear responses to comments. For me, the discussion really covers the various points well. I might put slightly more emphasis in the discussion on how the pattern of interaction diversity is really driven by plants not bees, but the development of the beta-diversity results was clear and quite interesting.
+
+**RESPONSE**
+
+
+**COMMENT**\
+One point in the Discussion. You have some nice phenological data (highlighted in current Figure 2). Do you think it provides enough information to speculate that the bees could be neophobic as higher elevation species come into flower? You more or less say this in and around line 383-386. There are some others who have suggested related ideas and might help in supporting your point. Ogilvie and Thomson write about this in a paper on patch/site switching in bumble bees. I also wrote about this in a paper on Osmia and host mixing (Williams and Tepedino 2003). "First, foragers might have been initially insensitive to developing changes in resource density, and might have delayed forsaking relatively unproductive patches for more rewarding ones until differences were more marked (Heinrich, 1976;Thomson, 1988, 1996; Thomson et al., 1982). Such delays have been attributed to the influence of long-term memory of resource location and quality (Thomson, 1996)." I am not suggesting mine is something to cite, but there were references within that might be. In any case there are others who have suggested potential effects that might support your idea, which I like.
+
+**RESPONSE**\
+
+
+**COMMENT**\
+I have two strong suggestions with respect to the figures of which there are relatively many.
+
+1.  One of these (Figure 2) I would encourage you to put into supplement. Although this figure presents results, the way you use it is more like supplementary methods. This will relieve some of the extra space and complexity of the figures (most of which are already multi-panel.
+2.  In both Figure 3 and 4 you have the main panels (Figure 3 A, D, and G Figure 4A,D) These are critical and nicely presented. The remaining panels focus on Year differences which are potentially interesting to some, but not at all a focus of the paper. They are presented in passing) but the results are not develop and not mentioned at all in the Discussion. I think you would better keep the reader's focus and probably strengthen the overall presentation by moving them to supplement or removing them all together. The information currently presented in the text is clear and not improved by the figures. I'd be happy with either moving to supplement or removing.
+
+**RESPONSE**\
+
+
+**COMMENT**\
+Line 44 add OF before bumble bees
+
+**RESPONSE**\
+Done.
+
+
+**COMMENT**\
+Line 244 At period at end of the sentence after "Table 1)".
+
+**RESPONSE**\
+Done.
+
+
+**COMMENT**\
+Line 288 remove extra period
+
+**RESPONSE**\
+Done
+
+
+**COMMENT**\
+Line 388 Poverty isn't the best word choice here. I think you might mean "paucity" = lack of
+
+**RESPONSE**\
+Changed to "paucity."
+
+------------------------------------------------------------------------
+
+# Reviewer 1
+
+Thank you to the authors for providing a thorough, detailed response to reviewer comments and completing substantial revisions to this manuscript. The quality, which I thought already high, has been dramatically improved with these revisions. The manuscript provides a clear, exciting, and novel look at montane bumble bee communities and their floral hosts. I look forward to citing this and employing the methods as I continue to use GAMs!
+
+I have a few minor suggestions to further improve clarity:
+
+**COMMENT**\
+Line 175; The inclusion of management here sort of comes out of no where. I agree that accounting for it is crucial despite the non-significant results, but perhaps it can be broached just as controlling for a known factor of influence. That is to say, preface its description as a model term with something about why the authors have to include it. In fact, given the non-significant impact of management on the observed responses, is it necessary to discuss at length/include in figures? Seems a bit of a distraction from the otherwise clear story. If it stays in, change "grasing" in figures to "grazing".
+
+**RESPONSE**\
+This comment echoes the editor's recommendation to remove the secondary panels from Figures 3 and 4, which both reduces the attention given to management and streamlines the overall presentation of results. We have made this change, and we think it should satisfy the reviewer's concern also.
+
+**COMMENT**\
+Lines 198-212: I might move the purpose of GDM analyses up above the description, that is explain what GDM does first to preface why it makes sense to include this analysis (Perhaps move Lines 203-206 to Line 201).
+
+**RESPONSE**\
+We have rewritten this section as follows, and we agree with the reviewer that it reads better this way:
+
+"As an initial analysis, we visualized the relationship between site-wise elevation difference and each metric of $\beta$-diversity, fitting each response with a binomial regression smooth. We then used generalized dissimilarity modeling (GDM) [@Ferrier2007-ji] to ask whether the relationship between $\beta$-diversity and elevation exhibits thresholds or other nonlinearities. In addition to estimating the relationship between differences in a response variable and differences in a predictor variable, GDM captures the slope of this relationship over the range of the predictor variable, revealing potential variation in the amount of change in the response induced by a given change in the predictor [@Ferrier2007-ji]. We fit separate GDMs for bumble bees, flora, and their (unpartitioned) interactions, respectively. To control for potential confounding effects of sampling intensity, we included sampling days per site as a covariate, and we included the geographic distances between sites as a covariate to account for potential spatial autocorrelation. The importance of the variables in each model were assessed by a permutation test [@Fitzpatrick-2021aa]."
+
+**COMMENT**\
+Line 210: Including geographical distance is a sort of bare-bones way to account for spatial autocorrelation. The fact that it was very significant in the authors models suggest there is some clear spatial clustering occurring, and I might suggest an explicit test of spatial autocorrelation to determine if the authors need to account for it using more robust methods.
+
+**RESPONSE**\
+The inclusion of geographical distances to account for spatial autocorrelation is actually one of the core features of GDM, since it was originally developed with spatial applications in mind [@Ferrier2007-ji]. There are certainly other ways to estimate and account for spatial autocorrelation, but the one we use is the standard way to do so within the GDM framework. And, while geographic distance was "significant" in our permutation tests, its effect was very small compared to the effect of elevation that we are interested in, so we don't think that the matter of spatial patterns in our data requires any further scrutiny. 
+
+
+**COMMENT**\
+Fig 5: I would appreciate if the authors just used the full species names rather than the shorthand - there's plenty of room in the facet titles for them.
+
+**RESPONSE**\
+Done.
+
+
+**COMMENT**\
+Lines 270-300: Fig 3 should be Fig 6 and Fig 4 should be Fig 7.
+
+**RESPONSE**\
+Done.
+
+
+**COMMENT**\
+Figs. 6: I would appreciate more clear/meaningful legends that aren't shorthand/require looking down to the caption to decipher.
+
+**RESPONSE**\
+
+
+**COMMENT**\
+Fig. 7: Perhaps include a vertical dark line (green?) at 1500m to indicate the approximate location of the tree line? Also, the y-axis here isn't super clear. I understand the GAM conditional effect, but what's the scale/units in this case? Conditional effect of rate of turnover?
+
+**RESPONSE**\
+
+
+**COMMENT**\
+Line 295: "4-20 times higher than that of"
+
+**RESPONSE**\
+
+
+**COMMENT**\
+Line 312: Or, could the bumble bee response be unimodal, but it's simply higher than the plants and this system just runs out of upper elevation to see the fall off that occurs with the plant richness?
+
+**RESPONSE**\
+
+------------------------------------------------------------------------
+
+# Reviewer 2
+
+I was happy to receive this manuscript again, and the authors have clearly put a lot of time and effort into addressing comments. I think the significant reframing makes the paper much easier to follow and the introduction is much improved. I also really enjoyed the additional framing of the results by the authors in the discussion, very insightful and interesting. I would enthusiastically recommend this for publication!
+
+A few minor comments:
+
+**COMMENTS**\
+Could reduce specific description of results (Lines 23-33) in abstract and replace with summarized results, why they are meaningful, and end with importance for plants → bumble bees → mountain habitat theaters under climate change.
+
+**RESPONSE**\
+
+**COMMENT**\
+Lines 23-24: "Exhibited [a] mid-elevation peak"
+
+**RESPONSE**\
+
+**COMMENT**\
+Line 29: "Exhibited [a] well-defined threshold"
+
+**RESPONSE**\
+
+**COMMENT**\
+Line 77: Could remove "have been found to"
+
+**RESPONSE**\
+Line 160: if = of
+
+**COMMENT**\
+Line 244: Missing a period after figure/table citation
+
+**RESPONSE**\
+
+
+**COMMENT**\
+Line 288: Extra period before figure citation
+
+**RESPONSE**\
+
+
+**COMMENT**\
+Line 290: Turnover shouldn't be capitalized
+
+**RESPONSE**\
+

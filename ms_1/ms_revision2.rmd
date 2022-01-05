@@ -1,0 +1,313 @@
+---
+title: "Contrasting patterns of richness, abundance, and turnover in mountain bumble bees and their floral hosts"
+author: 
+  - Douglas B. Sponsler^1^*  
+  - Fabrice Requier^2^
+  - Katharina Kallnik^1^
+  - Alice Classen^1^
+  - A. Fabienne Maihoff^1^
+  - Johanna Sieger^3^
+  - Ingolf Steffan-Dewenter^1^
+
+output: 
+  pdf_document: 
+    keep_tex: yes
+    latex_engine: xelatex 
+    includes:
+      in_header: preamble.tex
+
+bibliography: 
+  - references.bib
+csl: ecology.csl
+# csl: https://www.zotero.org/styles/ecology
+---
+
+\fontsize{12}{22}
+\selectfont
+
+^1^ Department of Animal Ecology and Tropical Biology, Biocenter, University of Würzburg, Würzburg, Germany
+
+^2^ Université Paris-Saclay, CNRS, IRD, UMR Évolution, Génomes, Comportement et Écologie, 91198, Gif-sur-Yvette, France
+
+^3^ Naturpark Frankenhöhe, Ansbach, Germany
+
+`*` Corresponding author: douglas.sponsler@uni-wuerzburg.de
+
+
+# Open Research Statement
+
+All data and code required to reproduce our analyses are archived on Dryad: https://doi.org/10.5061/dryad.s1rn8pk7f
+
+# Running Head: 
+Mountain plants and pollinators
+
+\newpage
+
+# ABSTRACT
+
+Environmental gradients generate and maintain biodiversity on Earth. Mountain slopes are among the most pronounced terrestrial environmental gradients, and the elevational structure of species and their interactions can provide unique insight into the processes that govern community assembly and function in mountain ecosystems. We recorded bumble- bee-flower interactions over three years along an 1400 m elevational gradient in the German Alps. Using nonlinear modeling, we analyzed elevational patterns at the nested levels of species abundance, species $\beta$-diversity, and interaction $\beta$-diversity. While floral richness exhibited mid-elevation peak, bumble bee richness increased with elevation before leveling off at the highest sites, demonstrating the exceptional adaptation of these bees to cold temperatures and short growing seasons. In terms of abundance, though, bumble bees exhibited divergent species-level responses to elevation, with a clear separation between species preferring low vs. high elevations. Overall interaction $\beta$-diversity was dominated by strong turnover in the floral community, which exhibited well-defined threshold of $\beta$-diversity rate at the tree line ecotone. Interaction $\beta$-diversity increased sharply at the upper extreme of the elevation gradient (1800-2000 m), an interval over which we also saw steep decline in floral richness and abundance. Turnover of bumble bees along the elevation gradient was modest, with the highest rate of $\beta$-diversity occurring over the interval from low- to mid-elevation sites. The contrast between the relative robustness bumble bees and sensitivity of plants to the elevational gradient in our study suggests that the strongest effects of climate change on mountain bumble bees will be indirect effects mediated by the responses of their floral hosts. Similarly, ongoing changes in land use are likely to cause succession to forest in resource-rich mid-elevation meadows, which may force bumble bees to seek floral resources in agriculturally intensified lowlands or the sparse highlands above the tree line. 
+  
+  
+  
+**Keywords**: alpine plants, $\beta$-diversity, *Bombus*, climate,  elevation gradient, mountain ecology, pollination network
+
+\newpage
+
+```{r setup, include=FALSE, cache=FALSE, message = FALSE}
+
+library("knitr")
+
+### Chunk options: see http://yihui.name/knitr/options/ ###
+## Text results
+opts_chunk$set(echo = FALSE, warning = TRUE, message = TRUE)
+
+## Code decoration
+opts_chunk$set(tidy = TRUE, comment = NA, highlight = TRUE)
+
+## Cache
+# opts_chunk$set(cache = 2, cache.path = "ms_2/figures/cache/")
+
+## Plots
+opts_chunk$set(fig.path = "../ms_2/figures/")
+
+```
+
+
+```{r knitcitations, cache = FALSE}
+library(knitcitations)
+cleanbib()   
+cite_options(citation_format = "pandoc")
+```
+
+
+
+# INTRODUCTION
+
+Environmental gradients regulate the assembly of biological communities, and they have likely played a central role in generating and maintaining Earth's biological diversity [@Hutchinson1953-mo]. Patterns of species- and community-level responses to environmental gradients can shed light on the underlying mechanisms that govern community assembly and function [e.g. @Beals1969-in]. In addition to its basic significance, such insight is important for anticipating and managing the effects of climate and land use change, which can modify existing environmental gradients and reorganize the biological communities that inhabit them. 
+
+Mountain slopes generate steep environmental gradients over short geographical distances, facilitating the assembly of biological communities with high species richness and turnover [@Rahbek2019-sw]. Perhaps the most salient environmental condition that changes along a mountain elevation gradient is air temperature, which declines according to a linear lapse rate of approximately -0.6°C per 100 m [@Rolland2003-my], but mountain slopes also generate variation in other conditions, including precipitation, atmospheric pressure, atmospheric turbulence, substrate characteristics, and exposure to solar radiation [@Korner1995-mh; @Hodkinson2005-af].
+
+Ecologists have long viewed mountain slopes as natural laboratories for the study of community assembly, and particular attention has been given to elevational patterns of species richness and composition. Species richness along mountain slopes tends to exhibit either a mid-elevation peak or a monotonic decline [@Rahbek1995-oj; @Guo2013-tu], though the exact shape of these responses can vary considerably across taxonomic groups [e.g. @Peters2016-hf]. Species composition along mountain slopes, best studied in plant communities, can exhibit a range of patterns from smooth gradations to relatively abrupt transitions, with steeper slopes tending to exhibit more discrete patterns of species turnover [@Beals1969-in]. For example, many mountains have a well-defined tree line ecotone, where plant communities exhibit accelerated species turnover and declining diversity as multiple abiotic conditions become more extreme away from the shelter of tree canopy [@Slatyer1992-ir; @Becker2007-cg; @Descombes2017-id; though see @Odland1999-vx].
+
+<!-- In most cases, plant species composition along a mountain slope varies more or less continuously but with nonlinearities or thresholds of species turnover, suggesting an interaction of processes more complex than a simple response to the linear decline of temperature with elevation [@Beals1969-in].  -->
+
+<!-- The peaking of richness at mid-elevations might reflect intermediate environmental conditions that favor species richness, but this pattern has also been attributed to the *mid-domain effect*, which predicts mid-elevation peaks as a geometric effect of bounded ranges independent of environmental conditions [@Colwell2000-qf]. Similarly, monotonic declines in richness with elevation could be explained by abiotic conditions becoming more stringent with elevation, but they are also consistent with a species-area effect driven by the geometric loss of surface area as a mountain's topography converges to a summit [@Rahbek1997-hj; though see @Elsen2015-gp].  -->
+
+<!-- When discrete transitions in species composition occur along a continuous environmental gradient, they can be interpreted as points where the fitness inequality between competing species reverses, implying that interspecific competition is a primary mechanism of community assembly [@Hutchinson1953-mo].  -->
+
+While elevational patterns in overall species richness and composition are informative, the functional significance of mountain slopes can be explored more deeply by focusing on the responses of interacting guilds of species. For example, studies of plants and insect herbivores along mountain elevation gradients have revealed a positive correlation between elevation and herbivore niche-breadth, suggesting an extension of the classical *latitude-niche-breadth hypothesis* to the analogous case of elevational gradients [@Rasmann2018-gl]. Similarly, plant-pollinator interactions along mountain slopes have been found to become less specialized as elevation increases, which may reflect a reciprocal relationship between the processes of competition and environmental filtering in community assembly [@Hoiss2015-gv; @Classen2020-nh]. A unifying theme of such studies is the understanding of *species interactions* as ecological entities *per se*, dependent upon but not reducible to the species-level richness and composition of the interacting guilds.   
+
+Bumble bees (Hymenoptera: *Bombus* spp.) and their floral hosts provide an excellent system in which to study elevational patterns at both the species- and interaction-level. Bumble bees are believed to have arisen in the mountains of Asia during the cooling climate of the Eocene-Oligocene boundary, and their subsequent spread and diversification along mountain corridors and into lowland habitats was likely driven by alternating range expansion during cooling periods and retreat to higher elevations during warming periods [@Hines2008-er; @Stewart2010-jn; @Martinet2018-rb]. Today, they remain characteristically cold-adapted organisms [@Heinrich1994-cv], with peak abundance and diversity in mountain ranges and northern latitudes [@Williams1998-xi]. In these habitats, they are often the dominant guild of flower-visiting insects and the principal pollinators of entomophilous flora [@Goulson2010-lo]. As in the past, so now are mountain habitats critical theaters of ecological change for bumble bees. Warming climates are expected to cause habitat loss and potentially novel competitive pressures [@Kerr2015-dg; @Soroye2020-zb; though see @Guzman2021-my]. At the same time, socioeconomic drivers are causing succession to forest in pastures on mountain slopes and the intensification of agriculture in lowlands, both of which entail a loss of floral resources for bumble bees [@Tasser2002-om; @Tappeiner2006-jp; @Tasser2007-qo; @Walcher2017-kw]. 
+
+In this paper, we present a study based on ~13,000 interactions between bumble bees and their floral hosts recorded along a 1400 m elevation gradient, complemented by corresponding surveys of floral abundance. Using this dataset, we investigate elevational responses of richness, abundance, and $\beta$-diversity, both at the level of species (bumble bees and flowering plants, respectively) and at the level of interactions (bumble- bee-flower pairs). Our results reveal nonlinear and, in some cases, contrasting elevational patterns, underscoring the fact that mountain slopes are complex ecological systems where multiple processes interact to produce biological responses. These patterns shed light on the basic ecology of the mountain mutualism between bumble bees and wildflowers, and they suggest how this mutualism might be reshaped by ongoing processes of climate and land use change.
+
+
+# METHODS
+
+## Field system
+
+The study was conducted from 2010-2012 in Berchtesgaden National Park, located in the Northern Limestone Alps of southeast Germany (47.55°N, 12.92°E). The landscape is composed of mountain pastures surrounded mainly by coniferous forest. We selected 25 study sites (60 x 60 m) on mountain pastures at elevations ranging from 641-2032 meters above sea level (m.s.l.) **(Figure 1)**. Fourteen of these pastures are extensively grazed by cattle or sheep, 3 are mowed for hay production, and 8 have been abandoned throughout the last century and are no longer subject to any human management. Study sites were classified as lying either above or below the tree line based on an examination of Google Earth imagery corroborated by field experience at our study sites. Eight sites were located above the tree line, which generally fell at an elevation of around 1500 m.s.l., consistent with the previous descriptions of the tree line in the Berchtesgadener Alps [@Kostler1970-ya; @Mayer1970-zn].  
+
+Sampling in each year of the study consisted of repeated visits to each site at approximately weekly intervals. Samples were only collected during periods without rain and when the air temperature was at least 6°C. We divided each 60 x 60 m study plot into 10 evenly-spaced 60 x 6 m transects. During each visit, the observer walked each transect in a zig-zag pattern for five minutes and recorded all interactions between bumble bees and flowers; thus, each sampling event consisted of a total of 50 minutes of observation. Bumblebees observed on a given flower were counted as floral visitors. Bumble bee queens were identified to species level in the field, while workers and males were collected and stored in individually labeled tubes in the freezer for later identification in the laboratory according to @Amiet1996-jz. Floral visitation by male bumble bees was recorded during visitation sampling, but we chose to analyze only visitation by queens and workers. Males are often found resting on flowers, particularly late in the year, so their presence on a flower cannot necessarily be interpreted as a foraging visit. In conjunction with bumble bee observations, we estimated the flower cover of each herbaceous or shrubby plant species within the study plot to the nearest 0.01 m^2^ by exhaustive visual inspection of the study plot. To avoid observer bias, floral cover estimates were always performed by the same investigator (K. Kallnik). Plant species were identified following @Lauber2007-ha and @Oberndorfer2001-ro.
+
+Although per-sample effort was standardized across all years, the total number of samples (i.e. site-dates) and of bumble bee observations varied across years. Since the start of field sampling each year was determined by snowmelt, lower sites were sampled as early as April while higher sites could not be sampled until June or July. This resulted in a temporally staggered pattern of sampling in 2010 and 2012, while in 2011 a combination of early snowmelt and a late start to field activities resulted in sampling that was approximately aligned in time across the whole elevation gradient. See Appendix S1 for a detailed description of sampling patterns. 
+
+
+## Data analysis
+
+### Data processing 
+
+We quantified bumble bee abundance as the total number of recorded floral visits per bumble bee species per site-date. We treated the cryptic *Bombus terrestris/lucorum* species pair as a single morphospecies, since these two species cannot be visually distinguished, and we pooled representatives of the parasitic *Psithyrus* subgenus --- *Bombus barbutellus*, *B. bohemicus*, *B. campestris*, *B. flavidus*, *B. quadricolor*, and *B. sylvestris* --- into the species group *B. psithryus*.
+
+To focus our analysis on the subset if flowering plant species that are relevant to bumble bee foraging, we omitted from analysis all plant species that received no visits from bumble bees during the course of our study. Eight plant species --- *Rubus idaeus*, *Rosa canina*, *Juniperus communis*, *Larix decidua*, *Salix* sp., *Caltha palustris*, *Pulmonaria officinalis*, and *Rheum barbarum* --- were recorded as visited during interaction sampling but were missed during floral surveying. Each accounted for no more than 4 visits in total over the three years of our study, so they were also omitted from analysis.
+
+
+### Elevational patterns of richness and abundance
+
+We analyzed the richness and abundance of bumble bees, flowering plants, and their interactions, respectively, using hierarchical generalized additive models (HGAMs) [@Wood2011-pg; @Pedersen2019-kf]. To focus on elevational patterns, we collapsed within-year variation of richness and abundance at each site into annual summary values of cumulative richness and peak abundance. We then modeled these summary values, respectively, as smooth responses to elevation. Following the "GI" model form described by @Pedersen2019-kf, we specified both a global smoother and year-specific smoothers, with the latter understood as "random" deviations from the global effect. In each model, we also included `year` and `management` as fixed intercept effects, and we included `site` as a random intercept effect to avoid pseudoreplication due to repeated sampling of sites across years. In the richness models, we also added `number of transects` as a smoother to account for the effect of sampling intensity on observed richness. For all models, we used the quasipoisson (log-link) distribution family.
+
+To explore species-level elevational responses in bumble bees, we fit a model with a species-wise elevation smoother and no global smoother, corresponding to the "I" model form of @Pedersen2019-kf. `Year` and `management` were included as fixed intercept effects and `site` and `species` were included as random intercept effects. For this model, we used the negative binomial (log link) distribution family because it yielded a better residual distribution than the quasipoisson family.     
+
+To facilitate clear interpretation with respect to our focal questions, the models above focus on elevational patterns of abundance by summarizing across seasonal time. For those interested in within-season abundance patterns and their interaction with elevation, more complex tensor-product GAMs are included in Appendix S1.
+
+
+### Species and interaction $\beta$-diversity
+
+For our analyses of species and interaction $\beta$-diversity, we pooled all samples by site irrespective of year. After pooling, we calculated $\beta$-diversity between all pairs of sites for bumble bees, flowering plants, and theirs interaction, respectively, using the binary Jaccard index. We then partitioned total interaction $\beta$-diversity into its components of species turnover (changes in species composition) and interaction rewiring (interaction turnover despite species constancy) [@Novotny2009-my; @Poisot2012-fk].   
+
+As an initial analysis, we visualized the relationship between site-wise elevation difference and each metric of $\beta$-diversity, fitting each response with a binomial regression smooth. We then used generalized dissimilarity modeling (GDM) [@Ferrier2007-ji] to ask whether the relationship between $\beta$-diversity and elevation exhibits thresholds or other nonlinearities. In addition to estimating the relationship between differences in a response variable and differences in a predictor variable, GDM captures the slope of this relationship over the range of the predictor variable, revealing potential variation in the amount of change in the response induced by a given change in the predictor [@Ferrier2007-ji]. We fit separate GDMs for bumble bees, flora, and their (unpartitioned) interactions, respectively. To control for potential confounding effects of sampling intensity, we included sampling days per site as a covariate, and we included the geographic distances between sites as a covariate to account for potential spatial autocorrelation. The importance of the variables in each model were assessed by a permutation test [@Fitzpatrick-2021aa]. 
+
+
+### Software
+
+All analyses were conducted in `R` [@RCoreTeam-2021aa]. Data handling and visualization were performed with the `tidyverse` suite [@Wickham2019-aa]. GAM analyses were performed with packages `mgcv` [@Wood_2017], `mgcViz` [@Fasiolo2018aa], and `gratia` [@Simpson2021-aa]. $\beta$-diversity was calculated with the package `vegan` [@Oksanen_2019] and visualized using the packages `ggplot2` [@Wickham2016-aa] and `ggvegan` [@Simpson2019aa]. Calculation and partitioning of interaction $\beta$-diversity were performed with the package `bipartite` [@Dormann2008-aa; Dormann2009-aa]. GDM analysis of $\beta$-diversity was performed with the package `gdm` [@Fitzpatrick-2021aa]. The full workflows of our analyses are available in Appendices S1 and S2, and the data are archived on Dryad: https://datadryad.org/stash/share/M_4Yt9VVXTRm36FSfwwGzUs2OTXP9Fv52jjETdSu6ys. 
+
+
+# RESULTS
+
+## Bee-flower interactions and floral survey data
+
+We recorded a total of 12,918 bumble- bee-flower interactions (excluding males) over the three years of our study. The metaweb across all sites and dates consisted of 16 bumble bee species, 163 plant species (110 genera, 37 families), and 736 unique bumble- bee-plant interaction pairs. *Bombus pascuorum* ("pasc"), *B. pratorum* ("prat"), *B. soroeensis* ("soro"), *B. terrestris/lucorum* ("telu"), and *B. wurflenii* ("wurf") accounted for the bulk of overall bumble bee abundance, while *B. hortorum* ("hort"), *B. jonellus* ("jone"), *B. psithyrus* ("psit"), *B. monticola* ("mont"), *B. mendax* ("mend"), *B. mucidus* ("muci"), *B. pyrenaeus* ("pyre"), and *B. gerstaeckeri* ("gers") were present at moderate to low abundance. *Bombus hypnorum*, *B. humilis*, and *B. lapidarius* were recorded only sporadically. See Appendix S1 for a summary of species-wise abundances.
+
+Floral surveying yielded a total of 352 plant species (192 genera and 52 families). Of these, 163 species (111 genera and 37 families) were observed to be visited by bumble bees. 
+
+
+## Elevational patterns of richness and abundance
+
+The response of bumble bee richness to elevation exhibited an approximately linear increase up to 1600-1700 m and then leveled off and declined slightly at the upper limit of the gradient **(Figure 2A)**. The year 2012 had a negative effect (p = 0.04) on bumble bee richness relative to the reference year 2010 **(Figure 2B)**, but neither mowing nor abandonment had a significant effect on bumble bee richness relative to the reference management level of grazing (p > 0.05)  **(Figure 2C; Table 1)**. In contrast, the response of floral richness exhibited a clear unimodal pattern, peaking between 1300-1500 m **(Figure 2D)**. The years 2011 (p < 0.001) and 2012 (p < 0.03) had a negative effects on floral richness relative to the reference year 2010 **(Figure 2E)**, but again management had no significant effect (p > 0.1) **(Figure 2F; Table 1)**. The response of interaction richness to elevation was intermediate to that of bumble bee and floral richness, peaking around 1500 m and leveling off at higher elevation **(Figure 2G)**. The effect of year 2011 on interaction richness was positive (p < 0.05) and that of year 2012 negative (p < 0.001) **(Figure 2H)**, but management did not have a significant effect (p > 0.1) **(Figure 2I; Table 1)**.
+
+Cumulative bumble bee abundance did not respond significantly to elevation (p > 0.1) **(Figure 3A)** or management (p > 0.1) **(Figure 3C)**, but the year 2011 had a positive effect (p = 0.03) on bumble bee abundance relative to the reference year of 2010 **(Figure 3B; Table 2)**. Floral abundance, however, peaked around 1000 and exhibited an approximately quadratic decline with increasing elevation (p = 0.003) **(Figure 3D)**. The effect of year 2012 was negative (p = 0.002) relative to the reference year 2010 (p = 0.02) **(Figure 3E)**, and the effect of abandoned meadows on floral abundance was positive compared to the reference level of grazed meadows **(Figure 3F; Table 2)**.
+
+At the species level, bumble bees exhibited variable and sometimes divergent responses to elevation **(Figure 4; Table 3)**. *Bombus pyrenaeus*, *B. mendax*, *B. monticola*, and *B. mucidus* exhibited approximately linear increases with elevation. In contrast, *Bombus psithyrus* and *B. pascuorum* exhibited approximately linear decreases with elevation. *Bombus pratorum* was unique in exhibiting a strongly unimodal abundance pattern with a well-defined peak between 1500-1600 m, approximately at the tree line ecotone, similar to the abundance pattern of *B. pratorum* described by @Iserbyt2008-jn in the Eyne Valley of the Pyrenees. The remaining species did not respond significantly to elevation (p > 0.05).   
+
+## Species and interaction $\beta$-diversity
+
+Floral $\beta$-diversity among our study sites was very high overall and responded steeply to elevation difference between sites **(Figure 5A)**. Even sites at similar elevation exhibited ~40% species turnover, and the most vertically distant sites (elevation difference > 1250 m) differed by more than 85%. Bumble bee $\beta$-diversity was, in comparison to floral $\beta$-diversity, both lower overall and less responsive to elevational difference between sites **(Figure 5A)**. Sites at similar elevation exhibited ~25% species turnover, and species turnover between the most vertically distant sites remained less than 50%. 
+
+Total interaction $\beta$-diversity was >75% between sites at similar elevation and approached perfect dissimilarity in the most vertically distant sites **(Figure 5B)**. Partitioning revealed that total interaction $\beta$-diversity was driven primarily by species turnover, which accounted for ~50% of total $\beta$-diversity for sites at similar elevation and ~90% of total $\beta$-diversity for the most vertically distant sites. Species turnover consisted mainly of turnover in the floral community **(Figure 5C)**, though the joint turnover of plants and bumble bees accounted for ~25% of total species turnover between the most vertically distant sites. Interaction rewiring was most significant between sites at similar elevation, where it accounted for ~30% of total $\beta$-diversity, but its share of total $\beta$-diversity declined to ~10% in the most vertically distant sites **(Figure 5B)**.
+
+Bumble bees, flora, and their interactions exhibited marked differences in their rates of $\beta$-diversity in response to elevation **(Figure 6)**. Bumble bee turnover was relatively high from ~600-1100 m, briefly leveled off, and then accelerated again around 1250 m. Floral Turnover was high from ~600-1000 m, gradually leveled off from ~1000-1500 m, and then accelerated again around the tree line ecotone at ~1500 m. Interaction turnover mirrored the high rates of bumble bee and floral $\beta$-diversity from ~600-1000 m, but it exhibited a markedly different pattern above 1000 m, with relatively low turnover between 1000-1750 m and then a sharp acceleration from ~1750-2000 m. The conditional effect of elevation was significant (p < 0.001) in all models, and its importance was 4-20 time higher that of sampling intensity and geographic distance **(Table 4)**. Nevertheless, geographic distance was a significant predictor in all models (p < 0.001), and sampling intensity was a significant predictor in the bumble bee (p = 0.004) and interaction models (p < 0.001). Our GDMs explained 31% of total deviance in bumble bee $\beta$-diversity, 73% of floral $\beta$-diversity, and 71% of interactions $\beta$-diversity.
+
+
+# DISCUSSION
+
+Our study revealed strong and sometimes contrasting patterns of elevational structure in the richness, abundance, and $\beta$-diversity of mountain bumble bees and wildflowers. By extending our analysis to the level of species interactions, we show how the elevational patterns within bumble bee and wildflower communities are propagated to the functional relationships between these two guilds. These patterns suggest underlying processes governing the assembly of bumble- bee-wildflower networks in mountain habitats, shedding light on how this mutualism has evolved in the past and how it may respond to the nascent forces of climate and land use change.
+
+While floral richness exhibited the expected unimodal response to elevation, bumble bee richness responded positively to elevation for nearly the whole gradient, showing only a slight declining trend at the highest sites. The positive response of bumble bee species richness to elevation sets bumble bees apart from most other taxa [@Rahbek1995-oj; @Guo2013-tu; @Peters2016-hf], underscoring their exceptional adaptation to mountain environments. In particular, it stands in sharp contrast to the monotonic decline of overall bee richness with elevation in the Berchtesgadener Alps [@Hoiss2012-sn], highlighting the special importance of bumble bees as pollinators where few other bees persist. On higher mountains, the increase of bumble bee richness with elevation eventually gives way to a unimodal response, but peak richness is often found above 3000 m [e.g. @Williams1991-zu; @Streinzer2019-bz]. In the Berchtesgadener Alps, which reach just over 2000 m, the positive response of bumble bee richness to elevation encompasses almost the entire mountain slope, echoing the findings of @Minachilis2020-xd along a comparable elevation gradient (300-2700 m) at Mt. Olympus, Greece. 
+
+The response of overall bumble bee abundance to elevation was approximately flat, but this aggregate pattern concealed divergent species-level responses. The strongly positive responses of *B. mendax*, *B. monticola*, *B. mucidus*, *B. pyrenaeus* are consistent with the known affinity of these species for high-elevation habitats [@Rasmont2010-ci]. At the other extreme, *B. pascuorum* and the *B. psithyrus* species group exhibited strongly negative responses to elevation. In the case of *B. pascuorum*, this pattern is likely driven by its exceptionally long nesting cycle, which limits its fitness in the short growing seasons of higher elevations [@Neumayer2009-gx]. Growing season length may also explain the lower abundance of *B. psithyrus* at high elevation, since cuckoo bumble bees must emerge later than the queens of their host species and then successfully usurp host nests before they can begin to raise brood [@Goulson2010-lo]. Nevertheless, while the divergent responses of bumble bee species to elevation are informative, it is important to emphasize the overall robustness of bumble bees to elevational variation. Nine out of the 16 species in our study system did not respond significantly to elevation, and 8 out of 16 were observed across the full span of the gradient. 
+
+The relative stability of the bumble bee community in our study stands in stark contrast to the extreme dynamism of the floral community, as illustrated by the dominance of total interaction $\beta$-diversity by floral species turnover. This pattern is consistent with the findings of @Simanonok2014-ou in the Rocky Mountains of North America, and it is perhaps unsurprising given the exceptional cold-hardiness of bumble bees and the sensitivity of plants to temperature gradients. Nevertheless, it highlights the behavioral challenge that bumble bees have presumably faced for the entirety of their evolutionary history as mountain florivores: how to forage efficiently in a diverse floral community that exhibits rapid spatial and temporal turnover. A fascinating question that could not be answered by our sampling approach is to what extent mountain bumble bees actively exploit the elevational sensitivity of floral communities by adaptively foraging up- or downslope, as suggested by @Lundberg1980-qk. Bumble bees have large foraging ranges and have been shown both to track resources through space and time [@Devoto2014-ay] and to cross forest matrix to reach patches of foraging habitat [@Mola2020-yc]. Assuming an average slope of 20° and a foraging range of 1 km, a bumble bee could travel up- or downslope by more than 340 m, thus spanning an elevation band nearly 700 m wide. Such 3-dimensional foraging would enable bumble bees both to exploit the elevational turnover of floral species and to track preferred species through their elevationally staggered phenology, the latter constituting a sort of physiological time-travel [@Van_Straalen1983-df].
+
+The roughly sigmoidal pattern of bumble bee $\beta$-diversity rate in response to elevation, revealed by our GDM analysis, probably reflects both the reciprocal abundance patterns of high- and low-elevation species and the occurrence of certain rarer species only at middle-elevation sites. As discussed above, though, bumble bee turnover was low over all, demonstrating the robustness of bumble bees to the environmental variation encompassed by our elevation gradient. Floral $\beta$-diversity rate also exhibited a sigmoidal pattern, and its inflection point coincides with the tree line ecotone at ~1500 m. The floristic importance of the tree line has been noted in previous work [e.g. @Pellissier2010-kg; @Descombes2017-id], and our study corroborates these findings specifically for the subset of flora visited by bumble bees. Interestingly, the tree line did not constitute a discrete transition to a new equilibrium of species composition, but rather a threshold marking the beginning of a process of $\beta$-diversity acceleration that continued for the remainder of the elevation gradient. While the most obvious effect of the tree line may be the relatively discrete transition from forest to scrub/grassland, the tree line also initiates a process of angiosperm species attrition that proceeds at a rate of about 40 species per 100 m [@Korner2003-sc], and the accelerated $\beta$-diversity we observed above the tree line mirrors simultaneous patterns of decreasing floral richness and abundance **(Figures 2B, 3B)**. 
+
+In contrast, the rate of interaction $\beta$-diversity exhibited a late and very pronounced acceleration at ~1800 m, indicating that the two highest sites at 1984 m and 2032 m differed strongly in interaction composition from the sites ~200 m below them. At these highest sites, the growing season is very short and vegetation is sparse, giving way to bare rock and scree landscapes, and it may be that the last 200 m interval of our elevation gradient imposes the most stringent environmental filter. It is interesting that interaction $\beta$-diversity did not exhibit the inflection point at the tree line ecotone (~1500 m) that we saw for floral $\beta$-diversity, despite the fact that overall interaction $\beta$-diversity was driven primarily by the turnover of the floral community. A possible explanation for this pattern is that there could be an elevational lag in bumble bee floral selection such that most bumble bee species do not switch to supra-tree-line floral species when these species first appear, but rather maintain associations with flora whose ranges span the tree line until the extreme species turnover between 1800 and 2000 m forces them to adopt new floral hosts.   
+
+The paucity of floral resources at the highest elevations raises the question of why bumble bees choose to forage at such elevations at all. For some species, the selection of high elevation habitats may be influenced by thermal tolerances [@Oyen2016-ng], but that fails to explain the presence of elevation-generalist species (including the majority of the species in our study system) in resource-poor high-elevation habitats. It is possible that nest site limitation at lower elevations drives some bumble bees to establish nests at high elevation, and their ability to forage downslope is subsequently constrained by their flight range, which may be reduced due to the energetic costs of flight in cold environments [@Kovac2015-wy]. It is also possible that high elevation landscapes, while sparse in absolute floral resources, offer an escape from more competitive conditions at lower elevations where forager density is higher [@Hoiss2015-gv; @Classen2020-nh]. Similarly, higher elevations could also offer an escape from density-dependent parasite and pathogen pressure [@Parsche2018-ar]. Finally, it is worth speculating that an affinity for open, high-elevation habitats might be an evolutionary legacy in mountain bumble bees, since the existence of flower-rich meadows in the forest matrix below the tree line is largely an artifact of human land use arising in the last 500 years of bumble bees' evolutionary history [@Hejcman2013-ca]. 
+
+Mountains are unique ecological theaters in which the extrinsic forces of climate and land use change interact with intrinsic environmental gradation to shape the ecology of species and their interactions [@Peters2019-km]. Given the elevational patterns of richness, abundance, and $\beta$-diversity among bumble bees and wildflowers in our study, what can be said about the response of these communities, and their functional relationships, to climate and land use change? If the process of mid-elevation pasture abandonment continues, the flower-rich meadows that now perforate the forest matrix will eventually close into flower-poor coniferous forest, and bumble bees will be pushed either into the more agriculturally intensified land at lower elevation or the relatively resource-poor open habitat above the tree line. This land- use-driven redistribution of bumble bees will interact with the concomitant process of climate warming, which has already generated measurable upslope shifts in some bumble bees species [@Ploquin2013-da; @Pyke2016-ll; @Marshall2020-pc], sometimes resulting in increased species richness at higher elevations [@Fourcade2019-ct]. Under this scenario, high-elevation bumble bees can be expected to face increased densities of low-elevation or elevation-generalist species, and the introduction of competing bumble bee species in a given habitat can have strong effects both on the fitness of their congeners and on patterns of floral visitation [@Nagamitsu2010-wi; @Brosi2013-mu; @Ishii2013-sm]. Nevertheless, the tolerance of bumble bees for a relatively broad climate envelope together with their long flight range may enable them to cope with climate and land use change better than their floral mutualists. The flowering plant community in our study system was strongly structured by elevation, and there is evidence that the upslope movement of plants in response to warming temperatures may outpace that of bumble bees [@Marshall2020-pc; though see @Pyke2016-ll]. Moreover, it is the plant community that experiences the direct effects of land use change. Thus, it may be that the strongest effects of climate and land use change on mountain bumble bees will be indirect effects mediated by changes in the floral community. 
+
+<!-- Finally, our study has focused on contemporary elevational patterns of mountain bumble bees and wildflowers, exploring the processes that might regulate them, and relating these processes to the nascent pressures of climate and land use change. Mountains, however, have been inherently dynamic systems throughout the co-evolutionary history of bumble bees and their floral mutualists [e.g. @Hines2008-er; @Martinet2018-rb]. Both contemporary patterns and potential responses to global change processes would be elucidated by greater integration with the historical biogeography of bumble bees and wildflowers and their responses to previous episodes of global change. -->
+
+
+# ACKNOWLEDGMENTS
+
+We thank the National Park Berchtesgaden for their support and the permission to work in the national park, and we thank the owners of the study sites outside the national park for access to their land. The field work of this study was performed within the framework of the joint research center FORKAST as part of the ‘Bavarian Climate Programme 2020'. D.J. McNeil provided helpful discussion of data analyses. M. Fitzpatrick kindly corresponded regarding GDM techniques.
+
+
+# REFERENCES
+
+<div id ="refs"></div>
+
+\newpage
+
+# TABLES
+
+**Table 1:** Tabular output of richness GAMs. Parametric model terms are summarized with an estimated intercept effect ("estimate") while smooth terms are summarized with their effective degrees of freedom ("edf"), the latter representing the complexity (i.e. "wiggliness") of the fitted spline. Elevation:year smoothers represent year-specific deviations from the global elevation smooths calculated across years. 
+
+```{r fig8, echo = FALSE, out.width="100%"}
+knitr::include_graphics("../ms_1/figures/table1.png")
+```
+
+
+
+\newpage
+
+**Table 2:** Tabular output of abundance GAMs. Parametric model terms are summarized with an estimated intercept effect ("estimate") while smooth terms are summarized with their effective degrees of freedom ("edf"), the latter representing the complexity (i.e. "wiggliness") of the fitted spline. Elevation:year smoothers represent year-specific deviations from the global elevation smooths calculated across years. 
+
+
+```{r fig9, echo = FALSE, out.width="100%"}
+knitr::include_graphics("../ms_1/figures/table2.png")
+```
+
+
+\newpage
+
+**Table 3:** Tabular output of species-level abundance GAMs. Parametric model terms are summarized with an estimated intercept effect ("estimate") while smooth terms are summarized with their effective degrees of freedom ("edf"), the latter representing the complexity (i.e. "wiggliness") of the fitted spline. 
+
+
+```{r fig10, echo = FALSE, out.width="100%"}
+knitr::include_graphics("../ms_1/figures/table3.png")
+```
+
+
+\newpage
+
+**Table 4:** Summary of GDM results for each model (bumble bees, flora, and interactions, respectively). Variable importance represents the percent of explained deviance lost when the focal variable is permuted. The p-value of each variable (Var.pval) is based on comparing the deviance explained by the unpermuted model (Model.dev.exp) to the distribution of deviance explained when the focal variable is permuted. Similarly, the model p-value (Model.pval) is based on a comparison between the deviance explained by the unpermuted model and the distribution of deviance explained when the entire predictor matrix is permuted. 
+
+```{r fig11, echo = FALSE, out.width="100%"}
+knitr::include_graphics("../ms_1/figures/table4.png")
+```
+
+
+\newpage
+
+# FIGURE LEGENDS
+
+**Figure 1:** Study sites in the Berchtesgadener Alps plotted over Google Earth imagery (https://earth.google.com/). Sites above the tree line are depecited in red and sites below the tree line in yellow. The elevation of each site is given in meters above sea level.
+
+**Figure 2:** Conditional effects of elevation, year, and management on the richness of bumble bee species (A), floral species (B), and bumble- bee-flower interactions (C). Effects are plotted on the link scale, and shaded bands depict 95% confidence intervals. Bumble bee and plant illustrations were obtained from http://phylopic.org/; see Appendix S1 for details and licensing. 
+
+**Figure 3:** Conditional effects of elevation, year, and management on the peak abundance of bumble bees (A) and flower cover (B). Effects are plotted on the link scale, and shaded bands depict 95% confidence intervals. The dashed line for the bumble bee abundance smooth indicates that this smooth did not differ significantly from a flat line (p > 0.1).
+
+**Figure 4:** Conditional effects of elevation on the peak abundance of each bumble bee species. Effects are plotted on the link scale, and shaded bands depict 95% confidence intervals. Confidence bands are colored to indicated the linear slope of the response curve, and species are plotted in order of decreasing slope.
+
+**Figure 5:** Species-level (A) and interaction-level (B, C) $\beta$-diversity (in terms of proportional turnover) plotted against elevational difference. Each point represents the turnover (or component of turnover) between a pair of sites, and lines represent the overall relationship between turnover and elevation difference using binomial regression smooths. Interaction turnover (B, C) is partitioned using Poisot et al.’s (2012) components but with more explicit nomenclature: total = unpartitioned interaction turnover, sp. turnover = interaction turnover due to species turnover, OS =  interaction turnover due to interaction rewiring, ST.h = interaction turnover due to species turnover in the higher trophic level (bumble bees), ST.l = $\beta$-diversity due to species turnover in the lower trophic level (plants), and ST.lh =  $\beta$-diversity due to joint species turnover in higher and lower trophic levels.
+
+**Figure 6:** GDM splines of species- and interaction-level $\beta$-diversity in response to elevation. The maximum height of each spline represents the conditional (i.e. partial) effect of elevation on $\beta$-diversity, and the shape of each spline represents to the rate of species turnover as it varies along the elevation gradient, with steeper parts of the curve indicating regions of the gradient over which species/interaction turnover is more rapid. Rug plots depict the locations of sites along the elevation axis and are color-coded to indicate whether each site fell above or below the tree line.  
+
+\newpage
+
+# FIGURES
+
+**Figure 1**
+
+```{r fig1, echo = FALSE, out.width="100%"}
+knitr::include_graphics("../ms_1/figures/fig1.png")
+```
+
+
+\newpage
+
+**Figure 2**
+
+```{r fig3, echo = FALSE}
+knitr::include_graphics("../ms_1/figures/fig2.pdf")
+```
+
+\newpage
+
+**Figure 3**
+
+```{r fig4, echo = FALSE}
+knitr::include_graphics("../ms_1/figures/fig3.pdf")
+```
+
+\newpage
+
+**Figure5**
+
+```{r fig5, echo = FALSE}
+knitr::include_graphics("../ms_1/figures/fig4.pdf")
+```
+
+\newpage
+
+**Figure6**
+
+```{r fig6, echo = FALSE}
+knitr::include_graphics("../ms_1/figures/fig5.pdf")
+```
+
+\newpage
+
+**Figure7**
+
+```{r fig7, echo = FALSE}
+knitr::include_graphics("../ms_1/figures/fig6.pdf")
+```
+
+<!-- ```{r write_citations, cache=FALSE, include=FALSE} -->
+<!-- write.bibtex(file = "knitcitations.bib") -->
+<!-- ``` -->
+

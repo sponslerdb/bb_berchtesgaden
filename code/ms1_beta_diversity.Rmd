@@ -1,5 +1,5 @@
 ---
-title: "Appendix 2: Beta-diversity analysis"
+title: "Appendix S3: Beta-diversity analysis"
 output: 
   pdf_document:
     toc: true
@@ -589,7 +589,7 @@ species_beta <- full_join(bb_beta, fl_beta) %>%
          site2 = factor(site2),
          elev.diff = elev1 - elev2,
          mean.elev = (elev1 + elev2)/2, mgmt.diff = if_else(mgmt1 == mgmt2, 0, 1)) %>%
-  pivot_longer(cols = c(BB, FL), names_to = "group", values_to = "beta") %>%
+  pivot_longer(cols = c(BB, FL), names_to = "metric", values_to = "value") %>%
   filter(elev.diff >= 0) 
 
 # For each site pair, one will be higher and the other lower; thus, when their order is 
@@ -632,73 +632,71 @@ beta_mit_data <- beta_site %>%
   mutate(elev.diff = abs(elev1 - elev2),
          mean.elev = (elev1 + elev2)/2,
          mgmt.diff = if_else(mgmt1 == mgmt2, 0, 1)) %>%
+  filter(site1 != site2) %>%# not interested in within-site comparisons
   gather(metric, value, -c(site1, site2, elev1, elev2, 
                            elev.diff, mean.elev, 
                            x1, y1, x2, y2, mgmt1, mgmt2, mgmt.diff)) %>%
-  mutate(metric.class = case_when(
-    metric %in% c("WN", "ST", "OS", "S") ~ "aggregate",
-    metric %in% c("WN.repl", "WN.rich") ~ "WN.partition",
-    metric %in% c("ST.h", "ST.l", "ST.lh") ~ "ST.partition",
-    metric %in% c("OS.repl", "OS.rich") ~ "OS.partition"),
-    metric = factor(metric, levels = c("WN", "ST", "OS", "S", "ST.h", "ST.l", 
-                                       "ST.lh", "WN.repl", "WN.rich", 
-                                       "OS.repl", "OS.rich")))
+  bind_rows(species_beta) %>%
+  filter(metric != "S") %>%
+  mutate(metric = factor(metric, 
+                         levels = c("OS", "ST", "WN", "ST.h", "ST.l", 
+                                    "ST.lh", "WN.repl", "WN.rich", 
+                                    "OS.repl", "OS.rich", "BB", "FL"))) %>%
+  mutate(metric.name = case_when(
+    metric == "WN" ~ "interactions",
+    metric == "ST" ~ "sp. turnover",
+    metric == "OS" ~ "rewiring",
+    metric == "ST.h" ~ "BB turnover",
+    metric == "ST.l" ~ "FL turnover",
+    metric == "ST.lh" ~ "BBxFL turnover",
+    metric == "WN.repl" ~ "total (repl.)",
+    metric == "WN.rich" ~ "total (rich.)",
+    metric == "OS.repl" ~ "rewiring (repl.)",
+    metric == "OS.rich" ~ "rewiring (rich.)",
+    metric == "BB" ~ "bumble bees",
+    metric == "FL" ~ "floral hosts"),
+    metric.name = factor(metric.name, levels = c("sp. turnover", "interactions", 
+                                       "BB turnover", "FL turnover", "rewiring", 
+                                       "BBxFL turnover", "total (repl.)", "total (rich.)", 
+                                       "rewiring (repl.)", "rewiring (rich.)",
+                                       "bumble bees", "floral hosts")))
 ```
 
 # 4. Visualize beta-diversity ~ elevation diff
 ```{r message=FALSE, warning=FALSE}
 # Set palette
-p1 <- c("OS" = "#e7298a", "ST" = "#66a61e", "WN" = "black")
 
-p2 <- c("ST.h" = "#7570b3", "ST.l" = "#1b9e77", "ST.lh" = "#d95f02")
-
-# BB + FL elevation diff
-beta_plot1 <- ggplot(filter(species_beta, 
-                    site1 != site2), # no within-site comparisons
-             aes(elev.diff, beta, color = group)) +
+# Total turnover of bumble bees, floral hosts, and their interactions
+beta_plot1 <- ggplot(filter(beta_mit_data, 
+                    metric %in% c("WN", "BB", "FL")), 
+             aes(elev.diff, value, color = metric.name)) +
   geom_point(alpha = 0.25, pch = 16) +
   geom_smooth(method = "glm", 
               method.args = list(family = "binomial"), 
               se = FALSE) +
   labs(x = NULL,
-       y = "Species turnover",
-       color = "Taxon") +
-  theme_light()
+       y = "Turnover",
+       color = "Level") +
+  theme_classic()
 
-# BB * FL elevation diff (aggregate)
+# Partitioned interaction turnover
 beta_plot2 <- ggplot(filter(beta_mit_data, 
-                      site1 != site2 & # no within-site comparisons
-                      metric != "S" &
-                      metric.class == "aggregate"), 
-             aes(elev.diff, value, color = metric))  +
-  geom_point(alpha = 0.20, pch = 16) +
+                      metric %in% c("ST.l", "ST.h", "ST.lh", "OS")), 
+             aes(elev.diff, value, color = metric.name))  +
+  geom_point(alpha = 0.4, pch = 16) +
   geom_smooth(method = "glm", 
               method.args = list(family = "binomial"), 
               se = FALSE) +
-  scale_color_manual(values = p1, name = "Partition") +
-  xlab(NULL) +
-  ylab("Interaction turnover") +
-  theme_light()
-
-# BB * FL elevation diff (ST partition)
-beta_plot3 <- ggplot(filter(beta_mit_data, 
-                      site1 != site2 & # no within-site comparisons
-                      metric.class ==  "ST.partition"), 
-             aes(elev.diff, value, color = metric))  +
-  geom_point(alpha = 0.20, pch = 16) +
-  geom_smooth(method = "glm", 
-              method.args = list(family = "binomial"), 
-              se = FALSE) +
-  scale_color_manual(values = p2, name = "ST partition") +
+  scale_color_brewer(palette = "Set2", name = "Partition") +
+  ylab("Proportion of interaction turnover") +
   xlab("Elevation difference [m]") +
-  ylab("Prop. species turnover") +
-  theme_light()
+  theme_classic()
 
 # Patchwork plot for comparing species beta-diversity with interaction beta-diversity
-beta_plot <- (beta_plot1 / beta_plot2 / beta_plot3) + 
-  plot_annotation(tag_levels = c("A", "B", "C"))
+beta_plot <- (beta_plot1 / beta_plot2) + 
+  plot_annotation(tag_levels = c("A", "B"))
 
-ggsave("../ms_1/figures/fig6.pdf", beta_plot, height = 8.5, width = 4.5)
+ggsave("../ms_1/figures/fig5.pdf", beta_plot, height = 8.5, width = 5)
 ```
 
 # 5. GDM analysis
@@ -977,7 +975,7 @@ gdm_plot <- ggplot(gdm_splines, aes(elevation, response)) +
   guides(linetype = "none") +
   facet_wrap(~Level, scales = "free", ncol = 1)
 
-ggsave("../ms_1/figures/fig7.pdf", gdm_plot, width = 4, height = 6.5)
+ggsave("../ms_1/figures/fig6.pdf", gdm_plot, width = 4, height = 6.5)
 ```
 
 
